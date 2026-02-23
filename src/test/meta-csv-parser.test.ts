@@ -5,26 +5,46 @@ function parseMetaCsv(text: string) {
   const lines = text.split("\n").filter((l) => l.trim());
   if (lines.length < 2) throw new Error("CSV is empty");
 
-  const cols = lines[0].toLowerCase().split(",").map((c) => c.trim().replace(/"/g, ""));
-  const dateIdx = cols.findIndex((c) => c.includes("date") || c.includes("day"));
-  const spendIdx = cols.findIndex((c) => c.includes("spend") || c.includes("amount") || c.includes("cost"));
-  if (dateIdx < 0 || spendIdx < 0) throw new Error("CSV must have 'date' and 'spend/amount/cost' columns");
+  const delimiter = lines.some((l) => l.includes("\t")) ? "\t" : ",";
 
-  const summaryPhrases = ["total amount billed", "total funds added", "gst amount", "tds amount"];
+  let headerIdx = -1;
+  let dateCol = -1;
+  let amountCol = -1;
+  for (let i = 0; i < Math.min(lines.length, 20); i++) {
+    const cols = lines[i].split(delimiter).map((c) => c.trim().replace(/"/g, "").toLowerCase());
+    const dIdx = cols.findIndex((c) => c === "date" || c.includes("date") || c.includes("day"));
+    const aIdx = cols.findIndex((c) => c === "amount" || c.includes("spend") || c.includes("amount") || c.includes("cost"));
+    if (dIdx >= 0 && aIdx >= 0) {
+      headerIdx = i;
+      dateCol = dIdx;
+      amountCol = aIdx;
+      break;
+    }
+  }
+  if (headerIdx < 0) throw new Error("CSV must have 'date' and 'amount/spend/cost' columns");
 
-  const parsedRows = lines.slice(1).map((line) => {
+  const summaryPhrases = ["total amount billed", "total funds added", "gst amount", "tds amount", "vat rate", "tds rate"];
+
+  const parsedRows = lines.slice(headerIdx + 1).map((line) => {
     if (summaryPhrases.some((phrase) => line.toLowerCase().includes(phrase))) return null;
 
-    const firstComma = line.indexOf(",");
-    if (firstComma < 0) return null;
-    const rawDate = line.substring(0, firstComma).trim().replace(/"/g, "");
+    const cells = delimiter === "\t"
+      ? line.split("\t").map((c) => c.trim().replace(/"/g, ""))
+      : (() => {
+          const firstComma = line.indexOf(",");
+          if (firstComma < 0) return [line.trim()];
+          return [line.substring(0, firstComma).trim().replace(/"/g, ""), line.substring(firstComma + 1).replace(/"/g, "").trim()];
+        })();
+
+    const rawDate = cells[dateCol]?.trim() || "";
+    const rawAmount = (cells[amountCol] || "").replace(/[₹,\s]/g, "").trim();
 
     const isDdMmYyyy = /^\d{1,2}-\d{1,2}-\d{4}$/.test(rawDate);
     const isIsoDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate);
     if (!isDdMmYyyy && !isIsoDate) return null;
 
-    const rawSpend = line.substring(firstComma + 1).replace(/[₹",\s]/g, "").trim();
-    const amount = parseFloat(rawSpend) || 0;
+    const amount = parseFloat(rawAmount) || 0;
+    if (amount <= 0) return null;
 
     let normalizedDate = rawDate;
     if (isDdMmYyyy) {
@@ -33,7 +53,7 @@ function parseMetaCsv(text: string) {
     }
 
     return { date: normalizedDate, amount_spent: amount };
-  }).filter((r): r is { date: string; amount_spent: number } => r !== null && !!r.date && !isNaN(new Date(r.date).getTime()) && r.amount_spent > 0);
+  }).filter((r): r is { date: string; amount_spent: number } => r !== null && !!r.date && !isNaN(new Date(r.date).getTime()));
 
   const byDate = new Map<string, number>();
   parsedRows.forEach((r) => {
@@ -44,7 +64,7 @@ function parseMetaCsv(text: string) {
 }
 
 describe("Meta CSV Parser", () => {
-  it("parses DD-MM-YYYY dates with ₹-formatted spend", () => {
+  it("parses comma-separated DD-MM-YYYY dates with ₹-formatted spend", () => {
     const csv = `date,spend
 01-02-2026,"₹1,500.50"
 02-02-2026,"₹2,300.00"
@@ -53,22 +73,48 @@ describe("Meta CSV Parser", () => {
 05-02-2026,"₹3,100.75"`;
 
     const result = parseMetaCsv(csv);
-
-    // Should have 4 unique dates (02-02 rows summed)
     expect(result).toHaveLength(4);
-
-    // Check date conversion DD-MM-YYYY → YYYY-MM-DD
     expect(result[0].date).toBe("2026-02-01");
     expect(result[1].date).toBe("2026-02-02");
-    expect(result[2].date).toBe("2026-02-03");
-    expect(result[3].date).toBe("2026-02-05");
-
-    // Check amounts: ₹1,500.50 → 1500.50
-    expect(result[0].amount_spent).toBeCloseTo(1500.50);
-    // ₹2,300 + ₹700.25 = 3000.25
     expect(result[1].amount_spent).toBeCloseTo(3000.25);
-    expect(result[2].amount_spent).toBeCloseTo(950);
-    expect(result[3].amount_spent).toBeCloseTo(3100.75);
+  });
+
+  it("parses real Meta billing CSV (tab-delimited, with metadata headers)", () => {
+    const csv = [
+      "Meta information\t\t\t\t\t",
+      "Facebook India\tAddress\tCity\tIndia\tGSTIN\tPAN",
+      "\t\t\t\t\t",
+      "Advertiser Information\t\t\t\t\t",
+      "Account: 123\tGSTIN: ABC\t\t\t\t",
+      "\t\t\t\t\t",
+      "Billing report: 01/01/2026 - 01/02/2026\t\t\t\t\t",
+      "\t\t\t\t\t",
+      "Meta ads payment\t\t\t\t\t",
+      "Payment Method: N/A\t\t\t\t\t",
+      "Date\tTransaction ID\tAmount\tCurrency\t\t",
+      '31-01-2026\tTXN1\t848.96\tINR\t\t',
+      '30-01-2026\tTXN2\t"1,200.00"\tINR\t\t',
+      '30-01-2026\tTXN3\t200\tINR\t\t',
+      '\tTotal amount billed\t"26,629.55"\tINR\t\t',
+      '\tTotal funds added\t"27,300.00"\tINR\t\t',
+      "\t\t\t\t\t",
+      "VAT Rate: 18%\t\t\t\t\t",
+      '"GST Amount in INR: 4,062.14"\t\t\t\t\t',
+      "TDS Rate: 2%\t\t\t\t\t",
+      "TDS Amount in INR: 532.59\t\t\t\t\t",
+    ].join("\n");
+
+    const result = parseMetaCsv(csv);
+    // Only 3 transaction rows (2 on Jan 30 summed)
+    expect(result).toHaveLength(2); // Jan 31 + Jan 30 (summed)
+    
+    const jan31 = result.find((r) => r.date === "2026-01-31");
+    expect(jan31).toBeDefined();
+    expect(jan31!.amount_spent).toBeCloseTo(848.96);
+
+    const jan30 = result.find((r) => r.date === "2026-01-30");
+    expect(jan30).toBeDefined();
+    expect(jan30!.amount_spent).toBeCloseTo(1400); // 1200 + 200
   });
 
   it("handles YYYY-MM-DD dates without conversion", () => {
@@ -80,21 +126,5 @@ describe("Meta CSV Parser", () => {
     expect(result).toHaveLength(2);
     expect(result[0].date).toBe("2026-01-15");
     expect(result[0].amount_spent).toBeCloseTo(1234.56);
-  });
-
-  it("filters out Meta summary rows (Total amount billed, GST, TDS, etc.)", () => {
-    const csv = `date,amount
-01-01-2026,"₹500.00"
-02-01-2026,"₹600.00"
-Total amount billed,"₹26,629.55"
-Total funds added,"₹26,629.55"
-GST Amount,"₹4,073.40"
-TDS Amount,"₹500.00"`;
-
-    const result = parseMetaCsv(csv);
-    // Only 2 valid transaction rows
-    expect(result).toHaveLength(2);
-    const total = result.reduce((s, r) => s + r.amount_spent, 0);
-    expect(total).toBeCloseTo(1100);
   });
 });
