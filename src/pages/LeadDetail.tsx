@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Crown, Clock, Phone, Mail, Camera, MessageSquare, CheckCircle2, Loader2, Upload, ImagePlus } from "lucide-react";
+import { ArrowLeft, Crown, Clock, Phone, Mail, Camera, MessageSquare, CheckCircle2, Loader2, Upload, ImagePlus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -24,7 +24,7 @@ const actionIcons: Record<string, typeof CheckCircle2> = {
 const LeadDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { lead, photos, activity, isLoading, updateStatus, addNote, uploadPhotos, STATUS_FLOW } = useLeadDetail(id!);
+  const { lead, photos, activity, isLoading, updateStatus, addNote, uploadPhotos, deletePhoto, STATUS_FLOW } = useLeadDetail(id!);
   const [note, setNote] = useState("");
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -169,13 +169,22 @@ const LeadDetail = () => {
           ) : (
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
               {photos.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => setSelectedPhoto(p.url)}
-                  className="aspect-square overflow-hidden rounded-[calc(var(--radius)/2)] border border-border bg-muted transition-shadow hover:shadow-md"
-                >
-                  <img src={p.url} alt={p.fileName} className="h-full w-full object-cover" loading="lazy" />
-                </button>
+                <div key={p.id} className="group relative aspect-square overflow-hidden rounded-[calc(var(--radius)/2)] border border-border bg-muted transition-shadow hover:shadow-md">
+                  <button
+                    onClick={() => setSelectedPhoto(p.url)}
+                    className="h-full w-full"
+                  >
+                    <img src={p.url} alt={p.fileName} className="h-full w-full object-cover" loading="lazy" />
+                  </button>
+                  <button
+                    onClick={() => deletePhoto.mutate({ id: p.id, storagePath: p.storagePath }, {
+                      onSuccess: () => toast({ title: "Photo deleted" }),
+                    })}
+                    className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-destructive text-destructive-foreground opacity-0 transition-opacity group-hover:opacity-100"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
               ))}
             </div>
           )}

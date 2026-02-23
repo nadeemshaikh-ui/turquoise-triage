@@ -21,6 +21,7 @@ export interface LeadDetail {
 export interface LeadPhoto {
   id: string;
   fileName: string;
+  storagePath: string;
   url: string;
 }
 
@@ -90,6 +91,7 @@ export const useLeadDetail = (leadId: string) => {
         return {
           id: p.id,
           fileName: p.file_name,
+          storagePath: p.storage_path,
           url: urlData.publicUrl,
         };
       });
@@ -198,6 +200,17 @@ export const useLeadDetail = (leadId: string) => {
     },
   });
 
+  const deletePhoto = useMutation({
+    mutationFn: async (photo: { id: string; storagePath: string }) => {
+      await supabase.storage.from("lead-photos").remove([photo.storagePath]);
+      const { error } = await supabase.from("lead_photos").delete().eq("id", photo.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["lead-photos", leadId] });
+    },
+  });
+
   return {
     lead: leadQuery.data,
     photos: photosQuery.data ?? [],
@@ -206,6 +219,7 @@ export const useLeadDetail = (leadId: string) => {
     updateStatus,
     addNote,
     uploadPhotos,
+    deletePhoto,
     STATUS_FLOW,
   };
 };
