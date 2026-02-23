@@ -6,8 +6,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Upload, DollarSign, TrendingUp, Users, BarChart3, Settings2 } from "lucide-react";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Loader2, Upload, DollarSign, TrendingUp, Users, BarChart3, Settings2, CalendarIcon } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import {
   ResponsiveContainer,
   BarChart,
@@ -17,7 +20,7 @@ import {
   Tooltip,
   CartesianGrid,
 } from "recharts";
-import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths } from "date-fns";
+import { format as fnsFormat, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths, isWithinInterval } from "date-fns";
 
 const Finance = () => {
   const queryClient = useQueryClient();
@@ -25,6 +28,8 @@ const Finance = () => {
   const [uploadingRevenue, setUploadingRevenue] = useState(false);
   const [laborValue, setLaborValue] = useState<string | null>(null);
   const [savingLabor, setSavingLabor] = useState(false);
+  const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined);
+  const [dateTo, setDateTo] = useState<Date | undefined>(undefined);
 
   // Revenue from completed leads (in-app)
   const { data: leads = [], isLoading: leadsLoading } = useQuery({
@@ -126,10 +131,24 @@ const Finance = () => {
     setLaborValue(laborCostSetting.value);
   }
 
+  // Helper: check if a date string is within the selected range
+  const isInRange = (dateStr: string) => {
+    if (!dateFrom && !dateTo) return true;
+    const d = new Date(dateStr);
+    if (dateFrom && d < dateFrom) return false;
+    if (dateTo && d > new Date(dateTo.getTime() + 86400000 - 1)) return false;
+    return true;
+  };
+
+  // Filtered data
+  const filteredLeads = useMemo(() => leads.filter((l: any) => isInRange(l.created_at)), [leads, dateFrom, dateTo]);
+  const filteredImports = useMemo(() => (revenueImports as any[]).filter((r) => isInRange(r.date)), [revenueImports, dateFrom, dateTo]);
+  const filteredAdSpend = useMemo(() => (adSpend as any[]).filter((a) => isInRange(a.date)), [adSpend, dateFrom, dateTo]);
+
   // Compute P&L
   const pnl = useMemo(() => {
-    const leadRevenue = leads.reduce((s, l: any) => s + Number(l.quoted_price), 0);
-    const importedRevenue = (revenueImports as any[]).reduce((s, r: any) => s + Number(r.amount), 0);
+    const leadRevenue = filteredLeads.reduce((s, l: any) => s + Number(l.quoted_price), 0);
+    const importedRevenue = filteredImports.reduce((s, r: any) => s + Number(r.amount), 0);
     const totalRevenue = leadRevenue + importedRevenue;
 
     const recipeCostByService = new Map<string, number>();
@@ -140,16 +159,16 @@ const Finance = () => {
     });
 
     let totalMaterialCost = 0;
-    leads.forEach((l: any) => {
+    filteredLeads.forEach((l: any) => {
       totalMaterialCost += recipeCostByService.get(l.service_id) || 0;
     });
 
-    const totalOrders = leads.length + (revenueImports as any[]).length;
+    const totalOrders = filteredLeads.length + filteredImports.length;
     const totalLaborCost = totalOrders * laborCost;
     const netProfit = totalRevenue - totalMaterialCost - totalLaborCost;
 
     return { totalRevenue, totalMaterialCost, totalLaborCost, netProfit, orderCount: totalOrders, importedRevenue };
-  }, [leads, revenueImports, recipes, laborCost]);
+  }, [filteredLeads, filteredImports, recipes, laborCost]);
 
   // ROAS chart data
   const roasChartData = useMemo(() => {
@@ -160,17 +179,17 @@ const Finance = () => {
     });
 
     return months.map((month) => {
-      const monthLabel = format(month, "MMM yy");
+      const monthLabel = fnsFormat(month, "MMM yy");
       const monthEnd = endOfMonth(month);
 
-      const leadRev = leads
+      const leadRev = filteredLeads
         .filter((l: any) => {
           const d = new Date(l.created_at);
           return d >= month && d <= monthEnd;
         })
         .reduce((s, l: any) => s + Number(l.quoted_price), 0);
 
-      const importRev = (revenueImports as any[])
+      const importRev = filteredImports
         .filter((r) => {
           const d = new Date(r.date);
           return d >= month && d <= monthEnd;
@@ -179,7 +198,7 @@ const Finance = () => {
 
       const revenue = leadRev + importRev;
 
-      const spend = (adSpend as any[])
+      const spend = filteredAdSpend
         .filter((a) => {
           const d = new Date(a.date);
           return d >= month && d <= monthEnd;
@@ -188,7 +207,7 @@ const Finance = () => {
 
       return { month: monthLabel, revenue, spend };
     });
-  }, [leads, revenueImports, adSpend]);
+  }, [filteredLeads, filteredImports, filteredAdSpend]);
 
   // CSV upload handlers
   const handleAdCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -273,7 +292,7 @@ const Finance = () => {
           // Parse date "31-Jan-2026" format
           const parsedDate = new Date(rawDate);
           if (isNaN(parsedDate.getTime())) continue;
-          const dateStr = format(parsedDate, "yyyy-MM-dd");
+          const dateStr = fnsFormat(parsedDate, "yyyy-MM-dd");
 
           rows.push({
             date: dateStr,
@@ -348,7 +367,39 @@ const Finance = () => {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-lg font-bold text-foreground">Finance & ROI</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-lg font-bold text-foreground">Finance & ROI</h1>
+        <div className="flex flex-wrap items-center gap-2">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className={cn("rounded-[28px] gap-2 text-xs", !dateFrom && "text-muted-foreground")}>
+                <CalendarIcon className="h-3.5 w-3.5" />
+                {dateFrom ? fnsFormat(dateFrom, "dd MMM yyyy") : "From"}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar mode="single" selected={dateFrom} onSelect={setDateFrom} initialFocus className="p-3 pointer-events-auto" />
+            </PopoverContent>
+          </Popover>
+          <span className="text-xs text-muted-foreground">–</span>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className={cn("rounded-[28px] gap-2 text-xs", !dateTo && "text-muted-foreground")}>
+                <CalendarIcon className="h-3.5 w-3.5" />
+                {dateTo ? fnsFormat(dateTo, "dd MMM yyyy") : "To"}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="end">
+              <Calendar mode="single" selected={dateTo} onSelect={setDateTo} initialFocus className="p-3 pointer-events-auto" />
+            </PopoverContent>
+          </Popover>
+          {(dateFrom || dateTo) && (
+            <Button variant="ghost" size="sm" className="rounded-[28px] text-xs h-8" onClick={() => { setDateFrom(undefined); setDateTo(undefined); }}>
+              Clear
+            </Button>
+          )}
+        </div>
+      </div>
 
       {/* P&L Summary Cards */}
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
