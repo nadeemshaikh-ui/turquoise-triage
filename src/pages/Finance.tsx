@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Loader2, Upload, DollarSign, TrendingUp, Users, BarChart3, Settings2, CalendarIcon } from "lucide-react";
+import { Loader2, Upload, DollarSign, TrendingUp, Users, BarChart3, Settings2, CalendarIcon, ToggleLeft, ToggleRight } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
@@ -30,6 +30,7 @@ const Finance = () => {
   const [savingLabor, setSavingLabor] = useState(false);
   const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined);
   const [dateTo, setDateTo] = useState<Date | undefined>(undefined);
+  const [includeHistorical, setIncludeHistorical] = useState(true);
 
   // Revenue from completed leads (in-app)
   const { data: leads = [], isLoading: leadsLoading } = useQuery({
@@ -142,7 +143,7 @@ const Finance = () => {
 
   // Filtered data
   const filteredLeads = useMemo(() => leads.filter((l: any) => isInRange(l.created_at)), [leads, dateFrom, dateTo]);
-  const filteredImports = useMemo(() => (revenueImports as any[]).filter((r) => isInRange(r.date)), [revenueImports, dateFrom, dateTo]);
+  const filteredImports = useMemo(() => includeHistorical ? (revenueImports as any[]).filter((r) => isInRange(r.date)) : [], [revenueImports, dateFrom, dateTo, includeHistorical]);
   const filteredAdSpend = useMemo(() => (adSpend as any[]).filter((a) => isInRange(a.date)), [adSpend, dateFrom, dateTo]);
 
   // Compute P&L
@@ -224,18 +225,42 @@ const Finance = () => {
       const spendIdx = cols.findIndex((c) => c.includes("spend") || c.includes("amount") || c.includes("cost"));
       if (dateIdx < 0 || spendIdx < 0) throw new Error("CSV must have 'date' and 'spend/amount/cost' columns");
 
-      const rows = lines.slice(1).map((line) => {
+      // Parse and normalize rows
+      const parsedRows = lines.slice(1).map((line) => {
         const vals = line.split(",").map((v) => v.trim().replace(/"/g, ""));
-        return {
-          date: vals[dateIdx],
-          amount_spent: parseFloat(vals[spendIdx]) || 0,
-        };
-      }).filter((r) => r.date && !isNaN(new Date(r.date).getTime()));
+        const rawDate = vals[dateIdx];
+        // Clean spend: remove ₹, commas, spaces
+        const rawSpend = vals[spendIdx]?.replace(/[₹,\s]/g, "") || "0";
+        const amount = parseFloat(rawSpend) || 0;
 
-      if (rows.length === 0) throw new Error("No valid rows found");
-      const { error } = await supabase.from("meta_ad_spend").insert(rows);
+        // Auto-detect DD-MM-YYYY vs YYYY-MM-DD
+        let normalizedDate = rawDate;
+        const ddMmYyyyMatch = rawDate?.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+        if (ddMmYyyyMatch) {
+          normalizedDate = `${ddMmYyyyMatch[3]}-${ddMmYyyyMatch[2].padStart(2, "0")}-${ddMmYyyyMatch[1].padStart(2, "0")}`;
+        }
+
+        return { date: normalizedDate, amount_spent: amount };
+      }).filter((r) => r.date && !isNaN(new Date(r.date).getTime()) && r.amount_spent > 0);
+
+      if (parsedRows.length === 0) throw new Error("No valid rows found");
+
+      // Sum by date for deduplication
+      const byDate = new Map<string, number>();
+      parsedRows.forEach((r) => {
+        byDate.set(r.date, (byDate.get(r.date) || 0) + r.amount_spent);
+      });
+
+      const insertRows = Array.from(byDate.entries()).map(([date, amount_spent]) => ({
+        date,
+        amount_spent,
+        campaign_name: "Meta Ads",
+      }));
+
+      const totalSpend = insertRows.reduce((s, r) => s + r.amount_spent, 0);
+      const { error } = await supabase.from("meta_ad_spend").insert(insertRows);
       if (error) throw error;
-      toast({ title: `✅ Uploaded ${rows.length} rows of ad spend data` });
+      toast({ title: `✅ Successfully imported ₹${totalSpend.toLocaleString("en-IN")} spend for ${insertRows.length} days` });
       queryClient.invalidateQueries({ queryKey: ["finance-ad-spend"] });
     } catch (err: any) {
       toast({ title: "Upload Error", description: err.message, variant: "destructive" });
@@ -326,7 +351,8 @@ const Finance = () => {
 
       const { error } = await supabase.from("revenue_imports").insert(insertRows);
       if (error) throw error;
-      toast({ title: `✅ Imported ${rows.length} revenue records` });
+      const totalAmount = rows.reduce((s, r) => s + r.amount, 0);
+      toast({ title: `✅ Successfully imported ₹${totalAmount.toLocaleString("en-IN")} revenue from ${rows.length} records` });
       queryClient.invalidateQueries({ queryKey: ["finance-revenue-imports"] });
       queryClient.invalidateQueries({ queryKey: ["finance-top-customers"] });
     } catch (err: any) {
@@ -398,6 +424,15 @@ const Finance = () => {
               Clear
             </Button>
           )}
+          <Button
+            variant={includeHistorical ? "default" : "outline"}
+            size="sm"
+            className="rounded-[28px] text-xs gap-1.5"
+            onClick={() => setIncludeHistorical(!includeHistorical)}
+          >
+            {includeHistorical ? <ToggleRight className="h-3.5 w-3.5" /> : <ToggleLeft className="h-3.5 w-3.5" />}
+            Historical Revenue
+          </Button>
         </div>
       </div>
 
