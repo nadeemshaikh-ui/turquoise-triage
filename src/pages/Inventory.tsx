@@ -100,7 +100,7 @@ const Inventory = () => {
             <button
               key={item.id}
               onClick={() => setEditItem(item)}
-              className="flex items-start gap-3 rounded-[28px] border border-border bg-card p-4 text-left shadow-sm transition-all hover:border-primary/30 hover:shadow-md"
+              className="flex items-start gap-3 rounded-[28px] border border-border bg-card p-4 text-left shadow-[0_2px_12px_-4px_hsl(174_72%_56%/0.10)] transition-all hover:border-primary/30 hover:shadow-[0_4px_20px_-4px_hsl(174_72%_56%/0.18)]"
             >
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted">
                 <Package className="h-5 w-5 text-muted-foreground" />

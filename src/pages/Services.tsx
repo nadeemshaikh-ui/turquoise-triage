@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Plus, Pencil, Trash2, Loader2, Sparkles, Wrench, Paintbrush, ShoppingBag } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2, Sparkles, Wrench, Paintbrush, ShoppingBag, FlaskConical, X } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useNavigate } from "react-router-dom";
@@ -24,6 +24,20 @@ interface ServiceRow {
   default_tat_max: number;
   requires_photos: boolean;
   is_active: boolean;
+}
+
+interface InventoryItem {
+  id: string;
+  name: string;
+  unit: string;
+}
+
+interface Recipe {
+  id: string;
+  inventory_item_id: string;
+  quantity: number;
+  item_name?: string;
+  item_unit?: string;
 }
 
 const CATEGORIES = ["Cleaning", "Repair & Structural", "Restoration & Color", "Luxury Bags", "Custom"];
@@ -42,8 +56,8 @@ const Services = () => {
   const [showDialog, setShowDialog] = useState(false);
   const [editService, setEditService] = useState<ServiceRow | null>(null);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [recipeServiceId, setRecipeServiceId] = useState<string | null>(null);
 
-  // Redirect non-admins
   useEffect(() => {
     if (!roleLoading && !isAdmin) navigate("/");
   }, [isAdmin, roleLoading, navigate]);
@@ -87,7 +101,7 @@ const Services = () => {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold text-foreground">Services Catalog</h1>
-        <Button className="rounded-[28px] gap-2" onClick={() => { setEditService(null); setShowDialog(true); }}>
+        <Button className="rounded-[28px] gap-2 shadow-[0_2px_8px_-2px_hsl(174_72%_56%/0.25)]" onClick={() => { setEditService(null); setShowDialog(true); }}>
           <Plus className="h-4 w-4" /> Add Service
         </Button>
       </div>
@@ -116,7 +130,7 @@ const Services = () => {
         {filtered.map((svc) => (
           <div
             key={svc.id}
-            className="flex items-center gap-4 rounded-[28px] border border-border bg-card p-4 shadow-sm"
+            className="flex items-center gap-3 rounded-[28px] border border-border bg-card p-4 shadow-[0_2px_12px_-4px_hsl(174_72%_56%/0.10)] transition-all hover:shadow-[0_4px_20px_-4px_hsl(174_72%_56%/0.18)]"
           >
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
@@ -136,6 +150,9 @@ const Services = () => {
                 <span className="text-muted-foreground">TAT: {svc.default_tat_min}–{svc.default_tat_max}d</span>
               </div>
             </div>
+            <Button variant="ghost" size="icon" onClick={() => setRecipeServiceId(svc.id)} title="Materials">
+              <FlaskConical className="h-4 w-4 text-primary" />
+            </Button>
             <Button variant="ghost" size="icon" onClick={() => { setEditService(svc); setShowDialog(true); }}>
               <Pencil className="h-4 w-4" />
             </Button>
@@ -146,15 +163,13 @@ const Services = () => {
         ))}
       </div>
 
-      <ServiceDialog
-        open={showDialog}
-        onOpenChange={setShowDialog}
-        service={editService}
-      />
+      <ServiceDialog open={showDialog} onOpenChange={setShowDialog} service={editService} />
+      <RecipeDialog open={!!recipeServiceId} onOpenChange={(o) => !o && setRecipeServiceId(null)} serviceId={recipeServiceId} serviceName={services.find((s) => s.id === recipeServiceId)?.name || ""} />
     </div>
   );
 };
 
+/* ──────────── Service Add/Edit Dialog ──────────── */
 const ServiceDialog = ({
   open,
   onOpenChange,
@@ -217,7 +232,9 @@ const ServiceDialog = ({
         if (error) throw error;
         toast({ title: "Service added" });
       }
+      // Invalidate both admin list AND the New Lead form's service list
       queryClient.invalidateQueries({ queryKey: ["services-admin"] });
+      queryClient.invalidateQueries({ queryKey: ["services"] });
       onOpenChange(false);
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -281,6 +298,142 @@ const ServiceDialog = ({
           <Button onClick={handleSave} disabled={saving || !name.trim()} className="w-full rounded-[28px]">
             {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             {service ? "Update Service" : "Add Service"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+/* ──────────── Recipe (Material Linking) Dialog ──────────── */
+const RecipeDialog = ({
+  open,
+  onOpenChange,
+  serviceId,
+  serviceName,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  serviceId: string | null;
+  serviceName: string;
+}) => {
+  const queryClient = useQueryClient();
+  const [newItemId, setNewItemId] = useState("");
+  const [newQty, setNewQty] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const { data: recipes = [], isLoading: recipesLoading } = useQuery({
+    queryKey: ["service-recipes", serviceId],
+    queryFn: async (): Promise<Recipe[]> => {
+      const { data, error } = await supabase
+        .from("service_recipes")
+        .select("id, inventory_item_id, quantity, inventory_items(name, unit)")
+        .eq("service_id", serviceId!);
+      if (error) throw error;
+      return (data || []).map((r: any) => ({
+        id: r.id,
+        inventory_item_id: r.inventory_item_id,
+        quantity: Number(r.quantity),
+        item_name: r.inventory_items?.name,
+        item_unit: r.inventory_items?.unit,
+      }));
+    },
+    enabled: !!serviceId,
+  });
+
+  const { data: inventoryItems = [] } = useQuery({
+    queryKey: ["inventory-items-list"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("inventory_items")
+        .select("id, name, unit")
+        .order("name");
+      if (error) throw error;
+      return data as InventoryItem[];
+    },
+    enabled: open,
+  });
+
+  const addRecipe = async () => {
+    if (!newItemId || !newQty || !serviceId) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase.from("service_recipes").insert({
+        service_id: serviceId,
+        inventory_item_id: newItemId,
+        quantity: Number(newQty),
+      });
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: ["service-recipes", serviceId] });
+      setNewItemId("");
+      setNewQty("");
+      toast({ title: "Material added" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeRecipe = async (recipeId: string) => {
+    await supabase.from("service_recipes").delete().eq("id", recipeId);
+    queryClient.invalidateQueries({ queryKey: ["service-recipes", serviceId] });
+  };
+
+  // Filter out already-linked items
+  const availableItems = inventoryItems.filter(
+    (item) => !recipes.some((r) => r.inventory_item_id === item.id)
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Materials for "{serviceName}"</DialogTitle>
+        </DialogHeader>
+        <p className="text-xs text-muted-foreground">
+          These materials will be auto-deducted from inventory when an order reaches "Ready for Pickup".
+        </p>
+
+        {recipesLoading ? (
+          <div className="flex justify-center py-4"><Loader2 className="h-5 w-5 animate-spin text-primary" /></div>
+        ) : (
+          <div className="space-y-2">
+            {recipes.length === 0 && (
+              <p className="text-sm text-muted-foreground py-2">No materials linked yet.</p>
+            )}
+            {recipes.map((r) => (
+              <div key={r.id} className="flex items-center justify-between rounded-[20px] bg-muted/50 px-3 py-2">
+                <div>
+                  <span className="text-sm font-medium text-foreground">{r.item_name}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">{r.quantity} {r.item_unit}</span>
+                </div>
+                <button onClick={() => removeRecipe(r.id)} className="text-destructive hover:text-destructive/80">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex gap-2 pt-2">
+          <Select value={newItemId} onValueChange={setNewItemId}>
+            <SelectTrigger className="flex-1"><SelectValue placeholder="Select material…" /></SelectTrigger>
+            <SelectContent>
+              {availableItems.map((item) => (
+                <SelectItem key={item.id} value={item.id}>{item.name} ({item.unit})</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            type="number"
+            placeholder="Qty"
+            value={newQty}
+            onChange={(e) => setNewQty(e.target.value)}
+            className="w-20"
+          />
+          <Button onClick={addRecipe} disabled={!newItemId || !newQty || saving} size="icon" className="shrink-0 rounded-[28px]">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
           </Button>
         </div>
       </DialogContent>

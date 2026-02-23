@@ -7,12 +7,12 @@ import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 
 const KANBAN_COLUMNS = [
-  "New",
-  "Assigned",
-  "In Progress",
-  "QC",
-  "Ready for Pickup",
-  "Completed",
+  { key: "New", label: "New Intake" },
+  { key: "Assigned", label: "Assigned" },
+  { key: "In Progress", label: "In-Progress" },
+  { key: "QC", label: "QC" },
+  { key: "Ready for Pickup", label: "Ready for Pickup" },
+  { key: "Completed", label: "Completed" },
 ];
 
 interface KanbanLead {
@@ -90,13 +90,16 @@ const Workshop = () => {
       const { error } = await supabase.from("leads").update({ status }).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["workshop-leads"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workshop-leads"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory"] });
+    },
   });
 
   const columns = useMemo(() => {
     return KANBAN_COLUMNS.map((col) => ({
-      name: col,
-      items: leads.filter((l) => l.status === col),
+      ...col,
+      items: leads.filter((l) => l.status === col.key),
     }));
   }, [leads]);
 
@@ -113,22 +116,22 @@ const Workshop = () => {
       <h1 className="text-lg font-bold text-foreground">Workshop</h1>
       <div className="flex gap-3 overflow-x-auto pb-4">
         {columns.map((col) => (
-          <div key={col.name} className="flex w-56 shrink-0 flex-col gap-2">
-            <div className="flex items-center justify-between rounded-[28px] bg-muted px-4 py-2">
-              <span className="text-xs font-semibold text-foreground">{col.name}</span>
+          <div key={col.key} className="flex w-56 shrink-0 flex-col gap-2">
+            <div className="flex items-center justify-between rounded-[28px] bg-muted px-4 py-2 shadow-[0_1px_6px_-2px_hsl(174_72%_56%/0.12)]">
+              <span className="text-xs font-semibold text-foreground">{col.label}</span>
               <Badge variant="secondary" className="text-[10px]">{col.items.length}</Badge>
             </div>
             <div className="flex flex-col gap-2 min-h-[100px]">
               {col.items.map((lead) => {
                 const sla = getSlaStatus(lead.createdAt, lead.tatDaysMax, lead.status);
-                const colIdx = KANBAN_COLUMNS.indexOf(lead.status);
+                const colIdx = KANBAN_COLUMNS.findIndex((c) => c.key === lead.status);
                 const nextStatus = colIdx < KANBAN_COLUMNS.length - 1 ? KANBAN_COLUMNS[colIdx + 1] : null;
 
                 return (
                   <div
                     key={lead.id}
                     className={cn(
-                      "rounded-[20px] border-2 bg-card p-3 shadow-sm transition-all hover:shadow-md cursor-pointer",
+                      "rounded-[20px] border-2 bg-card p-3 shadow-[0_2px_10px_-4px_hsl(174_72%_56%/0.10)] transition-all hover:shadow-[0_4px_16px_-4px_hsl(174_72%_56%/0.18)] cursor-pointer",
                       slaBorder[sla]
                     )}
                     onClick={() => navigate(`/leads/${lead.id}`)}
@@ -155,11 +158,11 @@ const Workshop = () => {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          updateStatus.mutate({ id: lead.id, status: nextStatus });
+                          updateStatus.mutate({ id: lead.id, status: nextStatus.key });
                         }}
                         className="mt-2 w-full rounded-[14px] bg-primary/10 py-1.5 text-[10px] font-semibold text-primary transition-colors hover:bg-primary/20"
                       >
-                        → {nextStatus}
+                        → {nextStatus.label}
                       </button>
                     )}
                   </div>
