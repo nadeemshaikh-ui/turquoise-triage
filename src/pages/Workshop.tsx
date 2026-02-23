@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Crown, Loader2, AlertTriangle, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
+import { toast } from "@/hooks/use-toast";
 import {
   DragDropContext,
   Droppable,
@@ -91,14 +92,44 @@ const Workshop = () => {
     return () => { supabase.removeChannel(channel); };
   }, [queryClient]);
 
+  const showDeductionToast = useCallback(async (lead: KanbanLead) => {
+    const { data } = await supabase
+      .from("service_recipes")
+      .select("quantity, inventory_items(name, unit)")
+      .eq("service_id", lead.id);
+    // We need the service_id from the lead — refetch it
+    const { data: leadData } = await supabase
+      .from("leads")
+      .select("service_id")
+      .eq("id", lead.id)
+      .single();
+    if (!leadData) return;
+    const { data: recipes } = await supabase
+      .from("service_recipes")
+      .select("quantity, inventory_items(name, unit)")
+      .eq("service_id", leadData.service_id);
+    if (recipes && recipes.length > 0) {
+      const items = recipes.map((r: any) => `${r.inventory_items?.name}: −${r.quantity} ${r.inventory_items?.unit}`).join(", ");
+      toast({
+        title: "📦 Stock Deducted",
+        description: `${lead.serviceName} → ${items}`,
+      });
+    }
+  }, []);
+
   const updateStatus = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
       const { error } = await supabase.from("leads").update({ status }).eq("id", id);
       if (error) throw error;
+      return { id, status };
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["workshop-leads"] });
       queryClient.invalidateQueries({ queryKey: ["inventory"] });
+      if (variables.status === "Ready for Pickup") {
+        const lead = leads.find((l) => l.id === variables.id);
+        if (lead) showDeductionToast(lead);
+      }
     },
   });
 
