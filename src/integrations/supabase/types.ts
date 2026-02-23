@@ -14,7 +14,173 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      customers: {
+        Row: {
+          created_at: string
+          email: string | null
+          id: string
+          name: string
+          phone: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          name: string
+          phone: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          name?: string
+          phone?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      lead_photos: {
+        Row: {
+          file_name: string
+          id: string
+          lead_id: string
+          storage_path: string
+          uploaded_at: string
+        }
+        Insert: {
+          file_name: string
+          id?: string
+          lead_id: string
+          storage_path: string
+          uploaded_at?: string
+        }
+        Update: {
+          file_name?: string
+          id?: string
+          lead_id?: string
+          storage_path?: string
+          uploaded_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_photos_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      leads: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          custom_service_name: string | null
+          custom_service_price: number | null
+          customer_id: string
+          id: string
+          is_gold_tier: boolean
+          notes: string | null
+          quoted_price: number
+          service_id: string
+          status: string
+          tat_days_max: number
+          tat_days_min: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          custom_service_name?: string | null
+          custom_service_price?: number | null
+          customer_id: string
+          id?: string
+          is_gold_tier?: boolean
+          notes?: string | null
+          quoted_price: number
+          service_id: string
+          status?: string
+          tat_days_max?: number
+          tat_days_min?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          custom_service_name?: string | null
+          custom_service_price?: number | null
+          customer_id?: string
+          id?: string
+          is_gold_tier?: boolean
+          notes?: string | null
+          quoted_price?: number
+          service_id?: string
+          status?: string
+          tat_days_max?: number
+          tat_days_min?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leads_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leads_service_id_fkey"
+            columns: ["service_id"]
+            isOneToOne: false
+            referencedRelation: "services"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      services: {
+        Row: {
+          category: string
+          created_at: string
+          default_price: number | null
+          default_tat_max: number
+          default_tat_min: number
+          id: string
+          is_active: boolean
+          name: string
+          price_range_max: number | null
+          price_range_min: number | null
+          requires_photos: boolean
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          default_price?: number | null
+          default_tat_max?: number
+          default_tat_min?: number
+          id?: string
+          is_active?: boolean
+          name: string
+          price_range_max?: number | null
+          price_range_min?: number | null
+          requires_photos?: boolean
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          default_price?: number | null
+          default_tat_max?: number
+          default_tat_min?: number
+          id?: string
+          is_active?: boolean
+          name?: string
+          price_range_max?: number | null
+          price_range_min?: number | null
+          requires_photos?: boolean
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
