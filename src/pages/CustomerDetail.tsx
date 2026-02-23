@@ -1,9 +1,10 @@
+import { useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Phone, Mail, User, Loader2, Crown, Clock, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Phone, Mail, User, Loader2, Crown, Clock, AlertTriangle, MessageCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 
@@ -63,6 +64,27 @@ const CustomerDetail = () => {
     enabled: !!id,
   });
 
+  // Fetch imported revenue for this customer
+  const { data: importedRevenue = [] } = useQuery({
+    queryKey: ["customer-imported-revenue", id, customer?.name],
+    queryFn: async () => {
+      if (!customer?.name) return [];
+      const { data, error } = await supabase
+        .from("revenue_imports")
+        .select("amount")
+        .eq("customer_name", customer.name);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!customer?.name,
+  });
+
+  const ltv = useMemo(() => {
+    const orderTotal = orders.reduce((s, o: any) => s + Number(o.quoted_price), 0);
+    const importedTotal = importedRevenue.reduce((s, r: any) => s + Number(r.amount), 0);
+    return orderTotal + importedTotal;
+  }, [orders, importedRevenue]);
+
   const isLoading = loadingCustomer || loadingOrders;
 
   if (isLoading) {
@@ -104,22 +126,38 @@ const CustomerDetail = () => {
             )}
           </div>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="rounded-[28px] gap-1.5 text-xs shrink-0"
+          onClick={() => {
+            const phone = customer.phone.replace(/\s+/g, "").replace(/[^0-9]/g, "");
+            const waPhone = phone.startsWith("91") ? phone : `91${phone}`;
+            window.open(`https://wa.me/${waPhone}`, "_blank");
+          }}
+        >
+          <MessageCircle className="h-3.5 w-3.5" /> Message Now
+        </Button>
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10">
           <User className="h-6 w-6 text-primary" />
         </div>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-4 gap-2">
+        <div className="rounded-[20px] border bg-card p-3 text-center shadow-[0_2px_10px_-4px_hsl(16_100%_50%/0.10)]">
+          <p className="text-xl font-bold text-primary">₹{ltv.toLocaleString("en-IN")}</p>
+          <p className="text-[10px] text-muted-foreground">Lifetime Value</p>
+        </div>
         <div className="rounded-[20px] border bg-card p-3 text-center shadow-[0_2px_10px_-4px_hsl(16_100%_50%/0.10)]">
           <p className="text-xl font-bold text-foreground">{orders.length}</p>
           <p className="text-[10px] text-muted-foreground">Total Orders</p>
         </div>
         <div className="rounded-[20px] border bg-card p-3 text-center shadow-[0_2px_10px_-4px_hsl(16_100%_50%/0.10)]">
-          <p className="text-xl font-bold text-primary">
-            ₹{orders.reduce((s, o: any) => s + Number(o.quoted_price), 0).toLocaleString("en-IN")}
+          <p className="text-xl font-bold text-foreground">
+            {orders.filter((o: any) => o.status === "Completed" || o.status === "Ready for Pickup").length}
           </p>
-          <p className="text-[10px] text-muted-foreground">Total Value</p>
+          <p className="text-[10px] text-muted-foreground">Fulfilled</p>
         </div>
         <div className="rounded-[20px] border bg-card p-3 text-center shadow-[0_2px_10px_-4px_hsl(16_100%_50%/0.10)]">
           <p className="text-xl font-bold text-foreground">
