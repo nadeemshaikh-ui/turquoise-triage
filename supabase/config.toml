@@ -2,3 +2,6 @@ project_id = "ddibbbbzcdlnkgymizbg"
 
 [functions.low-stock-alert]
 verify_jwt = false
+
+[functions.send-whatsapp]
+verify_jwt = false
