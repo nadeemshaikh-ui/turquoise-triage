@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Lead } from "@/components/dashboard/GoldTierLeads";
 
@@ -43,10 +44,24 @@ type Stats = {
 };
 
 export const useLeads = () => {
+  const queryClient = useQueryClient();
+
   const query = useQuery({
     queryKey: ["leads"],
     queryFn: fetchLeads,
   });
+
+  // Realtime subscription for leads table
+  useEffect(() => {
+    const channel = supabase
+      .channel("leads-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "leads" }, () => {
+        queryClient.invalidateQueries({ queryKey: ["leads"] });
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [queryClient]);
 
   const leads = query.data ?? [];
   const goldTierLeads = leads.filter((l) => l.isGoldTier);
