@@ -17,6 +17,7 @@ interface InventoryItem {
   stock_level: number;
   unit: string;
   min_stock_level: number;
+  cost_per_unit: number;
 }
 
 const CATEGORIES = ["Chemicals", "Glue", "TPR Sheets", "Sanding Discs", "Dyes", "Hardware"];
@@ -153,6 +154,7 @@ const InventoryDialog = ({
   const [stockLevel, setStockLevel] = useState("");
   const [unit, setUnit] = useState("pcs");
   const [minStock, setMinStock] = useState("");
+  const [costPerUnit, setCostPerUnit] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -162,12 +164,14 @@ const InventoryDialog = ({
       setStockLevel(String(item.stock_level));
       setUnit(item.unit);
       setMinStock(String(item.min_stock_level));
+      setCostPerUnit(String(item.cost_per_unit));
     } else {
       setName("");
       setCategory("Chemicals");
       setStockLevel("");
       setUnit("pcs");
       setMinStock("0");
+      setCostPerUnit("0");
     }
   }, [item, open]);
 
@@ -181,6 +185,7 @@ const InventoryDialog = ({
         stock_level: Number(stockLevel),
         unit,
         min_stock_level: Number(minStock) || 0,
+        cost_per_unit: Number(costPerUnit) || 0,
       };
       if (item) {
         const { error } = await supabase.from("inventory_items").update(payload).eq("id", item.id);
@@ -234,7 +239,7 @@ const InventoryDialog = ({
               </Select>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div className="space-y-2">
               <Label>Stock Level</Label>
               <Input type="number" value={stockLevel} onChange={(e) => setStockLevel(e.target.value)} placeholder="0" />
@@ -242,6 +247,10 @@ const InventoryDialog = ({
             <div className="space-y-2">
               <Label>Min Stock Alert</Label>
               <Input type="number" value={minStock} onChange={(e) => setMinStock(e.target.value)} placeholder="0" />
+            </div>
+            <div className="space-y-2">
+              <Label>Cost/Unit (₹)</Label>
+              <Input type="number" value={costPerUnit} onChange={(e) => setCostPerUnit(e.target.value)} placeholder="0" />
             </div>
           </div>
           <Button onClick={handleSave} disabled={saving || !name.trim()} className="w-full rounded-[28px]">
