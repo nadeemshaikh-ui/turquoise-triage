@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/contexts/AuthContext";
 import StatsBar from "@/components/dashboard/StatsBar";
 import GoldTierLeads from "@/components/dashboard/GoldTierLeads";
 import LeadsPipeline from "@/components/dashboard/LeadsPipeline";
@@ -76,6 +77,7 @@ const recentLeads = mockLeads.filter((l) => !l.isGoldTier);
 
 const Index = () => {
   const [showNewLead, setShowNewLead] = useState(false);
+  const { signOut } = useAuth();
 
   return (
     <div className="min-h-screen bg-background">
@@ -88,13 +90,18 @@ const Index = () => {
             </h1>
             <p className="text-xs text-muted-foreground">Shoe & Bag Restoration OS</p>
           </div>
-          <Button
-            className="rounded-[28px] gap-2 px-6 shadow-md hover:shadow-lg transition-shadow"
-            onClick={() => setShowNewLead(true)}
-          >
-            <Plus className="h-4 w-4" />
-            New Lead
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              className="rounded-[28px] gap-2 px-6 shadow-md hover:shadow-lg transition-shadow"
+              onClick={() => setShowNewLead(true)}
+            >
+              <Plus className="h-4 w-4" />
+              New Lead
+            </Button>
+            <Button variant="ghost" size="icon" onClick={signOut} title="Sign out">
+              <LogOut className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </header>
 
