@@ -10,23 +10,31 @@ function parseMetaCsv(text: string) {
   const spendIdx = cols.findIndex((c) => c.includes("spend") || c.includes("amount") || c.includes("cost"));
   if (dateIdx < 0 || spendIdx < 0) throw new Error("CSV must have 'date' and 'spend/amount/cost' columns");
 
+  const summaryPhrases = ["total amount billed", "total funds added", "gst amount", "tds amount"];
+
   const parsedRows = lines.slice(1).map((line) => {
+    if (summaryPhrases.some((phrase) => line.toLowerCase().includes(phrase))) return null;
+
     const firstComma = line.indexOf(",");
     if (firstComma < 0) return null;
     const rawDate = line.substring(0, firstComma).trim().replace(/"/g, "");
+
+    const isDdMmYyyy = /^\d{1,2}-\d{1,2}-\d{4}$/.test(rawDate);
+    const isIsoDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate);
+    if (!isDdMmYyyy && !isIsoDate) return null;
+
     const rawSpend = line.substring(firstComma + 1).replace(/[₹",\s]/g, "").trim();
     const amount = parseFloat(rawSpend) || 0;
 
     let normalizedDate = rawDate;
-    const ddMmYyyyMatch = rawDate?.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
-    if (ddMmYyyyMatch) {
-      normalizedDate = `${ddMmYyyyMatch[3]}-${ddMmYyyyMatch[2].padStart(2, "0")}-${ddMmYyyyMatch[1].padStart(2, "0")}`;
+    if (isDdMmYyyy) {
+      const m = rawDate.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+      if (m) normalizedDate = `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
     }
 
     return { date: normalizedDate, amount_spent: amount };
   }).filter((r): r is { date: string; amount_spent: number } => r !== null && !!r.date && !isNaN(new Date(r.date).getTime()) && r.amount_spent > 0);
 
-  // Sum by date
   const byDate = new Map<string, number>();
   parsedRows.forEach((r) => {
     byDate.set(r.date, (byDate.get(r.date) || 0) + r.amount_spent);
@@ -72,5 +80,21 @@ describe("Meta CSV Parser", () => {
     expect(result).toHaveLength(2);
     expect(result[0].date).toBe("2026-01-15");
     expect(result[0].amount_spent).toBeCloseTo(1234.56);
+  });
+
+  it("filters out Meta summary rows (Total amount billed, GST, TDS, etc.)", () => {
+    const csv = `date,amount
+01-01-2026,"₹500.00"
+02-01-2026,"₹600.00"
+Total amount billed,"₹26,629.55"
+Total funds added,"₹26,629.55"
+GST Amount,"₹4,073.40"
+TDS Amount,"₹500.00"`;
+
+    const result = parseMetaCsv(csv);
+    // Only 2 valid transaction rows
+    expect(result).toHaveLength(2);
+    const total = result.reduce((s, r) => s + r.amount_spent, 0);
+    expect(total).toBeCloseTo(1100);
   });
 });

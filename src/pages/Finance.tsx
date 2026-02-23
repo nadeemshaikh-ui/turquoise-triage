@@ -225,21 +225,33 @@ const Finance = () => {
       const spendIdx = cols.findIndex((c) => c.includes("spend") || c.includes("amount") || c.includes("cost"));
       if (dateIdx < 0 || spendIdx < 0) throw new Error("CSV must have 'date' and 'spend/amount/cost' columns");
 
+      // Summary phrases to ignore (Meta billing CSV includes these as non-transaction rows)
+      const summaryPhrases = ["total amount billed", "total funds added", "gst amount", "tds amount"];
+
       // Parse and normalize rows (handle commas inside spend values like ₹1,500)
       const parsedRows = lines.slice(1).map((line) => {
+        // Skip summary/aggregate rows
+        if (summaryPhrases.some((phrase) => line.toLowerCase().includes(phrase))) return null;
+
         // Split on first comma only for 2-col format; join remainder as spend
         const firstComma = line.indexOf(",");
         if (firstComma < 0) return null;
         const rawDate = line.substring(0, firstComma).trim().replace(/"/g, "");
+
+        // Only accept rows where the first column is a valid date (DD-MM-YYYY or YYYY-MM-DD)
+        const isDdMmYyyy = /^\d{1,2}-\d{1,2}-\d{4}$/.test(rawDate);
+        const isIsoDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate);
+        if (!isDdMmYyyy && !isIsoDate) return null;
+
         // Everything after first comma is the spend value
         const rawSpend = line.substring(firstComma + 1).replace(/[₹",\s]/g, "").trim();
         const amount = parseFloat(rawSpend) || 0;
 
         // Auto-detect DD-MM-YYYY vs YYYY-MM-DD
         let normalizedDate = rawDate;
-        const ddMmYyyyMatch = rawDate?.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
-        if (ddMmYyyyMatch) {
-          normalizedDate = `${ddMmYyyyMatch[3]}-${ddMmYyyyMatch[2].padStart(2, "0")}-${ddMmYyyyMatch[1].padStart(2, "0")}`;
+        if (isDdMmYyyy) {
+          const m = rawDate.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+          if (m) normalizedDate = `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
         }
 
         return { date: normalizedDate, amount_spent: amount };
@@ -262,7 +274,7 @@ const Finance = () => {
       const totalSpend = insertRows.reduce((s, r) => s + r.amount_spent, 0);
       const { error } = await supabase.from("meta_ad_spend").insert(insertRows);
       if (error) throw error;
-      toast({ title: `✅ Successfully imported ₹${totalSpend.toLocaleString("en-IN")} spend for ${insertRows.length} days` });
+      toast({ title: `✅ Total Spend Verified: ₹${totalSpend.toLocaleString("en-IN", { minimumFractionDigits: 2 })} across ${insertRows.length} days` });
       queryClient.invalidateQueries({ queryKey: ["finance-ad-spend"] });
     } catch (err: any) {
       toast({ title: "Upload Error", description: err.message, variant: "destructive" });
