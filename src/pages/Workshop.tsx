@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useCallback } from "react";
+import { useEffect, useMemo, useCallback, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
-import { Crown, Loader2, AlertTriangle, Clock } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Crown, Loader2, AlertTriangle, Clock, Package, StickyNote, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 import { toast } from "@/hooks/use-toast";
@@ -26,11 +28,19 @@ interface KanbanLead {
   id: string;
   customerName: string;
   serviceName: string;
+  serviceId: string;
   quotedPrice: number;
   status: string;
   isGoldTier: boolean;
   tatDaysMax: number;
   createdAt: string;
+  notes: string | null;
+}
+
+interface RecipeMaterial {
+  name: string;
+  quantity: number;
+  unit: string;
 }
 
 const getSlaStatus = (createdAt: string, tatDaysMax: number, status: string): "ok" | "warning" | "overdue" => {
@@ -60,7 +70,7 @@ const Workshop = () => {
       const { data, error } = await supabase
         .from("leads")
         .select(`
-          id, quoted_price, status, tat_days_max, is_gold_tier, created_at,
+          id, quoted_price, status, tat_days_max, is_gold_tier, created_at, notes, service_id,
           custom_service_name,
           customers ( name ),
           services ( name )
@@ -72,14 +82,43 @@ const Workshop = () => {
         id: r.id,
         customerName: r.customers?.name ?? "Unknown",
         serviceName: r.custom_service_name || r.services?.name || "Unknown",
+        serviceId: r.service_id,
         quotedPrice: Number(r.quoted_price),
         status: r.status,
         isGoldTier: r.is_gold_tier,
         tatDaysMax: r.tat_days_max,
         createdAt: r.created_at,
+        notes: r.notes,
       }));
     },
   });
+
+  // Fetch all service recipes with materials
+  const { data: recipes = [] } = useQuery({
+    queryKey: ["workshop-recipes"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("service_recipes")
+        .select("service_id, quantity, inventory_items(name, unit)");
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // Build a map: serviceId -> materials[]
+  const materialsByService = useMemo(() => {
+    const map = new Map<string, RecipeMaterial[]>();
+    (recipes as any[]).forEach((r: any) => {
+      const serviceId = r.service_id;
+      if (!map.has(serviceId)) map.set(serviceId, []);
+      map.get(serviceId)!.push({
+        name: r.inventory_items?.name || "Unknown",
+        quantity: Number(r.quantity),
+        unit: r.inventory_items?.unit || "pcs",
+      });
+    });
+    return map;
+  }, [recipes]);
 
   // Realtime
   useEffect(() => {
@@ -93,7 +132,6 @@ const Workshop = () => {
   }, [queryClient]);
 
   const showDeductionToast = useCallback(async (lead: KanbanLead) => {
-    // Get the service_id from the lead
     const { data: leadData } = await supabase
       .from("leads")
       .select("service_id, customer_id, customers(phone)")
@@ -101,20 +139,18 @@ const Workshop = () => {
       .single();
     if (!leadData) return;
 
-    // Show stock deduction toast
-    const { data: recipes } = await supabase
+    const { data: recipeData } = await supabase
       .from("service_recipes")
       .select("quantity, inventory_items(name, unit)")
       .eq("service_id", leadData.service_id);
-    if (recipes && recipes.length > 0) {
-      const items = recipes.map((r: any) => `${r.inventory_items?.name}: −${r.quantity} ${r.inventory_items?.unit}`).join(", ");
+    if (recipeData && recipeData.length > 0) {
+      const items = recipeData.map((r: any) => `${r.inventory_items?.name}: −${r.quantity} ${r.inventory_items?.unit}`).join(", ");
       toast({
         title: "📦 Stock Deducted",
         description: `${lead.serviceName} → ${items}`,
       });
     }
 
-    // Trigger WhatsApp notification (fire-and-forget)
     const customerPhone = (leadData as any).customers?.phone;
     if (customerPhone) {
       supabase.functions.invoke("send-whatsapp", {
@@ -162,7 +198,6 @@ const Workshop = () => {
       const newStatus = destination.droppableId;
       const lead = leads.find((l) => l.id === draggableId);
       if (!lead || lead.status === newStatus) return;
-      // Optimistic update
       queryClient.setQueryData<KanbanLead[]>(["workshop-leads"], (old) =>
         (old || []).map((l) => (l.id === draggableId ? { ...l, status: newStatus } : l))
       );
@@ -200,59 +235,16 @@ const Workshop = () => {
                       snapshot.isDraggingOver && "bg-primary/5"
                     )}
                   >
-                    {col.items.map((lead, index) => {
-                      const sla = getSlaStatus(lead.createdAt, lead.tatDaysMax, lead.status);
-                      const colIdx = KANBAN_COLUMNS.findIndex((c) => c.key === lead.status);
-                      const nextStatus = colIdx < KANBAN_COLUMNS.length - 1 ? KANBAN_COLUMNS[colIdx + 1] : null;
-
-                      return (
-                        <Draggable draggableId={lead.id} index={index} key={lead.id}>
-                          {(provided, snapshot) => (
-                            <div
-                              ref={provided.innerRef}
-                              {...provided.draggableProps}
-                              {...provided.dragHandleProps}
-                              className={cn(
-                                "rounded-[20px] border-2 bg-card p-3 shadow-[0_2px_10px_-4px_hsl(16_100%_50%/0.10)] transition-all cursor-grab active:cursor-grabbing",
-                                slaBorder[sla],
-                                snapshot.isDragging && "shadow-[0_8px_24px_-4px_hsl(16_100%_50%/0.25)] rotate-1 scale-[1.02]"
-                              )}
-                              onClick={() => !snapshot.isDragging && navigate(`/leads/${lead.id}`)}
-                            >
-                              <div className="flex items-start justify-between gap-1">
-                                <p className="text-sm font-semibold text-card-foreground leading-tight">{lead.customerName}</p>
-                                {lead.isGoldTier && <Crown className="h-3.5 w-3.5 shrink-0 text-gold" />}
-                              </div>
-                              <p className="mt-0.5 text-xs text-muted-foreground truncate">{lead.serviceName}</p>
-                              <p className="mt-1 text-sm font-bold text-primary">₹{lead.quotedPrice.toLocaleString("en-IN")}</p>
-
-                              {sla === "warning" && (
-                                <div className="mt-1.5 flex items-center gap-1 text-[10px] font-medium text-gold-foreground">
-                                  <Clock className="h-3 w-3" /> &lt;48h remaining
-                                </div>
-                              )}
-                              {sla === "overdue" && (
-                                <div className="mt-1.5 flex items-center gap-1 text-[10px] font-medium text-destructive">
-                                  <AlertTriangle className="h-3 w-3" /> TAT exceeded
-                                </div>
-                              )}
-
-                              {nextStatus && lead.status !== "Completed" && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    updateStatus.mutate({ id: lead.id, status: nextStatus.key });
-                                  }}
-                                  className="mt-2 w-full rounded-[14px] bg-primary/10 py-1.5 text-[10px] font-semibold text-primary transition-colors hover:bg-primary/20"
-                                >
-                                  → {nextStatus.label}
-                                </button>
-                              )}
-                            </div>
-                          )}
-                        </Draggable>
-                      );
-                    })}
+                    {col.items.map((lead, index) => (
+                      <KanbanCard
+                        key={lead.id}
+                        lead={lead}
+                        index={index}
+                        materials={materialsByService.get(lead.serviceId) || []}
+                        onStatusChange={(status) => updateStatus.mutate({ id: lead.id, status })}
+                        onNavigate={() => navigate(`/leads/${lead.id}`)}
+                      />
+                    ))}
                     {provided.placeholder}
                   </div>
                 </div>
@@ -262,6 +254,147 @@ const Workshop = () => {
         </div>
       </DragDropContext>
     </div>
+  );
+};
+
+const KanbanCard = ({
+  lead,
+  index,
+  materials,
+  onStatusChange,
+  onNavigate,
+}: {
+  lead: KanbanLead;
+  index: number;
+  materials: RecipeMaterial[];
+  onStatusChange: (status: string) => void;
+  onNavigate: () => void;
+}) => {
+  const [editingNotes, setEditingNotes] = useState(false);
+  const [noteDraft, setNoteDraft] = useState(lead.notes || "");
+  const [savingNote, setSavingNote] = useState(false);
+
+  const sla = getSlaStatus(lead.createdAt, lead.tatDaysMax, lead.status);
+  const colIdx = KANBAN_COLUMNS.findIndex((c) => c.key === lead.status);
+  const nextStatus = colIdx < KANBAN_COLUMNS.length - 1 ? KANBAN_COLUMNS[colIdx + 1] : null;
+
+  const saveNote = async () => {
+    setSavingNote(true);
+    try {
+      const { error } = await supabase.from("leads").update({ notes: noteDraft.trim() || null }).eq("id", lead.id);
+      if (error) throw error;
+      setEditingNotes(false);
+    } catch {
+      toast({ title: "Failed to save note", variant: "destructive" });
+    } finally {
+      setSavingNote(false);
+    }
+  };
+
+  return (
+    <Draggable draggableId={lead.id} index={index}>
+      {(provided, snapshot) => (
+        <div
+          ref={provided.innerRef}
+          {...provided.draggableProps}
+          {...provided.dragHandleProps}
+          className={cn(
+            "rounded-[20px] border-2 bg-card p-3 shadow-[0_2px_10px_-4px_hsl(16_100%_50%/0.10)] transition-all cursor-grab active:cursor-grabbing",
+            slaBorder[sla],
+            snapshot.isDragging && "shadow-[0_8px_24px_-4px_hsl(16_100%_50%/0.25)] rotate-1 scale-[1.02]"
+          )}
+          onClick={() => !snapshot.isDragging && !editingNotes && onNavigate()}
+        >
+          <div className="flex items-start justify-between gap-1">
+            <p className="text-sm font-semibold text-card-foreground leading-tight">{lead.customerName}</p>
+            {lead.isGoldTier && <Crown className="h-3.5 w-3.5 shrink-0 text-gold" />}
+          </div>
+          <p className="mt-0.5 text-xs text-muted-foreground truncate">{lead.serviceName}</p>
+          <p className="mt-1 text-sm font-bold text-primary">₹{lead.quotedPrice.toLocaleString("en-IN")}</p>
+
+          {/* Materials Used */}
+          {materials.length > 0 && (
+            <div className="mt-2 space-y-0.5">
+              <div className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground">
+                <Package className="h-3 w-3" /> Materials
+              </div>
+              {materials.map((m, i) => (
+                <p key={i} className="text-[10px] text-foreground/70 pl-4">
+                  Use {m.quantity} {m.unit} {m.name}
+                </p>
+              ))}
+            </div>
+          )}
+
+          {/* Notes */}
+          <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+            {editingNotes ? (
+              <div className="space-y-1">
+                <Textarea
+                  value={noteDraft}
+                  onChange={(e) => setNoteDraft(e.target.value)}
+                  placeholder="e.g. Deep stain on left heel"
+                  className="text-[11px] min-h-[48px] rounded-xl resize-none"
+                  autoFocus
+                />
+                <div className="flex gap-1 justify-end">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-[10px] px-2"
+                    onClick={() => { setEditingNotes(false); setNoteDraft(lead.notes || ""); }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="h-6 text-[10px] px-2 rounded-xl gap-1"
+                    onClick={saveNote}
+                    disabled={savingNote}
+                  >
+                    {savingNote ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                    Save
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => setEditingNotes(true)}
+                className="flex items-start gap-1 w-full text-left rounded-xl hover:bg-muted/50 p-1 -m-1 transition-colors"
+              >
+                <StickyNote className="h-3 w-3 shrink-0 mt-0.5 text-muted-foreground" />
+                <p className={cn("text-[10px] line-clamp-2", lead.notes ? "text-foreground/70" : "text-muted-foreground italic")}>
+                  {lead.notes || "Add note…"}
+                </p>
+              </button>
+            )}
+          </div>
+
+          {sla === "warning" && (
+            <div className="mt-1.5 flex items-center gap-1 text-[10px] font-medium text-gold-foreground">
+              <Clock className="h-3 w-3" /> &lt;48h remaining
+            </div>
+          )}
+          {sla === "overdue" && (
+            <div className="mt-1.5 flex items-center gap-1 text-[10px] font-medium text-destructive">
+              <AlertTriangle className="h-3 w-3" /> TAT exceeded
+            </div>
+          )}
+
+          {nextStatus && lead.status !== "Completed" && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onStatusChange(nextStatus.key);
+              }}
+              className="mt-2 w-full rounded-[14px] bg-primary/10 py-1.5 text-[10px] font-semibold text-primary transition-colors hover:bg-primary/20"
+            >
+              → {nextStatus.label}
+            </button>
+          )}
+        </div>
+      )}
+    </Draggable>
   );
 };
 
