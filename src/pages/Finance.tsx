@@ -6,26 +6,27 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Upload, DollarSign, TrendingUp, Users, BarChart3 } from "lucide-react";
+import { Loader2, Upload, DollarSign, TrendingUp, Users, BarChart3, Settings2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import {
   ResponsiveContainer,
-  AreaChart,
-  Area,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   Tooltip,
   CartesianGrid,
-  BarChart,
-  Bar,
 } from "recharts";
-import { format, parseISO, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths } from "date-fns";
+import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths } from "date-fns";
 
 const Finance = () => {
   const queryClient = useQueryClient();
-  const [uploading, setUploading] = useState(false);
+  const [uploadingAds, setUploadingAds] = useState(false);
+  const [uploadingRevenue, setUploadingRevenue] = useState(false);
+  const [laborValue, setLaborValue] = useState<string | null>(null);
+  const [savingLabor, setSavingLabor] = useState(false);
 
-  // Revenue from completed leads
+  // Revenue from completed leads (in-app)
   const { data: leads = [], isLoading: leadsLoading } = useQuery({
     queryKey: ["finance-leads"],
     queryFn: async () => {
@@ -33,6 +34,19 @@ const Finance = () => {
         .from("leads")
         .select("id, quoted_price, status, created_at, service_id, customer_id, customers(name)")
         .in("status", ["Ready for Pickup", "Completed"]);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // Imported revenue
+  const { data: revenueImports = [] } = useQuery({
+    queryKey: ["finance-revenue-imports"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("revenue_imports")
+        .select("*")
+        .order("date");
       if (error) throw error;
       return data || [];
     },
@@ -82,7 +96,6 @@ const Finance = () => {
         .select("quoted_price, customer_id, customers(name, phone)")
         .in("status", ["Ready for Pickup", "Completed"]);
       if (error) throw error;
-      // Aggregate by customer
       const map = new Map<string, { name: string; phone: string; total: number; count: number }>();
       (data || []).forEach((l: any) => {
         const cid = l.customer_id;
@@ -105,13 +118,20 @@ const Finance = () => {
     },
   });
 
-  const laborCost = Number(settings.find((s: any) => s.key === "artisan_labor_per_order")?.value || 150);
+  const laborCostSetting = (settings as any[]).find((s) => s.key === "artisan_labor_per_order");
+  const laborCost = Number(laborCostSetting?.value || 150);
+
+  // Initialize labor input
+  if (laborValue === null && laborCostSetting) {
+    setLaborValue(laborCostSetting.value);
+  }
 
   // Compute P&L
   const pnl = useMemo(() => {
-    const totalRevenue = leads.reduce((s, l: any) => s + Number(l.quoted_price), 0);
+    const leadRevenue = leads.reduce((s, l: any) => s + Number(l.quoted_price), 0);
+    const importedRevenue = (revenueImports as any[]).reduce((s, r: any) => s + Number(r.amount), 0);
+    const totalRevenue = leadRevenue + importedRevenue;
 
-    // Material cost: for each lead, sum recipe quantities * cost_per_unit
     const recipeCostByService = new Map<string, number>();
     (recipes as any[]).forEach((r: any) => {
       const cost = Number(r.quantity) * Number(r.inventory_items?.cost_per_unit || 0);
@@ -124,13 +144,14 @@ const Finance = () => {
       totalMaterialCost += recipeCostByService.get(l.service_id) || 0;
     });
 
-    const totalLaborCost = leads.length * laborCost;
+    const totalOrders = leads.length + (revenueImports as any[]).length;
+    const totalLaborCost = totalOrders * laborCost;
     const netProfit = totalRevenue - totalMaterialCost - totalLaborCost;
 
-    return { totalRevenue, totalMaterialCost, totalLaborCost, netProfit, orderCount: leads.length };
-  }, [leads, recipes, laborCost]);
+    return { totalRevenue, totalMaterialCost, totalLaborCost, netProfit, orderCount: totalOrders, importedRevenue };
+  }, [leads, revenueImports, recipes, laborCost]);
 
-  // ROAS chart data: merge monthly revenue + ad spend
+  // ROAS chart data
   const roasChartData = useMemo(() => {
     const now = new Date();
     const months = eachMonthOfInterval({
@@ -139,16 +160,24 @@ const Finance = () => {
     });
 
     return months.map((month) => {
-      const monthKey = format(month, "yyyy-MM");
       const monthLabel = format(month, "MMM yy");
       const monthEnd = endOfMonth(month);
 
-      const revenue = leads
+      const leadRev = leads
         .filter((l: any) => {
           const d = new Date(l.created_at);
           return d >= month && d <= monthEnd;
         })
         .reduce((s, l: any) => s + Number(l.quoted_price), 0);
+
+      const importRev = (revenueImports as any[])
+        .filter((r) => {
+          const d = new Date(r.date);
+          return d >= month && d <= monthEnd;
+        })
+        .reduce((s, r: any) => s + Number(r.amount), 0);
+
+      const revenue = leadRev + importRev;
 
       const spend = (adSpend as any[])
         .filter((a) => {
@@ -157,31 +186,23 @@ const Finance = () => {
         })
         .reduce((s, a: any) => s + Number(a.amount_spent), 0);
 
-      const roas = spend > 0 ? (revenue / spend).toFixed(1) : "-";
-
-      return { month: monthLabel, revenue, spend, roas };
+      return { month: monthLabel, revenue, spend };
     });
-  }, [leads, adSpend]);
+  }, [leads, revenueImports, adSpend]);
 
-  // CSV upload handler
-  const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // CSV upload handlers
+  const handleAdCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setUploading(true);
+    setUploadingAds(true);
     try {
       const text = await file.text();
       const lines = text.split("\n").filter((l) => l.trim());
-      if (lines.length < 2) throw new Error("CSV is empty or has no data rows");
+      if (lines.length < 2) throw new Error("CSV is empty");
 
-      const header = lines[0].toLowerCase();
-      // Try to detect columns
-      const cols = header.split(",").map((c) => c.trim().replace(/"/g, ""));
+      const cols = lines[0].toLowerCase().split(",").map((c) => c.trim().replace(/"/g, ""));
       const dateIdx = cols.findIndex((c) => c.includes("date") || c.includes("day"));
       const spendIdx = cols.findIndex((c) => c.includes("spend") || c.includes("amount") || c.includes("cost"));
-      const campaignIdx = cols.findIndex((c) => c.includes("campaign") || c.includes("name"));
-      const impressionsIdx = cols.findIndex((c) => c.includes("impression"));
-      const clicksIdx = cols.findIndex((c) => c.includes("click"));
-
       if (dateIdx < 0 || spendIdx < 0) throw new Error("CSV must have 'date' and 'spend/amount/cost' columns");
 
       const rows = lines.slice(1).map((line) => {
@@ -189,24 +210,131 @@ const Finance = () => {
         return {
           date: vals[dateIdx],
           amount_spent: parseFloat(vals[spendIdx]) || 0,
-          campaign_name: campaignIdx >= 0 ? vals[campaignIdx] : null,
-          impressions: impressionsIdx >= 0 ? parseInt(vals[impressionsIdx]) || 0 : 0,
-          clicks: clicksIdx >= 0 ? parseInt(vals[clicksIdx]) || 0 : 0,
         };
       }).filter((r) => r.date && !isNaN(new Date(r.date).getTime()));
 
-      if (rows.length === 0) throw new Error("No valid rows found in CSV");
-
+      if (rows.length === 0) throw new Error("No valid rows found");
       const { error } = await supabase.from("meta_ad_spend").insert(rows);
       if (error) throw error;
-
       toast({ title: `✅ Uploaded ${rows.length} rows of ad spend data` });
       queryClient.invalidateQueries({ queryKey: ["finance-ad-spend"] });
     } catch (err: any) {
       toast({ title: "Upload Error", description: err.message, variant: "destructive" });
     } finally {
-      setUploading(false);
+      setUploadingAds(false);
       e.target.value = "";
+    }
+  };
+
+  const handleRevenueCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingRevenue(true);
+    try {
+      const text = await file.text();
+      const lines = text.split("\n").filter((l) => l.trim());
+      if (lines.length < 2) throw new Error("CSV is empty");
+
+      const header = lines[0];
+      // Detect TurnsApp format vs simple date,revenue format
+      const isTurnsApp = header.includes("Order Creation Date") || header.includes("Order Status");
+
+      let rows: { date: string; order_ref?: string; customer_name?: string; amount: number }[] = [];
+
+      if (isTurnsApp) {
+        // Parse TurnsApp CSV (comma-separated, quoted fields)
+        const parseCSVLine = (line: string) => {
+          const result: string[] = [];
+          let current = "";
+          let inQuotes = false;
+          for (const char of line) {
+            if (char === '"') { inQuotes = !inQuotes; }
+            else if (char === ',' && !inQuotes) { result.push(current.trim()); current = ""; }
+            else { current += char; }
+          }
+          result.push(current.trim());
+          return result;
+        };
+
+        const headerCols = parseCSVLine(lines[0]);
+        const orderIdx = headerCols.findIndex((c) => c === "Order");
+        const nameIdx = headerCols.findIndex((c) => c === "Customer Name");
+        const dateIdx = headerCols.findIndex((c) => c === "Order Creation Date");
+        const amountIdx = headerCols.findIndex((c) => c === "Amount");
+
+        for (let i = 1; i < lines.length; i++) {
+          const vals = parseCSVLine(lines[i]);
+          const orderRef = vals[orderIdx]?.trim();
+          if (!orderRef) continue; // Skip total/empty rows
+          const rawDate = vals[dateIdx]?.trim();
+          const rawAmount = vals[amountIdx]?.replace(/[₹,\s]/g, "")?.trim();
+          const amount = parseFloat(rawAmount) || 0;
+
+          // Parse date "31-Jan-2026" format
+          const parsedDate = new Date(rawDate);
+          if (isNaN(parsedDate.getTime())) continue;
+          const dateStr = format(parsedDate, "yyyy-MM-dd");
+
+          rows.push({
+            date: dateStr,
+            order_ref: orderRef,
+            customer_name: vals[nameIdx]?.trim(),
+            amount,
+          });
+        }
+      } else {
+        // Simple date,revenue format
+        const cols = lines[0].toLowerCase().split(",").map((c) => c.trim().replace(/"/g, ""));
+        const dateIdx = cols.findIndex((c) => c.includes("date"));
+        const revIdx = cols.findIndex((c) => c.includes("revenue") || c.includes("amount"));
+        if (dateIdx < 0 || revIdx < 0) throw new Error("CSV must have 'date' and 'revenue/amount' columns");
+
+        rows = lines.slice(1).map((line) => {
+          const vals = line.split(",").map((v) => v.trim().replace(/"/g, ""));
+          return { date: vals[dateIdx], amount: parseFloat(vals[revIdx]) || 0 };
+        }).filter((r) => r.date && !isNaN(new Date(r.date).getTime()));
+      }
+
+      if (rows.length === 0) throw new Error("No valid rows found");
+
+      const insertRows = rows.map((r) => ({
+        date: r.date,
+        order_ref: r.order_ref || null,
+        customer_name: r.customer_name || null,
+        amount: r.amount,
+        source: isTurnsApp ? "TurnsApp" : "CSV Import",
+      }));
+
+      const { error } = await supabase.from("revenue_imports").insert(insertRows);
+      if (error) throw error;
+      toast({ title: `✅ Imported ${rows.length} revenue records` });
+      queryClient.invalidateQueries({ queryKey: ["finance-revenue-imports"] });
+      queryClient.invalidateQueries({ queryKey: ["finance-top-customers"] });
+    } catch (err: any) {
+      toast({ title: "Upload Error", description: err.message, variant: "destructive" });
+    } finally {
+      setUploadingRevenue(false);
+      e.target.value = "";
+    }
+  };
+
+  const handleLaborSave = async () => {
+    if (!laborValue) return;
+    setSavingLabor(true);
+    try {
+      if (laborCostSetting) {
+        const { error } = await supabase.from("app_settings").update({ value: laborValue }).eq("id", laborCostSetting.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("app_settings").insert({ key: "artisan_labor_per_order", value: laborValue });
+        if (error) throw error;
+      }
+      toast({ title: "✅ Labor cost updated" });
+      queryClient.invalidateQueries({ queryKey: ["app-settings"] });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setSavingLabor(false);
     }
   };
 
@@ -224,17 +352,20 @@ const Finance = () => {
 
       {/* P&L Summary Cards */}
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-        <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(174_72%_56%/0.10)]">
+        <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground">
               <DollarSign className="h-4 w-4" />
               <span className="text-xs font-medium">Total Revenue</span>
             </div>
             <p className="mt-1 text-xl font-bold text-primary">₹{pnl.totalRevenue.toLocaleString("en-IN")}</p>
+            {pnl.importedRevenue > 0 && (
+              <p className="text-[10px] text-muted-foreground">Incl. ₹{pnl.importedRevenue.toLocaleString("en-IN")} imported</p>
+            )}
           </CardContent>
         </Card>
 
-        <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(174_72%_56%/0.10)]">
+        <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground">
               <BarChart3 className="h-4 w-4" />
@@ -244,7 +375,7 @@ const Finance = () => {
           </CardContent>
         </Card>
 
-        <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(174_72%_56%/0.10)]">
+        <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground">
               <Users className="h-4 w-4" />
@@ -254,7 +385,7 @@ const Finance = () => {
           </CardContent>
         </Card>
 
-        <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(174_72%_56%/0.10)]">
+        <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground">
               <TrendingUp className="h-4 w-4" />
@@ -267,26 +398,63 @@ const Finance = () => {
         </Card>
       </div>
 
+      {/* Labor Cost Setting inline */}
+      <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
+        <CardContent className="p-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Settings2 className="h-4 w-4" />
+              <Label className="text-xs font-medium">Default Labor Cost (₹/order)</Label>
+            </div>
+            <Input
+              type="number"
+              value={laborValue ?? String(laborCost)}
+              onChange={(e) => setLaborValue(e.target.value)}
+              className="max-w-[120px] h-8 text-sm"
+            />
+            <Button
+              onClick={handleLaborSave}
+              disabled={savingLabor || laborValue === String(laborCost)}
+              className="rounded-[28px] h-8"
+              size="sm"
+            >
+              {savingLabor ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* ROAS Chart */}
-      <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(174_72%_56%/0.10)]">
+      <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
         <CardHeader className="pb-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle className="text-sm font-semibold">Revenue vs Ad Spend (ROAS)</CardTitle>
-            <label className="cursor-pointer">
-              <input type="file" accept=".csv" className="hidden" onChange={handleCsvUpload} disabled={uploading} />
-              <Button variant="outline" size="sm" className="rounded-[28px] gap-2 pointer-events-none" asChild>
-                <span>
-                  {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-                  Upload Meta CSV
-                </span>
-              </Button>
-            </label>
+            <div className="flex gap-2">
+              <label className="cursor-pointer">
+                <input type="file" accept=".csv" className="hidden" onChange={handleRevenueCsvUpload} disabled={uploadingRevenue} />
+                <Button variant="outline" size="sm" className="rounded-[28px] gap-2 pointer-events-none" asChild>
+                  <span>
+                    {uploadingRevenue ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                    Upload Revenue CSV
+                  </span>
+                </Button>
+              </label>
+              <label className="cursor-pointer">
+                <input type="file" accept=".csv" className="hidden" onChange={handleAdCsvUpload} disabled={uploadingAds} />
+                <Button variant="outline" size="sm" className="rounded-[28px] gap-2 pointer-events-none" asChild>
+                  <span>
+                    {uploadingAds ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                    Upload Meta CSV
+                  </span>
+                </Button>
+              </label>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="h-64 px-2">
-          {adSpend.length === 0 ? (
+          {adSpend.length === 0 && revenueImports.length === 0 ? (
             <div className="flex h-full items-center justify-center">
-              <p className="text-sm text-muted-foreground">Upload your Meta Ads CSV to see ROAS data</p>
+              <p className="text-sm text-muted-foreground">Upload CSVs to see ROAS data</p>
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
@@ -306,8 +474,8 @@ const Finance = () => {
                     name === "revenue" ? "Revenue" : "Ad Spend",
                   ]}
                 />
-                <Bar dataKey="revenue" fill="hsl(174, 72%, 56%)" radius={[8, 8, 0, 0]} name="revenue" />
-                <Bar dataKey="spend" fill="hsl(174, 72%, 36%)" radius={[8, 8, 0, 0]} name="spend" />
+                <Bar dataKey="revenue" fill="hsl(16, 100%, 50%)" radius={[8, 8, 0, 0]} name="revenue" />
+                <Bar dataKey="spend" fill="hsl(16, 100%, 35%)" radius={[8, 8, 0, 0]} name="spend" />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -315,7 +483,7 @@ const Finance = () => {
       </Card>
 
       {/* Top Customers */}
-      <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(174_72%_56%/0.10)]">
+      <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-semibold">Top Customers by Lifetime Spend</CardTitle>
         </CardHeader>

@@ -53,7 +53,7 @@ const LeadsPipeline = ({ leads, onViewLead }: LeadsPipelineProps) => {
             return (
               <div
                 key={lead.id}
-                className="flex w-full items-center gap-3 rounded-[28px] border border-border bg-card p-4 shadow-[0_2px_12px_-4px_hsl(174_72%_56%/0.10)] transition-all hover:border-primary/30 hover:shadow-[0_4px_20px_-4px_hsl(174_72%_56%/0.18)]"
+                className="flex w-full items-center gap-3 rounded-[28px] border border-border bg-card p-4 shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)] transition-all hover:border-primary/30 hover:shadow-[0_4px_20px_-4px_hsl(16_100%_50%/0.18)]"
               >
                 <button
                   onClick={() => onViewLead?.(lead.id)}
@@ -77,7 +77,7 @@ const LeadsPipeline = ({ leads, onViewLead }: LeadsPipelineProps) => {
                 {isNew && (
                   <Button
                     size="sm"
-                    className="shrink-0 gap-1.5 rounded-[28px] shadow-[0_2px_8px_-2px_hsl(174_72%_56%/0.25)]"
+                    className="shrink-0 gap-1.5 rounded-[28px] shadow-[0_2px_8px_-2px_hsl(16_100%_50%/0.25)]"
                     onClick={(e) => {
                       e.stopPropagation();
                       acceptMutation.mutate(lead.id);
