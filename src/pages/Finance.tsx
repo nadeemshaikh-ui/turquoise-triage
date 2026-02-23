@@ -220,34 +220,52 @@ const Finance = () => {
       const lines = text.split("\n").filter((l) => l.trim());
       if (lines.length < 2) throw new Error("CSV is empty");
 
-      const cols = lines[0].toLowerCase().split(",").map((c) => c.trim().replace(/"/g, ""));
-      const dateIdx = cols.findIndex((c) => c.includes("date") || c.includes("day"));
-      const spendIdx = cols.findIndex((c) => c.includes("spend") || c.includes("amount") || c.includes("cost"));
-      if (dateIdx < 0 || spendIdx < 0) throw new Error("CSV must have 'date' and 'spend/amount/cost' columns");
+      // Auto-detect delimiter: tab or comma
+      const delimiter = lines.some((l) => l.includes("\t")) ? "\t" : ",";
 
-      // Summary phrases to ignore (Meta billing CSV includes these as non-transaction rows)
-      const summaryPhrases = ["total amount billed", "total funds added", "gst amount", "tds amount"];
+      // Find the header row (contains "date" and "amount" columns)
+      let headerIdx = -1;
+      let dateCol = -1;
+      let amountCol = -1;
+      for (let i = 0; i < Math.min(lines.length, 20); i++) {
+        const cols = lines[i].split(delimiter).map((c) => c.trim().replace(/"/g, "").toLowerCase());
+        const dIdx = cols.findIndex((c) => c === "date" || c.includes("date") || c.includes("day"));
+        const aIdx = cols.findIndex((c) => c === "amount" || c.includes("spend") || c.includes("amount") || c.includes("cost"));
+        if (dIdx >= 0 && aIdx >= 0) {
+          headerIdx = i;
+          dateCol = dIdx;
+          amountCol = aIdx;
+          break;
+        }
+      }
+      if (headerIdx < 0) throw new Error("CSV must have 'date' and 'amount/spend/cost' columns");
 
-      // Parse and normalize rows (handle commas inside spend values like ₹1,500)
-      const parsedRows = lines.slice(1).map((line) => {
-        // Skip summary/aggregate rows
+      // Summary phrases to ignore
+      const summaryPhrases = ["total amount billed", "total funds added", "gst amount", "tds amount", "vat rate", "tds rate"];
+
+      const parsedRows = lines.slice(headerIdx + 1).map((line) => {
         if (summaryPhrases.some((phrase) => line.toLowerCase().includes(phrase))) return null;
 
-        // Split on first comma only for 2-col format; join remainder as spend
-        const firstComma = line.indexOf(",");
-        if (firstComma < 0) return null;
-        const rawDate = line.substring(0, firstComma).trim().replace(/"/g, "");
+        const cells = delimiter === "\t"
+          ? line.split("\t").map((c) => c.trim().replace(/"/g, ""))
+          : (() => {
+              // For comma-delimited, split on first comma only (2-col format)
+              const firstComma = line.indexOf(",");
+              if (firstComma < 0) return [line.trim()];
+              return [line.substring(0, firstComma).trim().replace(/"/g, ""), line.substring(firstComma + 1).replace(/"/g, "").trim()];
+            })();
 
-        // Only accept rows where the first column is a valid date (DD-MM-YYYY or YYYY-MM-DD)
+        const rawDate = cells[dateCol]?.trim() || "";
+        const rawAmount = (cells[amountCol] || "").replace(/[₹,\s]/g, "").trim();
+
+        // Only accept rows where the date column is a valid date
         const isDdMmYyyy = /^\d{1,2}-\d{1,2}-\d{4}$/.test(rawDate);
         const isIsoDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate);
         if (!isDdMmYyyy && !isIsoDate) return null;
 
-        // Everything after first comma is the spend value
-        const rawSpend = line.substring(firstComma + 1).replace(/[₹",\s]/g, "").trim();
-        const amount = parseFloat(rawSpend) || 0;
+        const amount = parseFloat(rawAmount) || 0;
+        if (amount <= 0) return null;
 
-        // Auto-detect DD-MM-YYYY vs YYYY-MM-DD
         let normalizedDate = rawDate;
         if (isDdMmYyyy) {
           const m = rawDate.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
@@ -255,7 +273,7 @@ const Finance = () => {
         }
 
         return { date: normalizedDate, amount_spent: amount };
-      }).filter((r): r is { date: string; amount_spent: number } => r !== null && !!r.date && !isNaN(new Date(r.date).getTime()) && r.amount_spent > 0);
+      }).filter((r): r is { date: string; amount_spent: number } => r !== null && !!r.date && !isNaN(new Date(r.date).getTime()));
 
       if (parsedRows.length === 0) throw new Error("No valid rows found");
 
