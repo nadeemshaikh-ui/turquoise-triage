@@ -34,7 +34,7 @@ export interface ActivityItem {
   userName: string | null;
 }
 
-const STATUS_FLOW = ["New", "In Progress", "Ready for Pickup", "Completed"];
+const STATUS_FLOW = ["New", "Assigned", "In Progress", "QC", "Ready for Pickup", "Completed"];
 
 export const useLeadDetail = (leadId: string) => {
   const queryClient = useQueryClient();
