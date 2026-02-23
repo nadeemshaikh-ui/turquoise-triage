@@ -4,8 +4,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Crown, Loader2, AlertTriangle, Clock, Package, StickyNote, Check } from "lucide-react";
+import { Crown, Loader2, AlertTriangle, Clock, Package, StickyNote, Check, ClipboardCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useNavigate } from "react-router-dom";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -274,6 +275,10 @@ const KanbanCard = ({
   const [noteDraft, setNoteDraft] = useState(lead.notes || "");
   const [savingNote, setSavingNote] = useState(false);
 
+  // QC Checklist state
+  const QC_ITEMS = ["Item Cleaned", "Stitching Verified", "Packaging Ready"];
+  const [qcChecks, setQcChecks] = useState<Record<string, boolean>>({});
+
   const sla = getSlaStatus(lead.createdAt, lead.tatDaysMax, lead.status);
   const colIdx = KANBAN_COLUMNS.findIndex((c) => c.key === lead.status);
   const nextStatus = colIdx < KANBAN_COLUMNS.length - 1 ? KANBAN_COLUMNS[colIdx + 1] : null;
@@ -369,6 +374,29 @@ const KanbanCard = ({
               </button>
             )}
           </div>
+
+          {/* QC Checklist */}
+          {lead.status === "QC" && (
+            <div className="mt-2 space-y-1" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground">
+                <ClipboardCheck className="h-3 w-3" /> QC Checklist
+              </div>
+              {QC_ITEMS.map((item) => (
+                <label key={item} className="flex items-center gap-1.5 pl-4 cursor-pointer">
+                  <Checkbox
+                    checked={!!qcChecks[item]}
+                    onCheckedChange={(checked) =>
+                      setQcChecks((prev) => ({ ...prev, [item]: !!checked }))
+                    }
+                    className="h-3.5 w-3.5"
+                  />
+                  <span className={cn("text-[10px]", qcChecks[item] ? "text-foreground line-through" : "text-foreground/70")}>
+                    {item}
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
 
           {sla === "warning" && (
             <div className="mt-1.5 flex items-center gap-1 text-[10px] font-medium text-gold-foreground">
