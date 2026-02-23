@@ -2,82 +2,23 @@ import { useState } from "react";
 import { Plus, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLeads } from "@/hooks/useLeads";
 import StatsBar from "@/components/dashboard/StatsBar";
 import GoldTierLeads from "@/components/dashboard/GoldTierLeads";
 import LeadsPipeline from "@/components/dashboard/LeadsPipeline";
 import NewLeadDialog from "@/components/intake/NewLeadDialog";
-import type { Lead } from "@/components/dashboard/GoldTierLeads";
-
-// Mock data — will be replaced with live DB queries after auth is wired
-const mockLeads: Lead[] = [
-  {
-    id: "1",
-    customerName: "Priya Mehta",
-    serviceName: "Color Change (Bags)",
-    category: "Luxury Bags",
-    quotedPrice: 7500,
-    status: "New",
-    tatDaysMin: 10,
-    tatDaysMax: 15,
-    isGoldTier: true,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "2",
-    customerName: "Arjun Kapoor",
-    serviceName: "Signature Clean",
-    category: "Cleaning",
-    quotedPrice: 6500,
-    status: "In Progress",
-    tatDaysMin: 4,
-    tatDaysMax: 5,
-    isGoldTier: true,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "3",
-    customerName: "Sneha Reddy",
-    serviceName: "Sneaker Deep Clean",
-    category: "Cleaning",
-    quotedPrice: 800,
-    status: "New",
-    tatDaysMin: 4,
-    tatDaysMax: 5,
-    isGoldTier: false,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "4",
-    customerName: "Vikram Shah",
-    serviceName: "Leather Peeling Repair",
-    category: "Restoration & Color",
-    quotedPrice: 3500,
-    status: "In Progress",
-    tatDaysMin: 10,
-    tatDaysMax: 15,
-    isGoldTier: false,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "5",
-    customerName: "Meera Joshi",
-    serviceName: "Structural Realignment",
-    category: "Luxury Bags",
-    quotedPrice: 8000,
-    status: "Ready for Pickup",
-    tatDaysMin: 12,
-    tatDaysMax: 15,
-    isGoldTier: true,
-    createdAt: new Date().toISOString(),
-  },
-];
-
-const goldTierLeads = mockLeads.filter((l) => l.isGoldTier);
-const recentLeads = mockLeads.filter((l) => !l.isGoldTier);
+import { useQueryClient } from "@tanstack/react-query";
+import { Loader2 } from "lucide-react";
 
 const Index = () => {
   const [showNewLead, setShowNewLead] = useState(false);
   const { signOut } = useAuth();
+  const queryClient = useQueryClient();
+  const { goldTierLeads, recentLeads, stats, isLoading } = useLeads();
+
+  const handleLeadCreated = () => {
+    queryClient.invalidateQueries({ queryKey: ["leads"] });
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -107,19 +48,25 @@ const Index = () => {
 
       {/* Main Content */}
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6">
-        <StatsBar
-          todayOrders={3}
-          activeLeads={mockLeads.filter((l) => l.status !== "Completed").length}
-          revenue={26300}
-          pendingPickup={mockLeads.filter((l) => l.status === "Ready for Pickup").length}
-        />
-
-        <GoldTierLeads leads={goldTierLeads} />
-
-        <LeadsPipeline leads={recentLeads} />
+        {isLoading ? (
+          <div className="flex justify-center py-20">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        ) : (
+          <>
+            <StatsBar
+              todayOrders={stats.todayOrders}
+              activeLeads={stats.activeLeads}
+              revenue={stats.revenue}
+              pendingPickup={stats.pendingPickup}
+            />
+            <GoldTierLeads leads={goldTierLeads} />
+            <LeadsPipeline leads={recentLeads} />
+          </>
+        )}
       </main>
 
-      <NewLeadDialog open={showNewLead} onOpenChange={setShowNewLead} />
+      <NewLeadDialog open={showNewLead} onOpenChange={setShowNewLead} onCreated={handleLeadCreated} />
     </div>
   );
 };
