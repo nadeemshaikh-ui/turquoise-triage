@@ -67,7 +67,7 @@ const Inventory = () => {
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold text-foreground">Inventory</h1>
         <Button className="rounded-[28px] gap-2" onClick={() => setShowAdd(true)}>
-          <Plus className="h-4 w-4" /> Add Item
+          <Plus className="h-4 w-4" /> Add Material
         </Button>
       </div>
 
