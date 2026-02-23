@@ -80,7 +80,7 @@ const Automations = () => {
       <h1 className="text-lg font-bold text-foreground">Automations</h1>
 
       {/* Interakt WhatsApp Card */}
-      <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(174_72%_56%/0.10)]">
+      <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
         <CardHeader className="pb-2">
           <div className="flex items-center gap-2">
             <MessageSquare className="h-5 w-5 text-primary" />
@@ -151,7 +151,7 @@ const Automations = () => {
       </Card>
 
       {/* Labor Cost Setting */}
-      <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(174_72%_56%/0.10)]">
+      <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-semibold">Finance Settings</CardTitle>
         </CardHeader>

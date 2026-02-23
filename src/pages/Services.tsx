@@ -101,7 +101,7 @@ const Services = () => {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold text-foreground">Services Catalog</h1>
-        <Button className="rounded-[28px] gap-2 shadow-[0_2px_8px_-2px_hsl(174_72%_56%/0.25)]" onClick={() => { setEditService(null); setShowDialog(true); }}>
+        <Button className="rounded-[28px] gap-2 shadow-[0_2px_8px_-2px_hsl(16_100%_50%/0.25)]" onClick={() => { setEditService(null); setShowDialog(true); }}>
           <Plus className="h-4 w-4" /> Add Service
         </Button>
       </div>
@@ -130,7 +130,7 @@ const Services = () => {
         {filtered.map((svc) => (
           <div
             key={svc.id}
-            className="flex items-center gap-3 rounded-[28px] border border-border bg-card p-4 shadow-[0_2px_12px_-4px_hsl(174_72%_56%/0.10)] transition-all hover:shadow-[0_4px_20px_-4px_hsl(174_72%_56%/0.18)]"
+            className="flex items-center gap-3 rounded-[28px] border border-border bg-card p-4 shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)] transition-all hover:shadow-[0_4px_20px_-4px_hsl(16_100%_50%/0.18)]"
           >
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">

@@ -165,7 +165,7 @@ const Customers = () => {
           <div
             key={c.id}
             onClick={() => navigate(`/customers/${c.id}`)}
-            className="flex items-center gap-3 rounded-[20px] border bg-card p-4 cursor-pointer shadow-[0_2px_10px_-4px_hsl(174_72%_56%/0.10)] transition-all hover:shadow-[0_4px_16px_-4px_hsl(174_72%_56%/0.18)]"
+            className="flex items-center gap-3 rounded-[20px] border bg-card p-4 cursor-pointer shadow-[0_2px_10px_-4px_hsl(16_100%_50%/0.10)] transition-all hover:shadow-[0_4px_16px_-4px_hsl(16_100%_50%/0.18)]"
           >
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10">
               <User className="h-5 w-5 text-primary" />

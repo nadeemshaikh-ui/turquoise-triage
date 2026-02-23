@@ -188,7 +188,7 @@ const Workshop = () => {
             <Droppable droppableId={col.key} key={col.key}>
               {(provided, snapshot) => (
                 <div className="flex w-56 shrink-0 flex-col gap-2">
-                  <div className="flex items-center justify-between rounded-[28px] bg-muted px-4 py-2 shadow-[0_1px_6px_-2px_hsl(174_72%_56%/0.12)]">
+                  <div className="flex items-center justify-between rounded-[28px] bg-muted px-4 py-2 shadow-[0_1px_6px_-2px_hsl(16_100%_50%/0.12)]">
                     <span className="text-xs font-semibold text-foreground">{col.label}</span>
                     <Badge variant="secondary" className="text-[10px]">{col.items.length}</Badge>
                   </div>
@@ -213,9 +213,9 @@ const Workshop = () => {
                               {...provided.draggableProps}
                               {...provided.dragHandleProps}
                               className={cn(
-                                "rounded-[20px] border-2 bg-card p-3 shadow-[0_2px_10px_-4px_hsl(174_72%_56%/0.10)] transition-all cursor-grab active:cursor-grabbing",
+                                "rounded-[20px] border-2 bg-card p-3 shadow-[0_2px_10px_-4px_hsl(16_100%_50%/0.10)] transition-all cursor-grab active:cursor-grabbing",
                                 slaBorder[sla],
-                                snapshot.isDragging && "shadow-[0_8px_24px_-4px_hsl(174_72%_56%/0.25)] rotate-1 scale-[1.02]"
+                                snapshot.isDragging && "shadow-[0_8px_24px_-4px_hsl(16_100%_50%/0.25)] rotate-1 scale-[1.02]"
                               )}
                               onClick={() => !snapshot.isDragging && navigate(`/leads/${lead.id}`)}
                             >

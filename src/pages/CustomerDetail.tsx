@@ -111,17 +111,17 @@ const CustomerDetail = () => {
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-2">
-        <div className="rounded-[20px] border bg-card p-3 text-center shadow-[0_2px_10px_-4px_hsl(174_72%_56%/0.10)]">
+        <div className="rounded-[20px] border bg-card p-3 text-center shadow-[0_2px_10px_-4px_hsl(16_100%_50%/0.10)]">
           <p className="text-xl font-bold text-foreground">{orders.length}</p>
           <p className="text-[10px] text-muted-foreground">Total Orders</p>
         </div>
-        <div className="rounded-[20px] border bg-card p-3 text-center shadow-[0_2px_10px_-4px_hsl(174_72%_56%/0.10)]">
+        <div className="rounded-[20px] border bg-card p-3 text-center shadow-[0_2px_10px_-4px_hsl(16_100%_50%/0.10)]">
           <p className="text-xl font-bold text-primary">
             ₹{orders.reduce((s, o: any) => s + Number(o.quoted_price), 0).toLocaleString("en-IN")}
           </p>
           <p className="text-[10px] text-muted-foreground">Total Value</p>
         </div>
-        <div className="rounded-[20px] border bg-card p-3 text-center shadow-[0_2px_10px_-4px_hsl(174_72%_56%/0.10)]">
+        <div className="rounded-[20px] border bg-card p-3 text-center shadow-[0_2px_10px_-4px_hsl(16_100%_50%/0.10)]">
           <p className="text-xl font-bold text-foreground">
             {orders.filter((o: any) => o.status === "Completed").length}
           </p>
@@ -147,7 +147,7 @@ const CustomerDetail = () => {
                   key={order.id}
                   onClick={() => navigate(`/leads/${order.id}`)}
                   className={cn(
-                    "flex items-center gap-3 rounded-[20px] border-2 bg-card p-4 cursor-pointer transition-all shadow-[0_2px_10px_-4px_hsl(174_72%_56%/0.10)] hover:shadow-[0_4px_16px_-4px_hsl(174_72%_56%/0.18)]",
+                    "flex items-center gap-3 rounded-[20px] border-2 bg-card p-4 cursor-pointer transition-all shadow-[0_2px_10px_-4px_hsl(16_100%_50%/0.10)] hover:shadow-[0_4px_16px_-4px_hsl(16_100%_50%/0.18)]",
                     slaBorderClass
                   )}
                 >
