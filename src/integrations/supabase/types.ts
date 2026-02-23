@@ -326,6 +326,36 @@ export type Database = {
         }
         Relationships: []
       }
+      revenue_imports: {
+        Row: {
+          amount: number
+          created_at: string
+          customer_name: string | null
+          date: string
+          id: string
+          order_ref: string | null
+          source: string | null
+        }
+        Insert: {
+          amount?: number
+          created_at?: string
+          customer_name?: string | null
+          date: string
+          id?: string
+          order_ref?: string | null
+          source?: string | null
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          customer_name?: string | null
+          date?: string
+          id?: string
+          order_ref?: string | null
+          source?: string | null
+        }
+        Relationships: []
+      }
       service_recipes: {
         Row: {
           created_at: string
