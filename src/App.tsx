@@ -12,6 +12,7 @@ import Workshop from "./pages/Workshop";
 import Inventory from "./pages/Inventory";
 import Services from "./pages/Services";
 import Customers from "./pages/Customers";
+import CustomerDetail from "./pages/CustomerDetail";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import ForgotPassword from "./pages/ForgotPassword";
@@ -40,6 +41,7 @@ const App = () => (
               <Route path="/services" element={<Services />} />
             </Route>
             <Route path="/leads/:id" element={<ProtectedRoute><LeadDetail /></ProtectedRoute>} />
+            <Route path="/customers/:id" element={<ProtectedRoute><CustomerDetail /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
