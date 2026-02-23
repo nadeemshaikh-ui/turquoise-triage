@@ -175,6 +175,7 @@ export type Database = {
           id: string
           is_gold_tier: boolean
           notes: string | null
+          qc_checklist: Json | null
           quoted_price: number
           service_id: string
           status: string
@@ -191,6 +192,7 @@ export type Database = {
           id?: string
           is_gold_tier?: boolean
           notes?: string | null
+          qc_checklist?: Json | null
           quoted_price: number
           service_id: string
           status?: string
@@ -207,6 +209,7 @@ export type Database = {
           id?: string
           is_gold_tier?: boolean
           notes?: string | null
+          qc_checklist?: Json | null
           quoted_price?: number
           service_id?: string
           status?: string

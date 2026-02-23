@@ -36,6 +36,7 @@ interface KanbanLead {
   tatDaysMax: number;
   createdAt: string;
   notes: string | null;
+  qcChecklist: Record<string, boolean>;
 }
 
 interface RecipeMaterial {
@@ -72,7 +73,7 @@ const Workshop = () => {
         .from("leads")
         .select(`
           id, quoted_price, status, tat_days_max, is_gold_tier, created_at, notes, service_id,
-          custom_service_name,
+          qc_checklist, custom_service_name,
           customers ( name ),
           services ( name )
         `)
@@ -90,6 +91,7 @@ const Workshop = () => {
         tatDaysMax: r.tat_days_max,
         createdAt: r.created_at,
         notes: r.notes,
+        qcChecklist: (r.qc_checklist as Record<string, boolean>) || {},
       }));
     },
   });
@@ -277,7 +279,13 @@ const KanbanCard = ({
 
   // QC Checklist state
   const QC_ITEMS = ["Item Cleaned", "Stitching Verified", "Packaging Ready"];
-  const [qcChecks, setQcChecks] = useState<Record<string, boolean>>({});
+  const [qcChecks, setQcChecks] = useState<Record<string, boolean>>(lead.qcChecklist || {});
+
+  const toggleQcItem = async (item: string, checked: boolean) => {
+    const updated = { ...qcChecks, [item]: checked };
+    setQcChecks(updated);
+    await supabase.from("leads").update({ qc_checklist: updated }).eq("id", lead.id);
+  };
 
   const sla = getSlaStatus(lead.createdAt, lead.tatDaysMax, lead.status);
   const colIdx = KANBAN_COLUMNS.findIndex((c) => c.key === lead.status);
@@ -385,9 +393,7 @@ const KanbanCard = ({
                 <label key={item} className="flex items-center gap-1.5 pl-4 cursor-pointer">
                   <Checkbox
                     checked={!!qcChecks[item]}
-                    onCheckedChange={(checked) =>
-                      setQcChecks((prev) => ({ ...prev, [item]: !!checked }))
-                    }
+                    onCheckedChange={(checked) => toggleQcItem(item, !!checked)}
                     className="h-3.5 w-3.5"
                   />
                   <span className={cn("text-[10px]", qcChecks[item] ? "text-foreground line-through" : "text-foreground/70")}>
