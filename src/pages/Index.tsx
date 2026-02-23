@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Plus, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
@@ -12,6 +13,7 @@ import { Loader2 } from "lucide-react";
 
 const Index = () => {
   const [showNewLead, setShowNewLead] = useState(false);
+  const navigate = useNavigate();
   const { signOut } = useAuth();
   const queryClient = useQueryClient();
   const { goldTierLeads, recentLeads, stats, isLoading } = useLeads();
@@ -60,8 +62,8 @@ const Index = () => {
               revenue={stats.revenue}
               pendingPickup={stats.pendingPickup}
             />
-            <GoldTierLeads leads={goldTierLeads} />
-            <LeadsPipeline leads={recentLeads} />
+            <GoldTierLeads leads={goldTierLeads} onViewLead={(id) => navigate(`/leads/${id}`)} />
+            <LeadsPipeline leads={recentLeads} onViewLead={(id) => navigate(`/leads/${id}`)} />
           </>
         )}
       </main>
