@@ -10,7 +10,9 @@ const statusOrder = ["New", "In Progress", "Ready for Pickup", "Completed"];
 
 const statusStyles: Record<string, { dot: string; badge: string }> = {
   New: { dot: "bg-primary", badge: "bg-primary/15 text-primary border-primary/30" },
+  Assigned: { dot: "bg-accent-foreground", badge: "bg-accent text-accent-foreground border-accent" },
   "In Progress": { dot: "bg-gold", badge: "bg-gold/15 text-gold-foreground border-gold/30" },
+  QC: { dot: "bg-secondary-foreground", badge: "bg-secondary text-secondary-foreground border-border" },
   "Ready for Pickup": { dot: "bg-green-500", badge: "bg-green-100 text-green-800 border-green-300" },
   Completed: { dot: "bg-muted-foreground", badge: "bg-muted text-muted-foreground border-border" },
 };

@@ -41,6 +41,39 @@ export type Database = {
         }
         Relationships: []
       }
+      inventory_items: {
+        Row: {
+          category: string
+          created_at: string
+          id: string
+          min_stock_level: number
+          name: string
+          stock_level: number
+          unit: string
+          updated_at: string
+        }
+        Insert: {
+          category?: string
+          created_at?: string
+          id?: string
+          min_stock_level?: number
+          name: string
+          stock_level?: number
+          unit?: string
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          id?: string
+          min_stock_level?: number
+          name?: string
+          stock_level?: number
+          unit?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       lead_activity: {
         Row: {
           action: string

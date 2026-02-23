@@ -21,7 +21,9 @@ interface GoldTierLeadsProps {
 
 const statusColor: Record<string, string> = {
   New: "bg-primary/15 text-primary border-primary/30",
+  Assigned: "bg-accent text-accent-foreground border-accent",
   "In Progress": "bg-gold/15 text-gold-foreground border-gold/30",
+  QC: "bg-secondary text-secondary-foreground border-border",
   "Ready for Pickup": "bg-green-100 text-green-800 border-green-300",
   Completed: "bg-muted text-muted-foreground border-border",
 };
