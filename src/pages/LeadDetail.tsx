@@ -1,0 +1,230 @@
+import { useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { ArrowLeft, Crown, Clock, Phone, Mail, Camera, MessageSquare, CheckCircle2, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import { useLeadDetail } from "@/hooks/useLeadDetail";
+import { format, formatDistanceToNow } from "date-fns";
+import { toast } from "@/hooks/use-toast";
+
+const statusColor: Record<string, string> = {
+  New: "bg-primary/15 text-primary border-primary/30",
+  "In Progress": "bg-gold/15 text-gold-foreground border-gold/30",
+  "Ready for Pickup": "bg-green-100 text-green-800 border-green-300",
+  Completed: "bg-muted text-muted-foreground border-border",
+};
+
+const actionIcons: Record<string, typeof CheckCircle2> = {
+  status_change: CheckCircle2,
+  note: MessageSquare,
+};
+
+const LeadDetail = () => {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { lead, photos, activity, isLoading, updateStatus, addNote, STATUS_FLOW } = useLeadDetail(id!);
+  const [note, setNote] = useState("");
+  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+
+  if (isLoading || !lead) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  const currentIdx = STATUS_FLOW.indexOf(lead.status);
+  const nextStatus = currentIdx < STATUS_FLOW.length - 1 ? STATUS_FLOW[currentIdx + 1] : null;
+
+  const handleAdvance = () => {
+    if (!nextStatus) return;
+    updateStatus.mutate(nextStatus, {
+      onSuccess: () => toast({ title: `Status updated to ${nextStatus}` }),
+    });
+  };
+
+  const handleAddNote = () => {
+    if (!note.trim()) return;
+    addNote.mutate(note.trim(), {
+      onSuccess: () => {
+        setNote("");
+        toast({ title: "Note added" });
+      },
+    });
+  };
+
+  return (
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-md">
+        <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-4 sm:px-6">
+          <Button variant="ghost" size="icon" onClick={() => navigate("/")} className="shrink-0">
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <h1 className="truncate text-lg font-bold text-foreground">{lead.customerName}</h1>
+              {lead.isGoldTier && <Crown className="h-4 w-4 shrink-0 text-gold" />}
+            </div>
+            <p className="truncate text-sm text-muted-foreground">{lead.serviceName}</p>
+          </div>
+          <Badge variant="outline" className={`shrink-0 rounded-full text-xs ${statusColor[lead.status] || ""}`}>
+            {lead.status}
+          </Badge>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-3xl space-y-6 px-4 py-6 sm:px-6">
+        {/* Info Cards */}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <InfoCard label="Quoted Price" value={`₹${lead.quotedPrice.toLocaleString("en-IN")}`} />
+          <InfoCard label="TAT" value={`${lead.tatDaysMin}–${lead.tatDaysMax} days`} icon={<Clock className="h-3.5 w-3.5 text-muted-foreground" />} />
+          <InfoCard label="Phone" value={lead.customerPhone} icon={<Phone className="h-3.5 w-3.5 text-muted-foreground" />} />
+          <InfoCard label="Category" value={lead.category} />
+        </div>
+
+        {lead.notes && (
+          <div className="rounded-[var(--radius)] border border-border bg-muted/30 p-4">
+            <p className="text-sm text-muted-foreground">{lead.notes}</p>
+          </div>
+        )}
+
+        {/* Status Stepper */}
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold text-foreground">Order Progress</h2>
+          <div className="flex items-center gap-1">
+            {STATUS_FLOW.map((s, i) => {
+              const done = i <= currentIdx;
+              return (
+                <div key={s} className="flex flex-1 flex-col items-center gap-1.5">
+                  <div className={`h-2 w-full rounded-full transition-colors ${done ? "bg-primary" : "bg-border"}`} />
+                  <span className={`text-[10px] font-medium ${done ? "text-primary" : "text-muted-foreground"}`}>{s}</span>
+                </div>
+              );
+            })}
+          </div>
+          {nextStatus && (
+            <Button
+              onClick={handleAdvance}
+              disabled={updateStatus.isPending}
+              className="w-full rounded-[var(--radius)] gap-2"
+            >
+              {updateStatus.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              Move to {nextStatus}
+            </Button>
+          )}
+        </section>
+
+        {/* Photo Gallery */}
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Camera className="h-4 w-4 text-muted-foreground" />
+            <h2 className="text-sm font-semibold text-foreground">Photos</h2>
+            <span className="text-xs text-muted-foreground">({photos.length})</span>
+          </div>
+          {photos.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No photos uploaded yet.</p>
+          ) : (
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+              {photos.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setSelectedPhoto(p.url)}
+                  className="aspect-square overflow-hidden rounded-[calc(var(--radius)/2)] border border-border bg-muted transition-shadow hover:shadow-md"
+                >
+                  <img src={p.url} alt={p.fileName} className="h-full w-full object-cover" loading="lazy" />
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Photo Lightbox */}
+        {selectedPhoto && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+            onClick={() => setSelectedPhoto(null)}
+          >
+            <img
+              src={selectedPhoto}
+              alt="Lead photo"
+              className="max-h-[85vh] max-w-full rounded-[var(--radius)] object-contain"
+            />
+          </div>
+        )}
+
+        {/* Add Note */}
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold text-foreground">Add a Note</h2>
+          <div className="flex gap-2">
+            <Textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Type a note…"
+              className="min-h-[60px] rounded-[calc(var(--radius)/2)]"
+            />
+            <Button
+              onClick={handleAddNote}
+              disabled={!note.trim() || addNote.isPending}
+              size="icon"
+              className="shrink-0 self-end rounded-[var(--radius)]"
+            >
+              {addNote.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}
+            </Button>
+          </div>
+        </section>
+
+        {/* Activity Timeline */}
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold text-foreground">Activity</h2>
+          {activity.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No activity yet.</p>
+          ) : (
+            <div className="space-y-0">
+              {activity.map((item, i) => {
+                const Icon = actionIcons[item.action] || MessageSquare;
+                return (
+                  <div key={item.id} className="relative flex gap-3 pb-4">
+                    {/* Timeline line */}
+                    {i < activity.length - 1 && (
+                      <div className="absolute left-[13px] top-7 h-full w-px bg-border" />
+                    )}
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
+                      <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+                    </div>
+                    <div className="min-w-0 flex-1 pt-0.5">
+                      <p className="text-sm text-foreground">{item.details || item.action}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {item.userName && `${item.userName} · `}
+                        {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true })}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* Created date */}
+        <p className="text-center text-xs text-muted-foreground">
+          Created {format(new Date(lead.createdAt), "MMM d, yyyy 'at' h:mm a")}
+        </p>
+      </main>
+    </div>
+  );
+};
+
+const InfoCard = ({ label, value, icon }: { label: string; value: string; icon?: React.ReactNode }) => (
+  <div className="rounded-[var(--radius)] border border-border bg-card p-3">
+    <div className="flex items-center gap-1.5">
+      {icon}
+      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</span>
+    </div>
+    <p className="mt-1 text-sm font-semibold text-card-foreground">{value}</p>
+  </div>
+);
+
+export default LeadDetail;
