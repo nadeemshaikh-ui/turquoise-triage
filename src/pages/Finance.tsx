@@ -166,10 +166,11 @@ const Finance = () => {
 
     const totalOrders = filteredLeads.length + filteredImports.length;
     const totalLaborCost = totalOrders * laborCost;
-    const netProfit = totalRevenue - totalMaterialCost - totalLaborCost;
+    const totalAdSpend = filteredAdSpend.reduce((s, a: any) => s + Number(a.amount_spent), 0);
+    const netProfit = totalRevenue - totalMaterialCost - totalLaborCost - totalAdSpend;
 
-    return { totalRevenue, totalMaterialCost, totalLaborCost, netProfit, orderCount: totalOrders, importedRevenue };
-  }, [filteredLeads, filteredImports, recipes, laborCost]);
+    return { totalRevenue, totalMaterialCost, totalLaborCost, totalAdSpend, netProfit, orderCount: totalOrders, importedRevenue };
+  }, [filteredLeads, filteredImports, filteredAdSpend, recipes, laborCost]);
 
   // ROAS chart data
   const roasChartData = useMemo(() => {
@@ -469,7 +470,7 @@ const Finance = () => {
       </div>
 
       {/* P&L Summary Cards */}
-      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">
         <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground">
@@ -500,6 +501,16 @@ const Finance = () => {
               <span className="text-xs font-medium">Labor ({pnl.orderCount} orders)</span>
             </div>
             <p className="mt-1 text-xl font-bold text-foreground">₹{pnl.totalLaborCost.toLocaleString("en-IN")}</p>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <BarChart3 className="h-4 w-4" />
+              <span className="text-xs font-medium">Ad Spend</span>
+            </div>
+            <p className="mt-1 text-xl font-bold text-destructive">₹{pnl.totalAdSpend.toLocaleString("en-IN")}</p>
           </CardContent>
         </Card>
 
