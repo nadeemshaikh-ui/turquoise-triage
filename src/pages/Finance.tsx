@@ -512,6 +512,9 @@ const Finance = () => {
             <p className={`mt-1 text-xl font-bold ${pnl.netProfit >= 0 ? "text-primary" : "text-destructive"}`}>
               ₹{pnl.netProfit.toLocaleString("en-IN")}
             </p>
+            <p className={`text-[10px] font-medium ${pnl.netProfit >= 0 ? "text-primary/70" : "text-destructive/70"}`}>
+              {pnl.totalRevenue > 0 ? `${((pnl.netProfit / pnl.totalRevenue) * 100).toFixed(1)}% margin` : "—"}
+            </p>
           </CardContent>
         </Card>
       </div>
