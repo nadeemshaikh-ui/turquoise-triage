@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserRole } from "@/hooks/useUserRole";
 import { cn } from "@/lib/utils";
+import AlertBell from "@/components/AlertBell";
 
 const AppLayout = () => {
   const navigate = useNavigate();
@@ -43,6 +44,7 @@ const AppLayout = () => {
               <Plus className="h-4 w-4" />
               <span className="hidden sm:inline">New Lead</span>
             </Button>
+            <AlertBell />
             <Button variant="ghost" size="icon" onClick={signOut} title="Sign out">
               <LogOut className="h-4 w-4" />
             </Button>
