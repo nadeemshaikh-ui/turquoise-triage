@@ -45,7 +45,7 @@ const GoldTierLeads = ({ leads, onViewLead }: GoldTierLeadsProps) => {
           <button
             key={lead.id}
             onClick={() => onViewLead?.(lead.id)}
-            className="group relative overflow-hidden rounded-[28px] border-2 border-gold/30 bg-gradient-to-br from-gold/5 via-card to-primary/5 p-5 text-left shadow-sm transition-all hover:border-gold/50 hover:shadow-lg"
+            className="group relative overflow-hidden rounded-[28px] border-2 border-gold/30 bg-gradient-to-br from-gold/5 via-card to-primary/5 p-5 text-left shadow-[0_2px_12px_-4px_hsl(174_72%_56%/0.10)] transition-all hover:border-gold/50 hover:shadow-[0_4px_20px_-4px_hsl(174_72%_56%/0.18)]"
           >
             <div className="absolute right-3 top-3">
               <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gold/20">
