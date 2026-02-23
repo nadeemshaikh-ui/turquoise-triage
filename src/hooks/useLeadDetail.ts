@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -38,6 +39,24 @@ const STATUS_FLOW = ["New", "In Progress", "Ready for Pickup", "Completed"];
 export const useLeadDetail = (leadId: string) => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+
+  // Realtime subscriptions
+  useEffect(() => {
+    const channel = supabase
+      .channel(`lead-detail-${leadId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "leads", filter: `id=eq.${leadId}` }, () => {
+        queryClient.invalidateQueries({ queryKey: ["lead", leadId] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "lead_photos", filter: `lead_id=eq.${leadId}` }, () => {
+        queryClient.invalidateQueries({ queryKey: ["lead-photos", leadId] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "lead_activity", filter: `lead_id=eq.${leadId}` }, () => {
+        queryClient.invalidateQueries({ queryKey: ["lead-activity", leadId] });
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [leadId, queryClient]);
 
   const leadQuery = useQuery({
     queryKey: ["lead", leadId],
