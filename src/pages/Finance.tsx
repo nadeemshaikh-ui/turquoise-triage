@@ -8,7 +8,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Loader2, Upload, DollarSign, TrendingUp, Users, BarChart3, Settings2, CalendarIcon, ToggleLeft, ToggleRight } from "lucide-react";
+import { Loader2, Upload, DollarSign, TrendingUp, Users, BarChart3, Settings2, CalendarIcon, ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
@@ -221,12 +232,23 @@ const Finance = () => {
       const lines = text.split("\n").filter((l) => l.trim());
       if (lines.length < 2) throw new Error("Invalid Format: Please ensure you are uploading the 'Transaction Report' from Meta Ads Manager");
 
-      // Auto-detect delimiter: tab or comma
-      const delimiter = lines.some((l) => l.includes("\t")) ? "\t" : ",";
+      // Search-and-Skip: find the row that STARTS with "Date" (tab-delimited header)
+      let headerIdx = -1;
+      let delimiter = "\t"; // Default to tab for Meta exports
+      for (let i = 0; i < lines.length; i++) {
+        const trimmed = lines[i].replace(/^["'\s]+/, "");
+        if (/^date\b/i.test(trimmed)) {
+          headerIdx = i;
+          // Detect delimiter from this header row
+          delimiter = lines[i].includes("\t") ? "\t" : ",";
+          break;
+        }
+      }
+      if (headerIdx < 0) throw new Error("Invalid Format: Please ensure you are uploading the 'Transaction Report' from Meta Ads Manager");
 
-      // Smart CSV cell parser (handles quoted fields with commas)
-      const parseCsvLine = (line: string, delim: string): string[] => {
-        if (delim === "\t") return line.split("\t").map((c) => c.trim().replace(/^"|"$/g, ""));
+      // Parse header to find column indices
+      const parseCells = (line: string): string[] => {
+        if (delimiter === "\t") return line.split("\t").map((c) => c.trim().replace(/^"|"$/g, ""));
         const result: string[] = [];
         let current = "";
         let inQuotes = false;
@@ -239,46 +261,32 @@ const Finance = () => {
         return result;
       };
 
-      // Skip-to-Header: scan ALL lines until we find one containing "date"
-      let headerIdx = -1;
-      let dateCol = -1;
-      let amountCol = -1;
-      for (let i = 0; i < lines.length; i++) {
-        const cols = parseCsvLine(lines[i], delimiter).map((c) => c.replace(/"/g, "").toLowerCase());
-        const dIdx = cols.findIndex((c) => c === "date" || c.includes("date") || c.includes("day"));
-        if (dIdx < 0) continue;
-        const aIdx = cols.findIndex((c) => c === "amount" || c.includes("spend") || c.includes("amount") || c.includes("cost"));
-        if (aIdx >= 0) {
-          headerIdx = i;
-          dateCol = dIdx;
-          amountCol = aIdx;
-          break;
-        }
-      }
-      if (headerIdx < 0) throw new Error("Invalid Format: Please ensure you are uploading the 'Transaction Report' from Meta Ads Manager");
+      const headerCols = parseCells(lines[headerIdx]).map((c) => c.replace(/"/g, "").toLowerCase());
+      const dateCol = headerCols.findIndex((c) => c === "date" || c.includes("date"));
+      const amountCol = headerCols.findIndex((c) => c === "amount" || c.includes("spend") || c.includes("amount") || c.includes("cost"));
+      if (dateCol < 0 || amountCol < 0) throw new Error("Invalid Format: Please ensure you are uploading the 'Transaction Report' from Meta Ads Manager");
 
-      // Aggressive currency cleaner: strip quotes, ₹, commas, parens, whitespace
+      // Aggressive number scrubbing
       const cleanAmount = (raw: string): number => {
         const cleaned = raw.replace(/["₹,\s()]/g, "").trim();
         return Math.abs(parseFloat(cleaned) || 0);
       };
 
-      // Summary phrases to ignore
-      const summaryPhrases = ["total amount billed", "total funds added", "gst amount", "tds amount", "vat rate", "tds rate"];
+      // Anti-double-counting blacklist
+      const skipPhrases = ["total", "gst", "tds", "vat", "funds added"];
 
       const parsedRows = lines.slice(headerIdx + 1).map((line) => {
-        if (summaryPhrases.some((phrase) => line.toLowerCase().includes(phrase))) return null;
+        const lower = line.toLowerCase();
+        if (skipPhrases.some((phrase) => lower.includes(phrase))) return null;
 
-        const cells = parseCsvLine(line, delimiter);
-
+        const cells = parseCells(line);
         const rawDate = (cells[dateCol] || "").replace(/"/g, "").trim();
         const amount = cleanAmount(cells[amountCol] || "");
 
-        // Only accept rows where the date column is a valid date
+        // Only accept DD-MM-YYYY or YYYY-MM-DD date formats
         const isDdMmYyyy = /^\d{1,2}-\d{1,2}-\d{4}$/.test(rawDate);
         const isIsoDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate);
         if (!isDdMmYyyy && !isIsoDate) return null;
-
         if (amount <= 0) return null;
 
         let normalizedDate = rawDate;
@@ -307,7 +315,7 @@ const Finance = () => {
       const totalSpend = insertRows.reduce((s, r) => s + r.amount_spent, 0);
       const { error } = await supabase.from("meta_ad_spend").insert(insertRows);
       if (error) throw error;
-      toast({ title: `✅ Total Spend Verified: ₹${totalSpend.toLocaleString("en-IN", { minimumFractionDigits: 2 })} across ${insertRows.length} days` });
+      toast({ title: `✅ Successfully synced ₹${totalSpend.toLocaleString("en-IN", { minimumFractionDigits: 2 })} across ${insertRows.length} days` });
       queryClient.invalidateQueries({ queryKey: ["finance-ad-spend"] });
     } catch (err: any) {
       toast({ title: "Upload Error", description: err.message, variant: "destructive" });
@@ -427,6 +435,21 @@ const Finance = () => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     } finally {
       setSavingLabor(false);
+    }
+  };
+
+  const handleResetFinanceData = async () => {
+    try {
+      const { error: e1 } = await supabase.from("meta_ad_spend").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      if (e1) throw e1;
+      const { error: e2 } = await supabase.from("revenue_imports").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      if (e2) throw e2;
+      queryClient.invalidateQueries({ queryKey: ["finance-ad-spend"] });
+      queryClient.invalidateQueries({ queryKey: ["finance-revenue-imports"] });
+      queryClient.invalidateQueries({ queryKey: ["finance-top-customers"] });
+      toast({ title: "✅ Finance data has been reset." });
+    } catch (err: any) {
+      toast({ title: "Reset Error", description: err.message, variant: "destructive" });
     }
   };
 
@@ -570,7 +593,30 @@ const Finance = () => {
         </CardContent>
       </Card>
 
-      {/* ROAS Chart */}
+      {/* Reset Finance Data */}
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <Button variant="outline" size="sm" className="rounded-[28px] gap-2 text-xs text-destructive border-destructive/30 hover:bg-destructive/10">
+            <Trash2 className="h-3.5 w-3.5" />
+            Reset All Finance Data
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will delete all uploaded Meta Spend and Historical Revenue data. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleResetFinanceData} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Yes, Reset Everything
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
         <CardHeader className="pb-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
