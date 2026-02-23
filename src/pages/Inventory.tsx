@@ -109,10 +109,13 @@ const Inventory = () => {
               <div className="min-w-0 flex-1">
                 <p className="font-semibold text-card-foreground">{item.name}</p>
                 <p className="text-xs text-muted-foreground">{item.category}</p>
-                <div className="mt-2 flex items-center gap-2">
+                <div className="mt-2 flex items-center gap-2 flex-wrap">
                   <span className="text-lg font-bold text-primary">
                     {item.stock_level} <span className="text-xs font-normal text-muted-foreground">{item.unit}</span>
                   </span>
+                  {item.cost_per_unit > 0 && (
+                    <span className="text-xs text-muted-foreground">· ₹{item.cost_per_unit}/{item.unit}</span>
+                  )}
                   {isLow && (
                     <Badge variant="destructive" className="gap-1 text-[10px]">
                       <AlertTriangle className="h-3 w-3" /> Low
