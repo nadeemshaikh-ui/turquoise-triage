@@ -219,27 +219,49 @@ const Finance = () => {
     try {
       const text = await file.text();
       const lines = text.split("\n").filter((l) => l.trim());
-      if (lines.length < 2) throw new Error("CSV is empty");
+      if (lines.length < 2) throw new Error("Invalid Format: Please ensure you are uploading the 'Transaction Report' from Meta Ads Manager");
 
       // Auto-detect delimiter: tab or comma
       const delimiter = lines.some((l) => l.includes("\t")) ? "\t" : ",";
 
-      // Find the header row (contains "date" and "amount" columns)
+      // Smart CSV cell parser (handles quoted fields with commas)
+      const parseCsvLine = (line: string, delim: string): string[] => {
+        if (delim === "\t") return line.split("\t").map((c) => c.trim().replace(/^"|"$/g, ""));
+        const result: string[] = [];
+        let current = "";
+        let inQuotes = false;
+        for (const char of line) {
+          if (char === '"') { inQuotes = !inQuotes; }
+          else if (char === ',' && !inQuotes) { result.push(current.trim()); current = ""; }
+          else { current += char; }
+        }
+        result.push(current.trim());
+        return result;
+      };
+
+      // Skip-to-Header: scan ALL lines until we find one containing "date"
       let headerIdx = -1;
       let dateCol = -1;
       let amountCol = -1;
-      for (let i = 0; i < Math.min(lines.length, 20); i++) {
-        const cols = lines[i].split(delimiter).map((c) => c.trim().replace(/"/g, "").toLowerCase());
+      for (let i = 0; i < lines.length; i++) {
+        const cols = parseCsvLine(lines[i], delimiter).map((c) => c.replace(/"/g, "").toLowerCase());
         const dIdx = cols.findIndex((c) => c === "date" || c.includes("date") || c.includes("day"));
+        if (dIdx < 0) continue;
         const aIdx = cols.findIndex((c) => c === "amount" || c.includes("spend") || c.includes("amount") || c.includes("cost"));
-        if (dIdx >= 0 && aIdx >= 0) {
+        if (aIdx >= 0) {
           headerIdx = i;
           dateCol = dIdx;
           amountCol = aIdx;
           break;
         }
       }
-      if (headerIdx < 0) throw new Error("CSV must have 'date' and 'amount/spend/cost' columns");
+      if (headerIdx < 0) throw new Error("Invalid Format: Please ensure you are uploading the 'Transaction Report' from Meta Ads Manager");
+
+      // Aggressive currency cleaner: strip quotes, ₹, commas, parens, whitespace
+      const cleanAmount = (raw: string): number => {
+        const cleaned = raw.replace(/["₹,\s()]/g, "").trim();
+        return Math.abs(parseFloat(cleaned) || 0);
+      };
 
       // Summary phrases to ignore
       const summaryPhrases = ["total amount billed", "total funds added", "gst amount", "tds amount", "vat rate", "tds rate"];
@@ -247,24 +269,16 @@ const Finance = () => {
       const parsedRows = lines.slice(headerIdx + 1).map((line) => {
         if (summaryPhrases.some((phrase) => line.toLowerCase().includes(phrase))) return null;
 
-        const cells = delimiter === "\t"
-          ? line.split("\t").map((c) => c.trim().replace(/"/g, ""))
-          : (() => {
-              // For comma-delimited, split on first comma only (2-col format)
-              const firstComma = line.indexOf(",");
-              if (firstComma < 0) return [line.trim()];
-              return [line.substring(0, firstComma).trim().replace(/"/g, ""), line.substring(firstComma + 1).replace(/"/g, "").trim()];
-            })();
+        const cells = parseCsvLine(line, delimiter);
 
-        const rawDate = cells[dateCol]?.trim() || "";
-        const rawAmount = (cells[amountCol] || "").replace(/[₹,\s]/g, "").trim();
+        const rawDate = (cells[dateCol] || "").replace(/"/g, "").trim();
+        const amount = cleanAmount(cells[amountCol] || "");
 
         // Only accept rows where the date column is a valid date
         const isDdMmYyyy = /^\d{1,2}-\d{1,2}-\d{4}$/.test(rawDate);
         const isIsoDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate);
         if (!isDdMmYyyy && !isIsoDate) return null;
 
-        const amount = parseFloat(rawAmount) || 0;
         if (amount <= 0) return null;
 
         let normalizedDate = rawDate;
@@ -276,7 +290,7 @@ const Finance = () => {
         return { date: normalizedDate, amount_spent: amount };
       }).filter((r): r is { date: string; amount_spent: number } => r !== null && !!r.date && !isNaN(new Date(r.date).getTime()));
 
-      if (parsedRows.length === 0) throw new Error("No valid rows found");
+      if (parsedRows.length === 0) throw new Error("No valid data rows found. Check that your file has Date and Amount columns with valid values.");
 
       // Sum by date for deduplication
       const byDate = new Map<string, number>();
