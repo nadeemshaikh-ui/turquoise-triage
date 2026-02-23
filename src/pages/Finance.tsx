@@ -225,12 +225,14 @@ const Finance = () => {
       const spendIdx = cols.findIndex((c) => c.includes("spend") || c.includes("amount") || c.includes("cost"));
       if (dateIdx < 0 || spendIdx < 0) throw new Error("CSV must have 'date' and 'spend/amount/cost' columns");
 
-      // Parse and normalize rows
+      // Parse and normalize rows (handle commas inside spend values like ₹1,500)
       const parsedRows = lines.slice(1).map((line) => {
-        const vals = line.split(",").map((v) => v.trim().replace(/"/g, ""));
-        const rawDate = vals[dateIdx];
-        // Clean spend: remove ₹, commas, spaces
-        const rawSpend = vals[spendIdx]?.replace(/[₹,\s]/g, "") || "0";
+        // Split on first comma only for 2-col format; join remainder as spend
+        const firstComma = line.indexOf(",");
+        if (firstComma < 0) return null;
+        const rawDate = line.substring(0, firstComma).trim().replace(/"/g, "");
+        // Everything after first comma is the spend value
+        const rawSpend = line.substring(firstComma + 1).replace(/[₹",\s]/g, "").trim();
         const amount = parseFloat(rawSpend) || 0;
 
         // Auto-detect DD-MM-YYYY vs YYYY-MM-DD
@@ -241,7 +243,7 @@ const Finance = () => {
         }
 
         return { date: normalizedDate, amount_spent: amount };
-      }).filter((r) => r.date && !isNaN(new Date(r.date).getTime()) && r.amount_spent > 0);
+      }).filter((r): r is { date: string; amount_spent: number } => r !== null && !!r.date && !isNaN(new Date(r.date).getTime()) && r.amount_spent > 0);
 
       if (parsedRows.length === 0) throw new Error("No valid rows found");
 
