@@ -207,6 +207,44 @@ export type Database = {
           },
         ]
       }
+      low_stock_alerts: {
+        Row: {
+          created_at: string
+          id: string
+          inventory_item_id: string
+          is_read: boolean
+          item_name: string
+          min_stock_level: number
+          stock_level: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          inventory_item_id: string
+          is_read?: boolean
+          item_name: string
+          min_stock_level: number
+          stock_level: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          inventory_item_id?: string
+          is_read?: boolean
+          item_name?: string
+          min_stock_level?: number
+          stock_level?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "low_stock_alerts_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
