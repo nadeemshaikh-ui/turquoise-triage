@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Crown, Clock, Phone, Mail, Camera, MessageSquare, CheckCircle2, Loader2 } from "lucide-react";
+import { ArrowLeft, Crown, Clock, Phone, Mail, Camera, MessageSquare, CheckCircle2, Loader2, Upload, ImagePlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,14 +18,16 @@ const statusColor: Record<string, string> = {
 const actionIcons: Record<string, typeof CheckCircle2> = {
   status_change: CheckCircle2,
   note: MessageSquare,
+  photo_upload: Camera,
 };
 
 const LeadDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { lead, photos, activity, isLoading, updateStatus, addNote, STATUS_FLOW } = useLeadDetail(id!);
+  const { lead, photos, activity, isLoading, updateStatus, addNote, uploadPhotos, STATUS_FLOW } = useLeadDetail(id!);
   const [note, setNote] = useState("");
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (isLoading || !lead) {
     return (
@@ -53,6 +55,16 @@ const LeadDetail = () => {
         toast({ title: "Note added" });
       },
     });
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    uploadPhotos.mutate(files, {
+      onSuccess: () => toast({ title: `${files.length} photo${files.length > 1 ? "s" : ""} uploaded` }),
+      onError: () => toast({ title: "Upload failed", variant: "destructive" }),
+    });
+    e.target.value = "";
   };
 
   return (
@@ -119,13 +131,41 @@ const LeadDetail = () => {
 
         {/* Photo Gallery */}
         <section className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Camera className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-sm font-semibold text-foreground">Photos</h2>
-            <span className="text-xs text-muted-foreground">({photos.length})</span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Camera className="h-4 w-4 text-muted-foreground" />
+              <h2 className="text-sm font-semibold text-foreground">Photos</h2>
+              <span className="text-xs text-muted-foreground">({photos.length})</span>
+            </div>
+            <div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={handleFileChange}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 rounded-[var(--radius)]"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadPhotos.isPending}
+              >
+                {uploadPhotos.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
+                Upload
+              </Button>
+            </div>
           </div>
           {photos.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No photos uploaded yet.</p>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="flex w-full flex-col items-center gap-2 rounded-[var(--radius)] border border-dashed border-border bg-muted/30 p-8 text-muted-foreground transition-colors hover:border-primary/40 hover:bg-muted/50"
+            >
+              <ImagePlus className="h-8 w-8" />
+              <span className="text-sm">Click to upload photos</span>
+            </button>
           ) : (
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
               {photos.map((p) => (

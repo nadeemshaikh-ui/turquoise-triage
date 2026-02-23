@@ -168,6 +168,36 @@ export const useLeadDetail = (leadId: string) => {
     },
   });
 
+  const uploadPhotos = useMutation({
+    mutationFn: async (files: File[]) => {
+      for (const file of files) {
+        const path = `${leadId}/${Date.now()}-${file.name}`;
+        const { error: storageError } = await supabase.storage
+          .from("lead-photos")
+          .upload(path, file);
+        if (storageError) throw storageError;
+
+        const { error: dbError } = await supabase.from("lead_photos").insert({
+          lead_id: leadId,
+          storage_path: path,
+          file_name: file.name,
+        });
+        if (dbError) throw dbError;
+      }
+
+      await supabase.from("lead_activity").insert({
+        lead_id: leadId,
+        user_id: user?.id,
+        action: "photo_upload",
+        details: `Uploaded ${files.length} photo${files.length > 1 ? "s" : ""}`,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["lead-photos", leadId] });
+      queryClient.invalidateQueries({ queryKey: ["lead-activity", leadId] });
+    },
+  });
+
   return {
     lead: leadQuery.data,
     photos: photosQuery.data ?? [],
@@ -175,6 +205,7 @@ export const useLeadDetail = (leadId: string) => {
     isLoading: leadQuery.isLoading,
     updateStatus,
     addNote,
+    uploadPhotos,
     STATUS_FLOW,
   };
 };
