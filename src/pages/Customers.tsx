@@ -164,7 +164,8 @@ const Customers = () => {
         {filtered.map((c) => (
           <div
             key={c.id}
-            className="flex items-center gap-3 rounded-[20px] border bg-card p-4 shadow-[0_2px_10px_-4px_hsl(174_72%_56%/0.10)] transition-all hover:shadow-[0_4px_16px_-4px_hsl(174_72%_56%/0.18)]"
+            onClick={() => navigate(`/customers/${c.id}`)}
+            className="flex items-center gap-3 rounded-[20px] border bg-card p-4 cursor-pointer shadow-[0_2px_10px_-4px_hsl(174_72%_56%/0.10)] transition-all hover:shadow-[0_4px_16px_-4px_hsl(174_72%_56%/0.18)]"
           >
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10">
               <User className="h-5 w-5 text-primary" />
@@ -185,7 +186,7 @@ const Customers = () => {
             <Badge variant="secondary" className="shrink-0 text-[10px]">
               {c.leadCount} {c.leadCount === 1 ? "order" : "orders"}
             </Badge>
-            <div className="flex gap-1 shrink-0">
+            <div className="flex gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(c)}>
                 <Pencil className="h-3.5 w-3.5" />
               </Button>
