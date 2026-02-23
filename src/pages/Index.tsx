@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import StatsBar from "@/components/dashboard/StatsBar";
 import GoldTierLeads from "@/components/dashboard/GoldTierLeads";
 import LeadsPipeline from "@/components/dashboard/LeadsPipeline";
+import NewLeadDialog from "@/components/intake/NewLeadDialog";
 import type { Lead } from "@/components/dashboard/GoldTierLeads";
 
 // Mock data — will be replaced with live DB queries after auth is wired
@@ -73,6 +75,8 @@ const goldTierLeads = mockLeads.filter((l) => l.isGoldTier);
 const recentLeads = mockLeads.filter((l) => !l.isGoldTier);
 
 const Index = () => {
+  const [showNewLead, setShowNewLead] = useState(false);
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -84,7 +88,10 @@ const Index = () => {
             </h1>
             <p className="text-xs text-muted-foreground">Shoe & Bag Restoration OS</p>
           </div>
-          <Button className="rounded-[28px] gap-2 px-6 shadow-md hover:shadow-lg transition-shadow">
+          <Button
+            className="rounded-[28px] gap-2 px-6 shadow-md hover:shadow-lg transition-shadow"
+            onClick={() => setShowNewLead(true)}
+          >
             <Plus className="h-4 w-4" />
             New Lead
           </Button>
@@ -104,6 +111,8 @@ const Index = () => {
 
         <LeadsPipeline leads={recentLeads} />
       </main>
+
+      <NewLeadDialog open={showNewLead} onOpenChange={setShowNewLead} />
     </div>
   );
 };
