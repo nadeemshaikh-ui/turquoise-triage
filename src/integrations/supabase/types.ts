@@ -14,6 +14,27 @@ export type Database = {
   }
   public: {
     Tables: {
+      app_settings: {
+        Row: {
+          id: string
+          key: string
+          updated_at: string
+          value: string
+        }
+        Insert: {
+          id?: string
+          key: string
+          updated_at?: string
+          value: string
+        }
+        Update: {
+          id?: string
+          key?: string
+          updated_at?: string
+          value?: string
+        }
+        Relationships: []
+      }
       customers: {
         Row: {
           created_at: string
@@ -44,6 +65,7 @@ export type Database = {
       inventory_items: {
         Row: {
           category: string
+          cost_per_unit: number
           created_at: string
           id: string
           min_stock_level: number
@@ -54,6 +76,7 @@ export type Database = {
         }
         Insert: {
           category?: string
+          cost_per_unit?: number
           created_at?: string
           id?: string
           min_stock_level?: number
@@ -64,6 +87,7 @@ export type Database = {
         }
         Update: {
           category?: string
+          cost_per_unit?: number
           created_at?: string
           id?: string
           min_stock_level?: number
@@ -244,6 +268,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      meta_ad_spend: {
+        Row: {
+          amount_spent: number
+          campaign_name: string | null
+          clicks: number | null
+          created_at: string
+          date: string
+          id: string
+          impressions: number | null
+        }
+        Insert: {
+          amount_spent?: number
+          campaign_name?: string | null
+          clicks?: number | null
+          created_at?: string
+          date: string
+          id?: string
+          impressions?: number | null
+        }
+        Update: {
+          amount_spent?: number
+          campaign_name?: string | null
+          clicks?: number | null
+          created_at?: string
+          date?: string
+          id?: string
+          impressions?: number | null
+        }
+        Relationships: []
       }
       profiles: {
         Row: {

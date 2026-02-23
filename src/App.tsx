@@ -13,6 +13,8 @@ import Inventory from "./pages/Inventory";
 import Services from "./pages/Services";
 import Customers from "./pages/Customers";
 import CustomerDetail from "./pages/CustomerDetail";
+import Finance from "./pages/Finance";
+import Automations from "./pages/Automations";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import ForgotPassword from "./pages/ForgotPassword";
@@ -39,6 +41,8 @@ const App = () => (
               <Route path="/inventory" element={<Inventory />} />
               <Route path="/customers" element={<Customers />} />
               <Route path="/services" element={<Services />} />
+              <Route path="/finance" element={<Finance />} />
+              <Route path="/automations" element={<Automations />} />
             </Route>
             <Route path="/leads/:id" element={<ProtectedRoute><LeadDetail /></ProtectedRoute>} />
             <Route path="/customers/:id" element={<ProtectedRoute><CustomerDetail /></ProtectedRoute>} />

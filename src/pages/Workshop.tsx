@@ -93,17 +93,15 @@ const Workshop = () => {
   }, [queryClient]);
 
   const showDeductionToast = useCallback(async (lead: KanbanLead) => {
-    const { data } = await supabase
-      .from("service_recipes")
-      .select("quantity, inventory_items(name, unit)")
-      .eq("service_id", lead.id);
-    // We need the service_id from the lead — refetch it
+    // Get the service_id from the lead
     const { data: leadData } = await supabase
       .from("leads")
-      .select("service_id")
+      .select("service_id, customer_id, customers(phone)")
       .eq("id", lead.id)
       .single();
     if (!leadData) return;
+
+    // Show stock deduction toast
     const { data: recipes } = await supabase
       .from("service_recipes")
       .select("quantity, inventory_items(name, unit)")
@@ -114,6 +112,23 @@ const Workshop = () => {
         title: "📦 Stock Deducted",
         description: `${lead.serviceName} → ${items}`,
       });
+    }
+
+    // Trigger WhatsApp notification (fire-and-forget)
+    const customerPhone = (leadData as any).customers?.phone;
+    if (customerPhone) {
+      supabase.functions.invoke("send-whatsapp", {
+        body: {
+          lead_id: lead.id,
+          customer_phone: customerPhone,
+          customer_name: lead.customerName,
+          service_name: lead.serviceName,
+        },
+      }).then(({ error }) => {
+        if (!error) {
+          toast({ title: "📱 WhatsApp notification sent" });
+        }
+      }).catch(() => {});
     }
   }, []);
 
