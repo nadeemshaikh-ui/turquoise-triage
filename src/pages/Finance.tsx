@@ -600,7 +600,52 @@ const Finance = () => {
         </CardContent>
       </Card>
 
-      {/* Top Customers */}
+      {/* Monthly Breakdown Table */}
+      <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold">Monthly Breakdown</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Month</th>
+                  <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">Revenue</th>
+                  <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">Ad Spend</th>
+                  <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">ROAS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {roasChartData.filter((m) => m.revenue > 0 || m.spend > 0).map((m) => {
+                  const roas = m.spend > 0 ? m.revenue / m.spend : 0;
+                  return (
+                    <tr key={m.month} className="border-b border-border last:border-0">
+                      <td className="px-4 py-2.5 font-medium text-foreground">{m.month}</td>
+                      <td className="px-4 py-2.5 text-right text-primary font-semibold">₹{m.revenue.toLocaleString("en-IN")}</td>
+                      <td className="px-4 py-2.5 text-right text-destructive font-semibold">₹{m.spend.toLocaleString("en-IN")}</td>
+                      <td className="px-4 py-2.5 text-right">
+                        {m.spend > 0 ? (
+                          <Badge variant={roas >= 2 ? "default" : roas >= 1 ? "secondary" : "destructive"} className="rounded-full text-xs">
+                            {roas.toFixed(2)}x
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {roasChartData.every((m) => m.revenue === 0 && m.spend === 0) && (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-6 text-center text-muted-foreground">No data for this period</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
       <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-semibold">Top Customers by Lifetime Spend</CardTitle>
