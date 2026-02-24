@@ -105,7 +105,7 @@ const Recovery = () => {
     refetchInterval: 60_000,
   });
 
-  // Send second-chance offer
+  // Send second-chance offer + WhatsApp notification
   const sendOffer = useMutation({
     mutationFn: async ({ leadId, discount }: { leadId: string; discount: number }) => {
       const { error } = await supabase.from("recovery_offers").insert({
@@ -115,12 +115,25 @@ const Recovery = () => {
       });
       if (error) throw error;
 
-      // Log activity
-      await supabase.from("lead_activity").insert({
-        lead_id: leadId,
-        action: "Recovery Offer Sent",
-        details: `Second Chance offer: ${discount}% discount`,
-      });
+      // Find the lead to get customer details
+      const lead = staleLeads.find((l) => l.id === leadId);
+      if (lead?.customerPhone) {
+        // Send WhatsApp via edge function (fire-and-forget)
+        supabase.functions.invoke("send-whatsapp", {
+          body: {
+            lead_id: leadId,
+            customer_phone: lead.customerPhone,
+            customer_name: lead.customerName,
+            service_name: lead.serviceName,
+            template_type: "second_chance",
+            discount_percent: discount,
+          },
+        }).then(({ error: whatsappErr }) => {
+          if (!whatsappErr) {
+            toast({ title: "📱 WhatsApp recovery offer sent" });
+          }
+        }).catch(() => {});
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["recovery-queue"] });
