@@ -1,7 +1,7 @@
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Check, MessageSquare, Zap, Crown, Truck } from "lucide-react";
+import { ArrowLeft, Check, MessageSquare, Zap, Crown, Truck, Shield, Gem, Sparkles } from "lucide-react";
 
 type Props = {
   serviceName: string;
@@ -35,7 +35,10 @@ const QuotePreview = ({
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-bold text-foreground">Quote Preview</h3>
+        <div>
+          <h3 className="text-sm font-bold text-foreground">Luxury Quote Preview</h3>
+          <p className="text-[10px] text-muted-foreground">Verify before sending to customer</p>
+        </div>
         <button
           type="button"
           onClick={onBack}
@@ -46,22 +49,24 @@ const QuotePreview = ({
       </div>
 
       <p className="text-xs text-muted-foreground">
-        This is what <span className="font-semibold text-foreground">{customerName}</span> ({customerPhone}) will see:
+        Prepared for <span className="font-semibold text-foreground">{customerName}</span> ({customerPhone})
       </p>
 
-      {/* Mini quote preview */}
-      <Card className="p-3 space-y-3 border-border bg-muted/20">
+      {/* Luxury preview card */}
+      <Card className="p-4 space-y-4 border-primary/20 bg-gradient-to-br from-card via-card to-primary/5">
+        {/* Service & Condition */}
         <div>
-          <p className="text-xs font-semibold text-foreground">{serviceName}</p>
+          <p className="text-sm font-bold text-foreground">{serviceName}</p>
           {conditionNote && (
-            <p className="text-[10px] text-muted-foreground mt-0.5">{conditionNote}</p>
+            <p className="text-xs text-muted-foreground mt-1 italic">{conditionNote}</p>
           )}
         </div>
 
+        {/* Photos */}
         {photos.length > 0 && (
-          <div className="flex gap-1.5">
-            {photos.slice(0, 3).map((f, i) => (
-              <div key={i} className="h-12 w-12 rounded border border-border overflow-hidden">
+          <div className="flex gap-2">
+            {photos.slice(0, 4).map((f, i) => (
+              <div key={i} className="h-14 w-14 rounded-lg border border-border overflow-hidden">
                 <img
                   src={URL.createObjectURL(f)}
                   alt={`Photo ${i + 1}`}
@@ -69,33 +74,79 @@ const QuotePreview = ({
                 />
               </div>
             ))}
-            {photos.length > 3 && (
-              <div className="h-12 w-12 rounded border border-border flex items-center justify-center text-[10px] text-muted-foreground">
-                +{photos.length - 3}
+            {photos.length > 4 && (
+              <div className="h-14 w-14 rounded-lg border border-border flex items-center justify-center text-[10px] text-muted-foreground">
+                +{photos.length - 4}
               </div>
             )}
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-2">
-          <Card className={`p-2 space-y-1 ${selectedTier === "Elite" ? "border-primary bg-primary/5" : "border-border opacity-60"}`}>
-            <div className="flex items-center gap-1">
-              <Zap className="h-3 w-3 text-primary" />
-              <span className="text-[10px] font-bold">Elite</span>
-              {selectedTier === "Elite" && <Badge className="text-[8px] h-4 bg-primary text-primary-foreground">SELECTED</Badge>}
-            </div>
-            <p className="text-[10px] text-muted-foreground">8–12 Days · Free Ship</p>
-            <p className="text-sm font-bold text-primary">₹{elitePrice.toLocaleString()}</p>
-          </Card>
-          <Card className={`p-2 space-y-1 ${selectedTier === "Premium" ? "border-primary bg-primary/5" : "border-border opacity-60"}`}>
-            <div className="flex items-center gap-1">
-              <Crown className="h-3 w-3 text-muted-foreground" />
-              <span className="text-[10px] font-bold">Premium</span>
-              {selectedTier === "Premium" && <Badge className="text-[8px] h-4 bg-primary text-primary-foreground">SELECTED</Badge>}
-            </div>
-            <p className="text-[10px] text-muted-foreground">15–20 Days · +₹200</p>
-            <p className="text-sm font-bold text-foreground">₹{premiumPrice.toLocaleString()}</p>
-          </Card>
+        {/* Luxury tier comparison table */}
+        <div className="rounded-xl border border-border overflow-hidden">
+          <table className="w-full text-[11px]">
+            <thead>
+              <tr className="bg-muted/50">
+                <th className="text-left p-2 text-muted-foreground font-medium">Feature</th>
+                <th className="p-2 text-center">
+                  <span className="flex items-center justify-center gap-1 font-bold text-primary">
+                    <Zap className="h-3 w-3" /> Elite Artisan
+                  </span>
+                </th>
+                <th className="p-2 text-center">
+                  <span className="flex items-center justify-center gap-1 font-medium text-muted-foreground">
+                    <Crown className="h-3 w-3" /> Premium
+                  </span>
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              <tr>
+                <td className="p-2 text-muted-foreground">Delivery</td>
+                <td className="p-2 text-center font-medium text-foreground">8–12 Day Express</td>
+                <td className="p-2 text-center text-muted-foreground">15–20 Day Standard</td>
+              </tr>
+              <tr>
+                <td className="p-2 text-muted-foreground">Quality Check</td>
+                <td className="p-2 text-center font-medium text-foreground">
+                  <span className="flex items-center justify-center gap-1"><Shield className="h-3 w-3 text-primary" /> Master Artisan</span>
+                </td>
+                <td className="p-2 text-center text-muted-foreground">Professional Grade</td>
+              </tr>
+              <tr>
+                <td className="p-2 text-muted-foreground">Materials</td>
+                <td className="p-2 text-center font-medium text-foreground">
+                  <span className="flex items-center justify-center gap-1"><Gem className="h-3 w-3 text-primary" /> Italian Pigments</span>
+                </td>
+                <td className="p-2 text-center text-muted-foreground">Standard Materials</td>
+              </tr>
+              <tr>
+                <td className="p-2 text-muted-foreground">Protection</td>
+                <td className="p-2 text-center font-medium text-foreground">
+                  <span className="flex items-center justify-center gap-1"><Sparkles className="h-3 w-3 text-primary" /> Nano-Ceramic Shield</span>
+                </td>
+                <td className="p-2 text-center text-muted-foreground">Standard Finish</td>
+              </tr>
+              <tr>
+                <td className="p-2 text-muted-foreground">Shipping</td>
+                <td className="p-2 text-center font-medium text-primary">
+                  <span className="flex items-center justify-center gap-1"><Truck className="h-3 w-3" /> FREE Pan-India</span>
+                </td>
+                <td className="p-2 text-center text-muted-foreground">+₹200</td>
+              </tr>
+              <tr className="bg-muted/30">
+                <td className="p-2 font-semibold text-foreground">Price</td>
+                <td className="p-2 text-center">
+                  <span className="text-lg font-black text-primary">₹{elitePrice.toLocaleString()}</span>
+                  {selectedTier === "Elite" && <Badge className="ml-1 text-[8px] h-4 bg-primary text-primary-foreground">SELECTED</Badge>}
+                </td>
+                <td className="p-2 text-center">
+                  <span className="text-sm font-bold text-foreground">₹{premiumPrice.toLocaleString()}</span>
+                  {selectedTier === "Premium" && <Badge className="ml-1 text-[8px] h-4 bg-primary text-primary-foreground">SELECTED</Badge>}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </Card>
 

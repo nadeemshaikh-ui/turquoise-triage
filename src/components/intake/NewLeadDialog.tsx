@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Loader2, MessageSquare, Check } from "lucide-react";
+import { Card } from "@/components/ui/card";
+import { Loader2, MessageSquare, Check, ChevronRight, ChevronLeft } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import ServiceSelection, { type Service } from "./ServiceSelection";
@@ -10,6 +11,7 @@ import PhotoUpload from "./PhotoUpload";
 import IssueTagger, { generateConditionNote } from "./IssueTagger";
 import DualPriceSlider from "./DualPriceSlider";
 import QuotePreview from "./QuotePreview";
+import { Progress } from "@/components/ui/progress";
 
 type Props = {
   open: boolean;
@@ -17,7 +19,10 @@ type Props = {
   onCreated?: () => void;
 };
 
+const STEPS = ["Category", "Issues", "Pricing"];
+
 const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
+  const [step, setStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
 
@@ -37,7 +42,6 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
   const [customer, setCustomer] = useState<CustomerData>({ name: "", phone: "", email: "", notes: "" });
   const [customerErrors, setCustomerErrors] = useState<Partial<Record<keyof CustomerData, string>>>({});
 
-  // Load services
   useEffect(() => {
     if (!open) return;
     supabase
@@ -51,9 +55,9 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
       });
   }, [open]);
 
-  // Reset on close
   useEffect(() => {
     if (!open) {
+      setStep(0);
       setSelectedService(null);
       setIssueTags([]);
       setPhotos([]);
@@ -67,7 +71,6 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
     }
   }, [open]);
 
-  // Pre-fill price when service changes
   useEffect(() => {
     if (selectedService?.default_price) {
       setBasePrice(selectedService.default_price);
@@ -78,42 +81,40 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
   const elitePrice = Math.round(basePrice * 1.4);
   const premiumPrice = basePrice + 200;
 
-  const validate = (): boolean => {
-    let valid = true;
-
-    if (!selectedService) {
-      toast({ title: "Select a service", variant: "destructive" });
-      return false;
-    }
-
-    if (selectedService.requires_photos && photos.length < 3) {
-      setPhotoError("Upload at least 3 photos");
-      valid = false;
-    } else {
+  const validateStep = (): boolean => {
+    if (step === 0) return !!selectedService;
+    if (step === 1) {
+      if (selectedService?.requires_photos && photos.length < 3) {
+        setPhotoError("Upload at least 3 photos");
+        return false;
+      }
       setPhotoError("");
+      return true;
     }
-
-    const errors: Partial<Record<keyof CustomerData, string>> = {};
-    if (!customer.name.trim()) errors.name = "Required";
-    if (!customer.phone.trim()) errors.phone = "Required";
-    else if (!/^\d{10}$/.test(customer.phone.trim())) errors.phone = "10 digits";
-    if (customer.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer.email))
-      errors.email = "Invalid email";
-    setCustomerErrors(errors);
-    if (Object.keys(errors).length > 0) valid = false;
-
-    if (!basePrice || basePrice < 1000) {
-      setPriceError("Min ₹1,000");
-      valid = false;
-    } else {
+    if (step === 2) {
+      const errors: Partial<Record<keyof CustomerData, string>> = {};
+      if (!customer.name.trim()) errors.name = "Required";
+      if (!customer.phone.trim()) errors.phone = "Required";
+      else if (!/^\d{10}$/.test(customer.phone.trim())) errors.phone = "10 digits";
+      if (customer.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer.email))
+        errors.email = "Invalid email";
+      setCustomerErrors(errors);
+      if (Object.keys(errors).length > 0) return false;
+      if (!basePrice || basePrice < 1000) {
+        setPriceError("Min ₹1,000");
+        return false;
+      }
       setPriceError("");
+      return true;
     }
-
-    return valid;
+    return true;
   };
 
+  const next = () => { if (validateStep()) setStep((s) => Math.min(s + 1, STEPS.length - 1)); };
+  const prev = () => setStep((s) => Math.max(s - 1, 0));
+
   const handleGenerateQuote = () => {
-    if (validate()) setShowPreview(true);
+    if (validateStep()) setShowPreview(true);
   };
 
   const handleSubmit = async (sendWhatsApp = false) => {
@@ -121,7 +122,6 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
     setSubmitting(true);
 
     try {
-      // 1. Upsert customer
       const { data: existingCustomers } = await supabase
         .from("customers")
         .select("id")
@@ -151,7 +151,6 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
       const tatMin = tier === "Elite" ? 8 : 15;
       const tatMax = tier === "Elite" ? 12 : 20;
 
-      // 2. Create lead
       const { data: lead, error: leadErr } = await supabase
         .from("leads")
         .insert({
@@ -171,14 +170,12 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
         .single();
       if (leadErr) throw leadErr;
 
-      // 3. Upload photos
       for (const file of photos) {
         const path = `${lead.id}/${Date.now()}_${file.name}`;
         const { error: uploadErr } = await supabase.storage
           .from("lead-photos")
           .upload(path, file);
         if (uploadErr) throw uploadErr;
-
         await supabase.from("lead_photos").insert({
           lead_id: lead.id,
           storage_path: path,
@@ -186,7 +183,6 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
         });
       }
 
-      // 4. Create quote record
       const quoteToken = crypto.randomUUID().slice(0, 8);
       await supabase.from("lead_quotes").insert({
         lead_id: lead.id,
@@ -201,7 +197,6 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
 
       const quoteUrl = `${window.location.origin}/quote/${quoteToken}`;
 
-      // 5. Send WhatsApp or copy link
       if (sendWhatsApp) {
         try {
           await supabase.functions.invoke("send-whatsapp", {
@@ -238,7 +233,7 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="text-foreground text-sm">New Lead — Tap to Triage</DialogTitle>
+          <DialogTitle className="text-foreground text-sm">Tap-to-Triage</DialogTitle>
         </DialogHeader>
 
         {showPreview ? (
@@ -258,37 +253,47 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
           />
         ) : (
           <div className="space-y-4">
-            {/* Section 1: Category + Service */}
-            <ServiceSelection
-              services={services}
-              selectedServiceId={selectedService?.id ?? null}
-              onSelect={setSelectedService}
-            />
+            {/* Step indicators */}
+            <div className="space-y-2">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                {STEPS.map((label, i) => (
+                  <span key={label} className={i <= step ? "font-bold text-primary" : ""}>{label}</span>
+                ))}
+              </div>
+              <Progress value={((step + 1) / STEPS.length) * 100} className="h-1.5" />
+            </div>
 
-            {/* Section 2: Issue Tags + Photos */}
-            {selectedService && (
-              <>
+            {/* Step cards */}
+            {step === 0 && (
+              <Card className="p-4 border-primary/20">
+                <ServiceSelection
+                  services={services}
+                  selectedServiceId={selectedService?.id ?? null}
+                  onSelect={setSelectedService}
+                />
+              </Card>
+            )}
+
+            {step === 1 && (
+              <Card className="p-4 border-primary/20 space-y-4">
                 <IssueTagger selectedTags={issueTags} onTagsChange={setIssueTags} />
-
                 {conditionNote && (
                   <div className="rounded-lg border border-border bg-muted/30 p-2">
                     <p className="text-[10px] font-semibold text-muted-foreground">Condition Report</p>
                     <p className="text-xs text-foreground">{conditionNote}</p>
                   </div>
                 )}
-
                 <PhotoUpload
                   files={photos}
                   onFilesChange={setPhotos}
-                  required={selectedService.requires_photos}
+                  required={selectedService?.requires_photos ?? false}
                   error={photoError}
                 />
-              </>
+              </Card>
             )}
 
-            {/* Section 3: Pricing + Customer */}
-            {selectedService && (
-              <>
+            {step === 2 && (
+              <Card className="p-4 border-primary/20 space-y-4">
                 <DualPriceSlider
                   basePrice={basePrice}
                   onBasePriceChange={setBasePrice}
@@ -296,31 +301,42 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
                   onTierChange={setTier}
                   error={priceError}
                 />
-
                 <CustomerDetails data={customer} onChange={setCustomer} errors={customerErrors} />
+              </Card>
+            )}
 
-                {/* Sticky CTA */}
-                <div className="flex gap-2 pt-2 sticky bottom-0 bg-background pb-1">
+            {/* Navigation */}
+            <div className="flex items-center justify-between pt-1">
+              <Button variant="ghost" onClick={prev} disabled={step === 0} className="min-h-[48px]">
+                <ChevronLeft className="mr-1 h-4 w-4" /> Back
+              </Button>
+
+              {step < STEPS.length - 1 ? (
+                <Button onClick={next} className="min-h-[48px]">
+                  Next <ChevronRight className="ml-1 h-4 w-4" />
+                </Button>
+              ) : (
+                <div className="flex gap-2">
                   <Button
                     variant="outline"
-                    onClick={() => { if (validate()) handleSubmit(false); }}
+                    onClick={() => { if (validateStep()) handleSubmit(false); }}
                     disabled={submitting}
-                    className="flex-1 min-h-[52px] text-base"
+                    className="min-h-[52px] text-base"
                   >
                     {submitting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Check className="mr-1.5 h-4 w-4" />}
-                    Create Lead
+                    Create
                   </Button>
                   <Button
                     onClick={handleGenerateQuote}
                     disabled={submitting}
-                    className="flex-1 min-h-[52px] text-base"
+                    className="min-h-[52px] text-base"
                   >
                     {submitting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <MessageSquare className="mr-1.5 h-4 w-4" />}
                     Generate Quote
                   </Button>
                 </div>
-              </>
-            )}
+              )}
+            </div>
           </div>
         )}
       </DialogContent>
