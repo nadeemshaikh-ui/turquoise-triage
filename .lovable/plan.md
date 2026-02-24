@@ -1,48 +1,35 @@
 
 
-# Restoree 360 — Phase 1: UI & Lead Engine
+# Add Tier Selector to New Lead Intake Dialog
 
-## 1. Design System & Theme
-- Bright white background with **Vibrant Turquoise (#40E0D0)** and **Deep Teal** accents
-- **28px border-radius** on all cards, buttons, inputs for friendly-luxury feel
-- Clean, high-contrast typography with professional spacing
-- Turquoise/Gold badge styling for Gold Tier leads
+## What Changes
 
-## 2. Dashboard (Home Screen)
-- **Gold Tier Leads** pinned at top with turquoise/gold badges (Luxury Bags & Signature services > ₹6000)
-- **New Leads pipeline** showing recent intakes with status indicators (New → In Progress → Completed)
-- **Quick Stats bar**: Today's orders, active leads, revenue snapshot
-- Quick-action button: **"+ New Lead"**
+Add a Premium/Elite tier toggle to the confirmation step (Step 4) of the New Lead dialog. When "Elite" is selected, the system automatically applies a 40% price markup, sets express delivery TAT (8-12 days), and saves the tier to the database.
 
-## 3. Lead Intake Form (Multi-Step Triage)
-- **Step 1 — Service Selection**: Browse the full catalog organized by category tabs:
-  - **Cleaning**: Sneaker Deep Clean, Signature Clean, Boots/Heeled Shoes, Suede/Nubuck Special
-  - **Repair & Structural**: Sole Pasting (Full/Minor), Heel Tip, Stitching/Patching, Zip/Hardware
-  - **Restoration & Color**: Leather Peeling, Full Color Restoration, Suede Dyeing, Mid-sole Unyellowing
-  - **Luxury Bags**: Deep Cleaning, Structural Realignment, Edge Painting, Color Change
-  - **Custom**: "Create Custom Service" button with name & price fields
-- **Step 2 — Customer Details**: Name, phone, optional email
-- **Step 3 — Photos & Assessment**:
-  - **3 mandatory photo uploads** for Restoration & Bag services (stored in Lovable Cloud storage)
-  - **Consultative Price Range** displayed for Peeling (₹2,500–₹5,000) and Bag Restoration (₹5,000–₹9,500)
-  - Executive enters final quoted price
-- **Step 4 — TAT & Confirmation**:
-  - Default TAT auto-filled (4–5 days Cleaning, 10–15 days others)
-  - Executive can **manually override TAT** for this specific order
-  - Review summary → Submit
+## User Experience
 
-## 4. Lead List & Management
-- Filterable list of all leads with status, service type, price, and TAT
-- **Gold Tier** leads auto-scored and pinned to top
-- Click to view full lead details, photos, and order history
-- Status updates: New → In Progress → Ready for Pickup → Completed
+On the final "Confirm" step, a two-option toggle appears above the price field:
+- **Premium** (default) -- Standard pricing, standard TAT from the service defaults
+- **Elite** -- Price auto-increases by 40%, TAT overrides to 8-12 days, badges show "Elite" with free shipping and artisan certification perks
 
-## 5. Backend (Lovable Cloud)
-- **Database tables**: Leads, Services catalog, Customers, Photos metadata
-- **Storage bucket**: Customer photos for restoration/bag services
-- **Authentication**: Team login so multiple staff can access the system
+Switching between tiers instantly recalculates the price and TAT fields. The user can still manually override after the auto-calculation.
 
-## 6. Services Management
-- Admin page to view/edit the full service catalog
-- Add/edit/remove custom services with name, category, default price, and default TAT
+## Technical Details
+
+### 1. NewLeadDialog.tsx
+- Add `tier` state: `useState<"Premium" | "Elite">("Premium")`
+- Reset tier to "Premium" on dialog close
+- When tier changes to "Elite": set `quotedPrice` to base price x 1.4, set TAT to 8-12
+- When tier changes back to "Premium": restore service default price and TAT
+- Pass `tier` and `onTierChange` to `TatConfirmation`
+- Include `tier` in the lead insert payload (the `tier` column already exists on the `leads` table)
+
+### 2. TatConfirmation.tsx
+- Accept new props: `tier` and `onTierChange`
+- Render a two-button toggle group (Premium / Elite) at the top of the confirmation step, using the existing `ToggleGroup` component
+- When Elite is selected, show a small info box listing the perks: "40% premium pricing, 8-12 day express delivery, free Pan-India shipping, artisan certification"
+- Display an "ELITE" badge with a Zap icon (matching the Workshop Kanban styling) when Elite is active
+
+### No Database Changes Required
+The `leads` table already has a `tier` column defaulting to `'Premium'`.
 
