@@ -34,11 +34,12 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
   const [photos, setPhotos] = useState<File[]>([]);
   const [photoError, setPhotoError] = useState("");
 
-  // Step 4 — TAT & Price
+  // Step 4 — TAT & Price & Tier
   const [quotedPrice, setQuotedPrice] = useState("");
   const [tatMin, setTatMin] = useState(4);
   const [tatMax, setTatMax] = useState(5);
   const [priceError, setPriceError] = useState("");
+  const [tier, setTier] = useState<"Premium" | "Elite">("Premium");
 
   // Load services
   useEffect(() => {
@@ -65,6 +66,7 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
       setPhotoError("");
       setQuotedPrice("");
       setPriceError("");
+      setTier("Premium");
     }
   }, [open]);
 
@@ -80,6 +82,21 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
   const isGoldTier =
     selectedService?.category === "Luxury Bags" ||
     (quotedPrice ? Number(quotedPrice) > 6000 : false);
+
+  const handleTierChange = (newTier: "Premium" | "Elite") => {
+    setTier(newTier);
+    if (!selectedService) return;
+    const basePrice = selectedService.default_price ?? 0;
+    if (newTier === "Elite") {
+      setQuotedPrice(String(Math.round(basePrice * 1.4)));
+      setTatMin(8);
+      setTatMax(12);
+    } else {
+      setQuotedPrice(basePrice ? String(basePrice) : "");
+      setTatMin(selectedService.default_tat_min);
+      setTatMax(selectedService.default_tat_max);
+    }
+  };
 
   const validateStep = (): boolean => {
     if (step === 0) return !!selectedService;
@@ -164,6 +181,7 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
           is_gold_tier: isGoldTier,
           notes: customer.notes || null,
           status: "New",
+          tier,
         })
         .select("id")
         .single();
@@ -234,7 +252,7 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
             />
           )}
           {step === 3 && selectedService && (
-            <TatConfirmation
+          <TatConfirmation
               service={selectedService}
               quotedPrice={quotedPrice}
               onPriceChange={setQuotedPrice}
@@ -245,6 +263,8 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
               isGoldTier={isGoldTier}
               customerName={customer.name}
               priceError={priceError}
+              tier={tier}
+              onTierChange={handleTierChange}
             />
           )}
         </div>

@@ -1,7 +1,8 @@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Crown, Clock, IndianRupee } from "lucide-react";
+import { Crown, Clock, IndianRupee, Zap, Truck, Award } from "lucide-react";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { Service } from "./ServiceSelection";
 
 type Props = {
@@ -15,6 +16,8 @@ type Props = {
   isGoldTier: boolean;
   customerName: string;
   priceError?: string;
+  tier: "Premium" | "Elite";
+  onTierChange: (tier: "Premium" | "Elite") => void;
 };
 
 const TatConfirmation = ({
@@ -28,12 +31,49 @@ const TatConfirmation = ({
   isGoldTier,
   customerName,
   priceError,
+  tier,
+  onTierChange,
 }: Props) => {
   return (
     <div className="space-y-4">
       <div>
         <h2 className="text-lg font-bold text-foreground">Confirm & Submit</h2>
         <p className="text-sm text-muted-foreground">Review pricing and turnaround time</p>
+      </div>
+
+      {/* Tier selector */}
+      <div className="space-y-2">
+        <Label>Service Tier</Label>
+        <ToggleGroup
+          type="single"
+          value={tier}
+          onValueChange={(v) => { if (v) onTierChange(v as "Premium" | "Elite"); }}
+          className="justify-start"
+        >
+          <ToggleGroupItem value="Premium" className="gap-1.5 px-4">
+            <Crown className="h-3.5 w-3.5" />
+            Premium
+          </ToggleGroupItem>
+          <ToggleGroupItem value="Elite" className="gap-1.5 px-4 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
+            <Zap className="h-3.5 w-3.5" />
+            Elite
+          </ToggleGroupItem>
+        </ToggleGroup>
+
+        {tier === "Elite" && (
+          <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-1.5">
+            <Badge className="gap-1 bg-primary text-primary-foreground">
+              <Zap className="h-3 w-3" />
+              ELITE
+            </Badge>
+            <ul className="text-xs text-muted-foreground space-y-1 ml-1">
+              <li className="flex items-center gap-1.5"><IndianRupee className="h-3 w-3" /> 40% premium pricing applied</li>
+              <li className="flex items-center gap-1.5"><Clock className="h-3 w-3" /> 8–12 day express delivery</li>
+              <li className="flex items-center gap-1.5"><Truck className="h-3 w-3" /> Free Pan-India shipping</li>
+              <li className="flex items-center gap-1.5"><Award className="h-3 w-3" /> Artisan certification included</li>
+            </ul>
+          </div>
+        )}
       </div>
 
       {/* Summary card */}
