@@ -8,8 +8,6 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import AppLayout from "@/components/AppLayout";
 import Index from "./pages/Index";
 import LeadDetail from "./pages/LeadDetail";
-import Workshop from "./pages/Workshop";
-import Inventory from "./pages/Inventory";
 import Services from "./pages/Services";
 import Customers from "./pages/Customers";
 import CustomerDetail from "./pages/CustomerDetail";
@@ -40,8 +38,6 @@ const App = () => (
             <Route path="/quote/:token" element={<Quote />} />
             <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
               <Route path="/" element={<Index />} />
-              <Route path="/workshop" element={<Workshop />} />
-              <Route path="/inventory" element={<Inventory />} />
               <Route path="/customers" element={<Customers />} />
               <Route path="/services" element={<Services />} />
               <Route path="/finance" element={<Finance />} />

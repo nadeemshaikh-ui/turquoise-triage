@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
 type CustomerData = {
@@ -9,7 +10,17 @@ type CustomerData = {
   phone: string;
   email: string;
   notes: string;
+  campaign: string;
 };
+
+const CAMPAIGNS = [
+  "Feb_Dior_Ad",
+  "Jan_Sneaker_Sale",
+  "Mar_Handbag_Promo",
+  "Organic",
+  "Referral",
+  "Walk-in",
+];
 
 type Props = {
   data: CustomerData;
@@ -47,6 +58,21 @@ const CustomerDetails = ({ data, onChange, errors }: Props) => {
           />
           {errors.phone && <p className="text-[10px] text-destructive">{errors.phone}</p>}
         </div>
+      </div>
+
+      <div>
+        <Label htmlFor="campaign" className="text-[11px]">Marketing Campaign *</Label>
+        <Select value={data.campaign} onValueChange={(v) => set("campaign", v)}>
+          <SelectTrigger className="h-9 text-sm">
+            <SelectValue placeholder="Select campaign…" />
+          </SelectTrigger>
+          <SelectContent>
+            {CAMPAIGNS.map((c) => (
+              <SelectItem key={c} value={c}>{c}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {errors.campaign && <p className="text-[10px] text-destructive">{errors.campaign}</p>}
       </div>
 
       <button

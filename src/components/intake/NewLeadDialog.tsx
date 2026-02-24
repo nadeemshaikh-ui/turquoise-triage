@@ -39,7 +39,7 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
   const [basePrice, setBasePrice] = useState(1000);
   const [priceError, setPriceError] = useState("");
   const [tier, setTier] = useState<"Premium" | "Elite">("Elite");
-  const [customer, setCustomer] = useState<CustomerData>({ name: "", phone: "", email: "", notes: "" });
+  const [customer, setCustomer] = useState<CustomerData>({ name: "", phone: "", email: "", notes: "", campaign: "" });
   const [customerErrors, setCustomerErrors] = useState<Partial<Record<keyof CustomerData, string>>>({});
 
   useEffect(() => {
@@ -65,7 +65,7 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
       setBasePrice(1000);
       setPriceError("");
       setTier("Elite");
-      setCustomer({ name: "", phone: "", email: "", notes: "" });
+      setCustomer({ name: "", phone: "", email: "", notes: "", campaign: "" });
       setCustomerErrors({});
       setShowPreview(false);
     }
@@ -96,6 +96,7 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
       if (!customer.name.trim()) errors.name = "Required";
       if (!customer.phone.trim()) errors.phone = "Required";
       else if (!/^\d{10}$/.test(customer.phone.trim())) errors.phone = "10 digits";
+      if (!customer.campaign) errors.campaign = "Required";
       if (customer.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer.email))
         errors.email = "Invalid email";
       setCustomerErrors(errors);
@@ -117,7 +118,7 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
     if (validateStep()) setShowPreview(true);
   };
 
-  const handleSubmit = async (sendWhatsApp = false) => {
+  const handleSubmit = async (mode: "create" | "whatsapp" | "interakt" = "create") => {
     if (!selectedService) return;
     setSubmitting(true);
 
@@ -165,6 +166,7 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
           tier,
           issue_tags: issueTags as any,
           condition_note: conditionNote || null,
+          meta_campaign_name: customer.campaign || null,
         })
         .select("id")
         .single();
@@ -197,7 +199,7 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
 
       const quoteUrl = `${window.location.origin}/quote/${quoteToken}`;
 
-      if (sendWhatsApp) {
+      if (mode === "whatsapp") {
         try {
           await supabase.functions.invoke("send-whatsapp", {
             body: {
@@ -214,6 +216,10 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
           await navigator.clipboard.writeText(quoteUrl);
           toast({ title: "WhatsApp unavailable — link copied!", description: quoteUrl });
         }
+      } else if (mode === "interakt") {
+        const message = `Hi ${customer.name.trim()}! Here is your bespoke restoration quote from Restoree: ${quoteUrl}`;
+        await navigator.clipboard.writeText(message);
+        toast({ title: "Copied for Interakt!", description: "Paste this message in your Interakt chat." });
       } else {
         toast({ title: "Lead created!", description: `${customer.name} — ${selectedService.name}` });
       }
@@ -247,8 +253,9 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
             selectedTier={tier}
             photos={photos}
             submitting={submitting}
-            onConfirmCreate={() => handleSubmit(false)}
-            onConfirmWhatsApp={() => handleSubmit(true)}
+            onConfirmCreate={() => handleSubmit("create")}
+            onConfirmWhatsApp={() => handleSubmit("whatsapp")}
+            onCopyInterakt={() => handleSubmit("interakt")}
             onBack={() => setShowPreview(false)}
           />
         ) : (
@@ -319,7 +326,7 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
                 <div className="flex gap-2">
                   <Button
                     variant="outline"
-                    onClick={() => { if (validateStep()) handleSubmit(false); }}
+                    onClick={() => { if (validateStep()) handleSubmit("create"); }}
                     disabled={submitting}
                     className="min-h-[52px] text-base"
                   >

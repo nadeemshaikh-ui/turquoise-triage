@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
-import { LayoutDashboard, Columns3, Package, Users, TrendingUp, Zap, RotateCcw, Settings, LogOut, Plus, MoreHorizontal, PanelLeftClose, PanelLeft } from "lucide-react";
+import { LayoutDashboard, Users, TrendingUp, Zap, RotateCcw, Settings, LogOut, Plus, MoreHorizontal, PanelLeftClose, PanelLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { useAuth } from "@/contexts/AuthContext";
@@ -18,12 +18,10 @@ const AppLayout = () => {
 
   const coreNav = [
     { path: "/", label: "Triage", icon: LayoutDashboard },
-    { path: "/workshop", label: "Workshop", icon: Columns3 },
+    { path: "/customers", label: "Customers", icon: Users },
   ];
 
   const moreNav = [
-    { path: "/inventory", label: "Inventory", icon: Package },
-    { path: "/customers", label: "Customers", icon: Users },
     { path: "/finance", label: "Finance", icon: TrendingUp },
     { path: "/recovery", label: "Recovery", icon: RotateCcw },
     ...(isAdmin ? [
