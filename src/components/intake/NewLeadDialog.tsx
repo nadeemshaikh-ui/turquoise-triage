@@ -2,13 +2,15 @@ import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { ArrowLeft, ArrowRight, Check, Loader2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Loader2, MessageSquare } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import ServiceSelection, { type Service } from "./ServiceSelection";
 import CustomerDetails, { type CustomerData } from "./CustomerDetails";
 import PhotoUpload from "./PhotoUpload";
-import TatConfirmation from "./TatConfirmation";
+import IssueTagger, { generateConditionNote } from "./IssueTagger";
+import DualPriceSlider from "./DualPriceSlider";
+import RecentTriages from "./RecentTriages";
 
 type Props = {
   open: boolean;
@@ -16,7 +18,7 @@ type Props = {
   onCreated?: () => void;
 };
 
-const STEPS = ["Service", "Customer", "Photos", "Confirm"];
+const STEPS = ["Category & Service", "Issues & Photos", "Pricing & Confirm"];
 
 const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
   const [step, setStep] = useState(0);
@@ -26,20 +28,17 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
   const [services, setServices] = useState<Service[]>([]);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
 
-  // Step 2 — Customer
-  const [customer, setCustomer] = useState<CustomerData>({ name: "", phone: "", email: "", notes: "" });
-  const [customerErrors, setCustomerErrors] = useState<Partial<Record<keyof CustomerData, string>>>({});
-
-  // Step 3 — Photos
+  // Step 2 — Issue Tags + Photos
+  const [issueTags, setIssueTags] = useState<string[]>([]);
   const [photos, setPhotos] = useState<File[]>([]);
   const [photoError, setPhotoError] = useState("");
 
-  // Step 4 — TAT & Price & Tier
-  const [quotedPrice, setQuotedPrice] = useState("");
-  const [tatMin, setTatMin] = useState(4);
-  const [tatMax, setTatMax] = useState(5);
+  // Step 3 — Pricing + Customer
+  const [basePrice, setBasePrice] = useState(1000);
   const [priceError, setPriceError] = useState("");
-  const [tier, setTier] = useState<"Premium" | "Elite">("Premium");
+  const [customer, setCustomer] = useState<CustomerData>({ name: "", phone: "", email: "", notes: "" });
+  const [customerErrors, setCustomerErrors] = useState<Partial<Record<keyof CustomerData, string>>>({});
+  const [tier] = useState<"Premium" | "Elite">("Elite"); // Default Elite
 
   // Load services
   useEffect(() => {
@@ -60,59 +59,30 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
     if (!open) {
       setStep(0);
       setSelectedService(null);
-      setCustomer({ name: "", phone: "", email: "", notes: "" });
-      setCustomerErrors({});
+      setIssueTags([]);
       setPhotos([]);
       setPhotoError("");
-      setQuotedPrice("");
+      setBasePrice(1000);
       setPriceError("");
-      setTier("Premium");
+      setCustomer({ name: "", phone: "", email: "", notes: "" });
+      setCustomerErrors({});
     }
   }, [open]);
 
-  // Pre-fill TAT when service changes
+  // Pre-fill price when service changes
   useEffect(() => {
-    if (selectedService) {
-      setTatMin(selectedService.default_tat_min);
-      setTatMax(selectedService.default_tat_max);
-      setQuotedPrice(selectedService.default_price ? String(selectedService.default_price) : "");
+    if (selectedService?.default_price) {
+      setBasePrice(selectedService.default_price);
     }
   }, [selectedService]);
 
   const isGoldTier =
-    selectedService?.category === "Luxury Bags" ||
-    (quotedPrice ? Number(quotedPrice) > 6000 : false);
-
-  const handleTierChange = (newTier: "Premium" | "Elite") => {
-    setTier(newTier);
-    if (!selectedService) return;
-    const basePrice = selectedService.default_price ?? 0;
-    if (newTier === "Elite") {
-      setQuotedPrice(String(Math.round(basePrice * 1.4)));
-      setTatMin(8);
-      setTatMax(12);
-    } else {
-      setQuotedPrice(basePrice ? String(basePrice) : "");
-      setTatMin(selectedService.default_tat_min);
-      setTatMax(selectedService.default_tat_max);
-    }
-  };
+    selectedService?.category === "Luxury Bags" || basePrice > 6000;
 
   const validateStep = (): boolean => {
     if (step === 0) return !!selectedService;
 
     if (step === 1) {
-      const errors: Partial<Record<keyof CustomerData, string>> = {};
-      if (!customer.name.trim()) errors.name = "Name is required";
-      if (!customer.phone.trim()) errors.phone = "Phone is required";
-      else if (!/^\d{10}$/.test(customer.phone.trim())) errors.phone = "Enter a valid 10-digit number";
-      if (customer.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer.email))
-        errors.email = "Enter a valid email";
-      setCustomerErrors(errors);
-      return Object.keys(errors).length === 0;
-    }
-
-    if (step === 2) {
       if (selectedService?.requires_photos && photos.length < 3) {
         setPhotoError("Please upload at least 3 photos");
         return false;
@@ -121,9 +91,18 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
       return true;
     }
 
-    if (step === 3) {
-      if (!quotedPrice || Number(quotedPrice) <= 0) {
-        setPriceError("Enter a valid price");
+    if (step === 2) {
+      const errors: Partial<Record<keyof CustomerData, string>> = {};
+      if (!customer.name.trim()) errors.name = "Name is required";
+      if (!customer.phone.trim()) errors.phone = "Phone is required";
+      else if (!/^\d{10}$/.test(customer.phone.trim())) errors.phone = "Enter a valid 10-digit number";
+      if (customer.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer.email))
+        errors.email = "Enter a valid email";
+      setCustomerErrors(errors);
+      if (Object.keys(errors).length > 0) return false;
+
+      if (!basePrice || basePrice < 1000) {
+        setPriceError("Enter a price ≥ ₹1,000");
         return false;
       }
       setPriceError("");
@@ -139,7 +118,10 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
 
   const prev = () => setStep((s) => Math.max(s - 1, 0));
 
-  const handleSubmit = async () => {
+  const elitePrice = Math.round(basePrice * 1.4);
+  const premiumPrice = basePrice + 200;
+
+  const handleSubmit = async (sendWhatsApp = false) => {
     if (!validateStep() || !selectedService) return;
     setSubmitting(true);
 
@@ -169,19 +151,26 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
         customerId = newCust.id;
       }
 
+      const conditionNote = generateConditionNote(issueTags);
+      const finalPrice = tier === "Elite" ? elitePrice : premiumPrice;
+      const tatMin = tier === "Elite" ? 8 : 15;
+      const tatMax = tier === "Elite" ? 12 : 20;
+
       // 2. Create lead
       const { data: lead, error: leadErr } = await supabase
         .from("leads")
         .insert({
           customer_id: customerId,
           service_id: selectedService.id,
-          quoted_price: Number(quotedPrice),
+          quoted_price: finalPrice,
           tat_days_min: tatMin,
           tat_days_max: tatMax,
           is_gold_tier: isGoldTier,
           notes: customer.notes || null,
           status: "New",
           tier,
+          issue_tags: issueTags as any,
+          condition_note: conditionNote || null,
         })
         .select("id")
         .single();
@@ -202,7 +191,43 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
         });
       }
 
-      toast({ title: "Lead created!", description: `${customer.name} — ${selectedService.name}` });
+      // 4. Create quote record
+      const quoteToken = crypto.randomUUID().slice(0, 8);
+      await supabase.from("lead_quotes").insert({
+        lead_id: lead.id,
+        quote_token: quoteToken,
+        premium_price: premiumPrice,
+        elite_price: elitePrice,
+        premium_tat_min: 15,
+        premium_tat_max: 20,
+        elite_tat_min: 8,
+        elite_tat_max: 12,
+      });
+
+      const quoteUrl = `${window.location.origin}/quote/${quoteToken}`;
+
+      // 5. Send WhatsApp or copy link
+      if (sendWhatsApp) {
+        try {
+          await supabase.functions.invoke("send-whatsapp", {
+            body: {
+              lead_id: lead.id,
+              customer_phone: customer.phone.trim(),
+              customer_name: customer.name.trim(),
+              service_name: selectedService.name,
+              template_type: "digital_quote",
+              quote_url: quoteUrl,
+            },
+          });
+          toast({ title: "Quote sent via WhatsApp!", description: quoteUrl });
+        } catch {
+          await navigator.clipboard.writeText(quoteUrl);
+          toast({ title: "WhatsApp unavailable — link copied!", description: quoteUrl });
+        }
+      } else {
+        toast({ title: "Lead created!", description: `${customer.name} — ${selectedService.name}` });
+      }
+
       onOpenChange(false);
       onCreated?.();
     } catch (err: any) {
@@ -216,7 +241,7 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="text-foreground">New Lead</DialogTitle>
+          <DialogTitle className="text-foreground">New Lead — Tap to Triage</DialogTitle>
         </DialogHeader>
 
         {/* Progress */}
@@ -241,31 +266,25 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
             />
           )}
           {step === 1 && (
-            <CustomerDetails data={customer} onChange={setCustomer} errors={customerErrors} />
+            <div className="space-y-6">
+              <IssueTagger selectedTags={issueTags} onTagsChange={setIssueTags} />
+              <PhotoUpload
+                files={photos}
+                onFilesChange={setPhotos}
+                required={selectedService?.requires_photos ?? false}
+                error={photoError}
+              />
+            </div>
           )}
           {step === 2 && (
-            <PhotoUpload
-              files={photos}
-              onFilesChange={setPhotos}
-              required={selectedService?.requires_photos ?? false}
-              error={photoError}
-            />
-          )}
-          {step === 3 && selectedService && (
-          <TatConfirmation
-              service={selectedService}
-              quotedPrice={quotedPrice}
-              onPriceChange={setQuotedPrice}
-              tatMin={tatMin}
-              tatMax={tatMax}
-              onTatMinChange={setTatMin}
-              onTatMaxChange={setTatMax}
-              isGoldTier={isGoldTier}
-              customerName={customer.name}
-              priceError={priceError}
-              tier={tier}
-              onTierChange={handleTierChange}
-            />
+            <div className="space-y-6">
+              <DualPriceSlider
+                basePrice={basePrice}
+                onBasePriceChange={setBasePrice}
+                error={priceError}
+              />
+              <CustomerDetails data={customer} onChange={setCustomer} errors={customerErrors} />
+            </div>
           )}
         </div>
 
@@ -280,12 +299,21 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
               Next <ArrowRight className="ml-1 h-4 w-4" />
             </Button>
           ) : (
-            <Button onClick={handleSubmit} disabled={submitting}>
-              {submitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Check className="mr-1 h-4 w-4" />}
-              Create Lead
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => handleSubmit(false)} disabled={submitting}>
+                {submitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Check className="mr-1 h-4 w-4" />}
+                Create Lead
+              </Button>
+              <Button onClick={() => handleSubmit(true)} disabled={submitting} className="sticky bottom-0">
+                {submitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <MessageSquare className="mr-1 h-4 w-4" />}
+                WhatsApp Quote
+              </Button>
+            </div>
           )}
         </div>
+
+        {/* Recent Triages */}
+        <RecentTriages />
       </DialogContent>
     </Dialog>
   );

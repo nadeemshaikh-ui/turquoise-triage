@@ -165,8 +165,65 @@ export type Database = {
           },
         ]
       }
+      lead_quotes: {
+        Row: {
+          accepted_at: string | null
+          accepted_tier: string | null
+          created_at: string
+          elite_price: number
+          elite_tat_max: number
+          elite_tat_min: number
+          id: string
+          lead_id: string
+          premium_price: number
+          premium_tat_max: number
+          premium_tat_min: number
+          quote_token: string
+          viewed_at: string | null
+        }
+        Insert: {
+          accepted_at?: string | null
+          accepted_tier?: string | null
+          created_at?: string
+          elite_price?: number
+          elite_tat_max?: number
+          elite_tat_min?: number
+          id?: string
+          lead_id: string
+          premium_price?: number
+          premium_tat_max?: number
+          premium_tat_min?: number
+          quote_token: string
+          viewed_at?: string | null
+        }
+        Update: {
+          accepted_at?: string | null
+          accepted_tier?: string | null
+          created_at?: string
+          elite_price?: number
+          elite_tat_max?: number
+          elite_tat_min?: number
+          id?: string
+          lead_id?: string
+          premium_price?: number
+          premium_tat_max?: number
+          premium_tat_min?: number
+          quote_token?: string
+          viewed_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_quotes_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       leads: {
         Row: {
+          condition_note: string | null
           created_at: string
           created_by: string | null
           custom_service_name: string | null
@@ -174,6 +231,7 @@ export type Database = {
           customer_id: string
           id: string
           is_gold_tier: boolean
+          issue_tags: Json | null
           notes: string | null
           qc_checklist: Json | null
           quoted_price: number
@@ -185,6 +243,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          condition_note?: string | null
           created_at?: string
           created_by?: string | null
           custom_service_name?: string | null
@@ -192,6 +251,7 @@ export type Database = {
           customer_id: string
           id?: string
           is_gold_tier?: boolean
+          issue_tags?: Json | null
           notes?: string | null
           qc_checklist?: Json | null
           quoted_price: number
@@ -203,6 +263,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          condition_note?: string | null
           created_at?: string
           created_by?: string | null
           custom_service_name?: string | null
@@ -210,6 +271,7 @@ export type Database = {
           customer_id?: string
           id?: string
           is_gold_tier?: boolean
+          issue_tags?: Json | null
           notes?: string | null
           qc_checklist?: Json | null
           quoted_price?: number
