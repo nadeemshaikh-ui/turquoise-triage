@@ -10,37 +10,42 @@ type Props = {
   onBasePriceChange: (price: number) => void;
   selectedTier: "Premium" | "Elite";
   onTierChange: (tier: "Premium" | "Elite") => void;
+  minPrice: number;
   error?: string;
 };
 
 const SHIPPING_FLAT = 200;
 
-const DualPriceSlider = ({ basePrice, onBasePriceChange, selectedTier, onTierChange, error }: Props) => {
+const DualPriceSlider = ({ basePrice, onBasePriceChange, selectedTier, onTierChange, minPrice, error }: Props) => {
   const premiumTotal = basePrice + SHIPPING_FLAT;
   const eliteTotal = Math.round(basePrice * 1.4);
+
+  const handleChange = (v: number) => {
+    onBasePriceChange(Math.max(v, minPrice));
+  };
 
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <span className="text-[10px] text-muted-foreground">₹1K</span>
+        <span className="text-[10px] text-muted-foreground">₹{(minPrice / 1000).toFixed(0)}K</span>
         <Slider
-          min={1000}
+          min={minPrice}
           max={50000}
           step={500}
           value={[basePrice]}
-          onValueChange={([v]) => onBasePriceChange(v)}
+          onValueChange={([v]) => handleChange(v)}
           className="flex-1 [&_[role=slider]]:h-7 [&_[role=slider]]:w-7"
         />
         <span className="text-[10px] text-muted-foreground">₹50K</span>
         <Input
           type="number"
-          min={1000}
+          min={minPrice}
           max={50000}
           step={500}
           value={basePrice || ""}
           onChange={(e) => {
             const v = Number(e.target.value);
-            if (v >= 0 && v <= 50000) onBasePriceChange(v);
+            if (v >= minPrice && v <= 50000) onBasePriceChange(v);
           }}
           className="w-20 text-center text-sm font-semibold"
         />
