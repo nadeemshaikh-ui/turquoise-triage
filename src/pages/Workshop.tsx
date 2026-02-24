@@ -4,11 +4,20 @@ import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Crown, Loader2, AlertTriangle, Clock, Package, StickyNote, Check, ClipboardCheck, Zap } from "lucide-react";
+import { Crown, Loader2, AlertTriangle, Clock, Package, StickyNote, Check, ClipboardCheck, Zap, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useNavigate } from "react-router-dom";
 import { toast } from "@/hooks/use-toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   DragDropContext,
   Droppable,
@@ -17,12 +26,10 @@ import {
 } from "@hello-pangea/dnd";
 
 const KANBAN_COLUMNS = [
-  { key: "New", label: "New Intake" },
-  { key: "Assigned", label: "Assigned" },
-  { key: "In Progress", label: "In-Progress" },
+  { key: "New", label: "Triage" },
+  { key: "In Progress", label: "In-Work" },
   { key: "QC", label: "QC" },
-  { key: "Ready for Pickup", label: "Ready for Pickup" },
-  { key: "Completed", label: "Completed" },
+  { key: "Ready for Pickup", label: "Ready" },
 ];
 
 interface KanbanLead {
@@ -47,7 +54,7 @@ interface RecipeMaterial {
 }
 
 const getSlaStatus = (createdAt: string, tatDaysMax: number, status: string): "ok" | "warning" | "overdue" => {
-  if (status === "Completed") return "ok";
+  if (status === "Ready for Pickup") return "ok";
   const deadline = new Date(createdAt);
   deadline.setDate(deadline.getDate() + tatDaysMax);
   const now = new Date();
@@ -66,6 +73,7 @@ const slaBorder: Record<string, string> = {
 const Workshop = () => {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const [turnsBridgeLead, setTurnsBridgeLead] = useState<KanbanLead | null>(null);
 
   const { data: leads = [], isLoading } = useQuery({
     queryKey: ["workshop-leads"],
@@ -78,6 +86,7 @@ const Workshop = () => {
           customers ( name ),
           services ( name )
         `)
+        .in("status", ["New", "In Progress", "QC", "Ready for Pickup"])
         .order("created_at", { ascending: true });
 
       if (error) throw error;
@@ -110,7 +119,6 @@ const Workshop = () => {
     },
   });
 
-  // Build a map: serviceId -> materials[]
   const materialsByService = useMemo(() => {
     const map = new Map<string, RecipeMaterial[]>();
     (recipes as any[]).forEach((r: any) => {
@@ -184,7 +192,10 @@ const Workshop = () => {
       queryClient.invalidateQueries({ queryKey: ["inventory"] });
       if (variables.status === "Ready for Pickup") {
         const lead = leads.find((l) => l.id === variables.id);
-        if (lead) showDeductionToast(lead);
+        if (lead) {
+          showDeductionToast(lead);
+          setTurnsBridgeLead(lead);
+        }
       }
     },
   });
@@ -227,7 +238,7 @@ const Workshop = () => {
           {columns.map((col) => (
             <Droppable droppableId={col.key} key={col.key}>
               {(provided, snapshot) => (
-                <div className="flex w-56 shrink-0 flex-col gap-2">
+                <div className="flex w-60 shrink-0 flex-col gap-2">
                   <div className="flex items-center justify-between rounded-[28px] bg-muted px-4 py-2 shadow-[0_1px_6px_-2px_hsl(16_100%_50%/0.12)]">
                     <span className="text-xs font-semibold text-foreground">{col.label}</span>
                     <Badge variant="secondary" className="text-[10px]">{col.items.length}</Badge>
@@ -270,6 +281,39 @@ const Workshop = () => {
           ))}
         </div>
       </DragDropContext>
+
+      {/* Turns Bridge Popup */}
+      <AlertDialog open={!!turnsBridgeLead} onOpenChange={(open) => !open && setTurnsBridgeLead(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-center">🎉 Ready for Pickup!</AlertDialogTitle>
+            <AlertDialogDescription className="text-center space-y-3">
+              <p>Great! Now create the final invoice in Turns for:</p>
+              <p className="text-3xl font-extrabold text-primary">
+                ₹{turnsBridgeLead?.quotedPrice.toLocaleString("en-IN")}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {turnsBridgeLead?.customerName} — {turnsBridgeLead?.serviceName}
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => {
+                if (turnsBridgeLead) {
+                  navigator.clipboard.writeText(String(turnsBridgeLead.quotedPrice));
+                  toast({ title: "Price copied!" });
+                }
+              }}
+            >
+              <Copy className="h-4 w-4" /> Copy Price
+            </Button>
+            <AlertDialogAction onClick={() => setTurnsBridgeLead(null)}>Got it</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
@@ -291,7 +335,6 @@ const KanbanCard = ({
   const [noteDraft, setNoteDraft] = useState(lead.notes || "");
   const [savingNote, setSavingNote] = useState(false);
 
-  // QC Checklist state
   const QC_ITEMS = ["Item Cleaned", "Stitching Verified", "Packaging Ready"];
   const [qcChecks, setQcChecks] = useState<Record<string, boolean>>(lead.qcChecklist || {});
 
@@ -318,6 +361,8 @@ const KanbanCard = ({
     }
   };
 
+  const isElite = lead.tier === "Elite";
+
   return (
     <Draggable draggableId={lead.id} index={index}>
       {(provided, snapshot) => (
@@ -327,8 +372,8 @@ const KanbanCard = ({
           {...provided.dragHandleProps}
           className={cn(
             "rounded-[20px] border-2 bg-card p-3 shadow-[0_2px_10px_-4px_hsl(16_100%_50%/0.10)] transition-all cursor-grab active:cursor-grabbing",
-            lead.tier === "Elite"
-              ? "border-primary shadow-[0_0_16px_-2px_hsl(16_100%_50%/0.45)] ring-1 ring-primary/30"
+            isElite
+              ? "border-amber-400 shadow-[0_0_20px_-2px_rgba(251,191,36,0.5)] ring-1 ring-amber-400/40"
               : slaBorder[sla],
             snapshot.isDragging && "shadow-[0_8px_24px_-4px_hsl(16_100%_50%/0.25)] rotate-1 scale-[1.02]"
           )}
@@ -336,8 +381,14 @@ const KanbanCard = ({
         >
           <div className="flex items-start justify-between gap-1">
             <p className="text-sm font-semibold text-card-foreground leading-tight">{lead.customerName}</p>
-            {lead.isGoldTier && <Crown className="h-3.5 w-3.5 shrink-0 text-gold" />}
-            {lead.tier === "Elite" && <Badge className="h-4 text-[8px] px-1.5 bg-primary text-primary-foreground gap-0.5"><Zap className="h-2.5 w-2.5" />ELITE</Badge>}
+            <div className="flex items-center gap-1 shrink-0">
+              {lead.isGoldTier && <Crown className="h-3.5 w-3.5 text-gold" />}
+              {isElite && (
+                <Badge className="h-5 text-[9px] px-1.5 bg-amber-500 text-white gap-0.5 border-0">
+                  <Zap className="h-2.5 w-2.5" />ELITE
+                </Badge>
+              )}
+            </div>
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground truncate">{lead.serviceName}</p>
           <p className="mt-1 text-sm font-bold text-primary">₹{lead.quotedPrice.toLocaleString("en-IN")}</p>
@@ -368,22 +419,9 @@ const KanbanCard = ({
                   autoFocus
                 />
                 <div className="flex gap-1 justify-end">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 text-[10px] px-2"
-                    onClick={() => { setEditingNotes(false); setNoteDraft(lead.notes || ""); }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="h-6 text-[10px] px-2 rounded-xl gap-1"
-                    onClick={saveNote}
-                    disabled={savingNote}
-                  >
-                    {savingNote ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                    Save
+                  <Button variant="ghost" size="sm" className="h-6 text-[10px] px-2" onClick={() => { setEditingNotes(false); setNoteDraft(lead.notes || ""); }}>Cancel</Button>
+                  <Button size="sm" className="h-6 text-[10px] px-2 rounded-xl gap-1" onClick={saveNote} disabled={savingNote}>
+                    {savingNote ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />} Save
                   </Button>
                 </div>
               </div>
@@ -408,14 +446,8 @@ const KanbanCard = ({
               </div>
               {QC_ITEMS.map((item) => (
                 <label key={item} className="flex items-center gap-1.5 pl-4 cursor-pointer">
-                  <Checkbox
-                    checked={!!qcChecks[item]}
-                    onCheckedChange={(checked) => toggleQcItem(item, !!checked)}
-                    className="h-3.5 w-3.5"
-                  />
-                  <span className={cn("text-[10px]", qcChecks[item] ? "text-foreground line-through" : "text-foreground/70")}>
-                    {item}
-                  </span>
+                  <Checkbox checked={!!qcChecks[item]} onCheckedChange={(checked) => toggleQcItem(item, !!checked)} className="h-3.5 w-3.5" />
+                  <span className={cn("text-[10px]", qcChecks[item] ? "text-foreground line-through" : "text-foreground/70")}>{item}</span>
                 </label>
               ))}
             </div>
@@ -432,7 +464,7 @@ const KanbanCard = ({
             </div>
           )}
 
-          {nextStatus && lead.status !== "Completed" && (
+          {nextStatus && (
             <button
               onClick={(e) => {
                 e.stopPropagation();

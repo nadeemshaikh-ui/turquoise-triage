@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Loader2, MessageSquare, Check, ChevronRight, ChevronLeft } from "lucide-react";
+import { Loader2, MessageSquare, Check, ChevronDown, ChevronUp } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import ServiceSelection, { type Service } from "./ServiceSelection";
@@ -11,7 +11,7 @@ import PhotoUpload from "./PhotoUpload";
 import IssueTagger, { generateConditionNote } from "./IssueTagger";
 import DualPriceSlider from "./DualPriceSlider";
 import QuotePreview from "./QuotePreview";
-import { Progress } from "@/components/ui/progress";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 type Props = {
   open: boolean;
@@ -19,12 +19,10 @@ type Props = {
   onCreated?: () => void;
 };
 
-const STEPS = ["Category", "Issues", "Pricing"];
-
 const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
-  const [step, setStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   // Service
   const [services, setServices] = useState<Service[]>([]);
@@ -57,7 +55,6 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
 
   useEffect(() => {
     if (!open) {
-      setStep(0);
       setSelectedService(null);
       setIssueTags([]);
       setPhotos([]);
@@ -68,6 +65,7 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
       setCustomer({ name: "", phone: "", email: "", notes: "", campaign: "" });
       setCustomerErrors({});
       setShowPreview(false);
+      setAdvancedOpen(false);
     }
   }, [open]);
 
@@ -81,41 +79,38 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
   const elitePrice = Math.round(basePrice * 1.4);
   const premiumPrice = basePrice + 200;
 
-  const validateStep = (): boolean => {
-    if (step === 0) return !!selectedService;
-    if (step === 1) {
-      if (selectedService?.requires_photos && photos.length < 3) {
-        setPhotoError("Upload at least 3 photos");
-        return false;
-      }
-      setPhotoError("");
-      return true;
+  const validate = (): boolean => {
+    const errors: Partial<Record<keyof CustomerData, string>> = {};
+    if (!customer.name.trim()) errors.name = "Required";
+    if (!customer.phone.trim()) errors.phone = "Required";
+    else if (!/^\d{10}$/.test(customer.phone.trim())) errors.phone = "10 digits";
+    if (!customer.campaign) errors.campaign = "Required";
+    if (customer.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer.email))
+      errors.email = "Invalid email";
+    setCustomerErrors(errors);
+    if (Object.keys(errors).length > 0) return false;
+
+    if (!selectedService) {
+      toast({ title: "Select a service", variant: "destructive" });
+      return false;
     }
-    if (step === 2) {
-      const errors: Partial<Record<keyof CustomerData, string>> = {};
-      if (!customer.name.trim()) errors.name = "Required";
-      if (!customer.phone.trim()) errors.phone = "Required";
-      else if (!/^\d{10}$/.test(customer.phone.trim())) errors.phone = "10 digits";
-      if (!customer.campaign) errors.campaign = "Required";
-      if (customer.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer.email))
-        errors.email = "Invalid email";
-      setCustomerErrors(errors);
-      if (Object.keys(errors).length > 0) return false;
-      if (!basePrice || basePrice < 1000) {
-        setPriceError("Min ₹1,000");
-        return false;
-      }
-      setPriceError("");
-      return true;
+
+    if (selectedService.requires_photos && photos.length < 3) {
+      setPhotoError("Upload at least 3 photos");
+      return false;
     }
+    setPhotoError("");
+
+    if (!basePrice || basePrice < 1000) {
+      setPriceError("Min ₹1,000");
+      return false;
+    }
+    setPriceError("");
     return true;
   };
 
-  const next = () => { if (validateStep()) setStep((s) => Math.min(s + 1, STEPS.length - 1)); };
-  const prev = () => setStep((s) => Math.max(s - 1, 0));
-
   const handleGenerateQuote = () => {
-    if (validateStep()) setShowPreview(true);
+    if (validate()) setShowPreview(true);
   };
 
   const handleSubmit = async (mode: "create" | "whatsapp" | "interakt" = "create") => {
@@ -260,89 +255,77 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
           />
         ) : (
           <div className="space-y-4">
-            {/* Step indicators */}
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs text-muted-foreground">
-                {STEPS.map((label, i) => (
-                  <span key={label} className={i <= step ? "font-bold text-primary" : ""}>{label}</span>
-                ))}
-              </div>
-              <Progress value={((step + 1) / STEPS.length) * 100} className="h-1.5" />
-            </div>
+            {/* Customer + Campaign */}
+            <Card className="p-4 border-primary/20">
+              <CustomerDetails data={customer} onChange={setCustomer} errors={customerErrors} />
+            </Card>
 
-            {/* Step cards */}
-            {step === 0 && (
-              <Card className="p-4 border-primary/20">
-                <ServiceSelection
-                  services={services}
-                  selectedServiceId={selectedService?.id ?? null}
-                  onSelect={setSelectedService}
-                />
-              </Card>
-            )}
+            {/* Service Selection */}
+            <Card className="p-4 border-primary/20">
+              <ServiceSelection
+                services={services}
+                selectedServiceId={selectedService?.id ?? null}
+                onSelect={setSelectedService}
+              />
+            </Card>
 
-            {step === 1 && (
-              <Card className="p-4 border-primary/20 space-y-4">
-                <IssueTagger selectedTags={issueTags} onTagsChange={setIssueTags} />
-                {conditionNote && (
-                  <div className="rounded-lg border border-border bg-muted/30 p-2">
-                    <p className="text-[10px] font-semibold text-muted-foreground">Condition Report</p>
-                    <p className="text-xs text-foreground">{conditionNote}</p>
-                  </div>
-                )}
-                <PhotoUpload
-                  files={photos}
-                  onFilesChange={setPhotos}
-                  required={selectedService?.requires_photos ?? false}
-                  error={photoError}
-                />
-              </Card>
-            )}
+            {/* Pricing + Tier */}
+            <Card className="p-4 border-primary/20">
+              <DualPriceSlider
+                basePrice={basePrice}
+                onBasePriceChange={setBasePrice}
+                selectedTier={tier}
+                onTierChange={setTier}
+                error={priceError}
+              />
+            </Card>
 
-            {step === 2 && (
-              <Card className="p-4 border-primary/20 space-y-4">
-                <DualPriceSlider
-                  basePrice={basePrice}
-                  onBasePriceChange={setBasePrice}
-                  selectedTier={tier}
-                  onTierChange={setTier}
-                  error={priceError}
-                />
-                <CustomerDetails data={customer} onChange={setCustomer} errors={customerErrors} />
-              </Card>
-            )}
-
-            {/* Navigation */}
-            <div className="flex items-center justify-between pt-1">
-              <Button variant="ghost" onClick={prev} disabled={step === 0} className="min-h-[48px]">
-                <ChevronLeft className="mr-1 h-4 w-4" /> Back
-              </Button>
-
-              {step < STEPS.length - 1 ? (
-                <Button onClick={next} className="min-h-[48px]">
-                  Next <ChevronRight className="ml-1 h-4 w-4" />
+            {/* Advanced: Issues + Photos (collapsed by default) */}
+            <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+              <CollapsibleTrigger asChild>
+                <Button variant="ghost" size="sm" className="w-full justify-between text-xs text-muted-foreground">
+                  Advanced (Issues & Photos)
+                  {advancedOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                 </Button>
-              ) : (
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => { if (validateStep()) handleSubmit("create"); }}
-                    disabled={submitting}
-                    className="min-h-[52px] text-base"
-                  >
-                    {submitting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Check className="mr-1.5 h-4 w-4" />}
-                    Create
-                  </Button>
-                  <Button
-                    onClick={handleGenerateQuote}
-                    disabled={submitting}
-                    className="min-h-[52px] text-base"
-                  >
-                    {submitting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <MessageSquare className="mr-1.5 h-4 w-4" />}
-                    Generate Quote
-                  </Button>
-                </div>
-              )}
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <Card className="p-4 border-primary/20 space-y-4 mt-2">
+                  <IssueTagger selectedTags={issueTags} onTagsChange={setIssueTags} />
+                  {conditionNote && (
+                    <div className="rounded-lg border border-border bg-muted/30 p-2">
+                      <p className="text-[10px] font-semibold text-muted-foreground">Condition Report</p>
+                      <p className="text-xs text-foreground">{conditionNote}</p>
+                    </div>
+                  )}
+                  <PhotoUpload
+                    files={photos}
+                    onFilesChange={setPhotos}
+                    required={selectedService?.requires_photos ?? false}
+                    error={photoError}
+                  />
+                </Card>
+              </CollapsibleContent>
+            </Collapsible>
+
+            {/* Action buttons */}
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <Button
+                variant="outline"
+                onClick={() => { if (validate()) handleSubmit("create"); }}
+                disabled={submitting}
+                className="min-h-[48px] text-base"
+              >
+                {submitting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Check className="mr-1.5 h-4 w-4" />}
+                Create
+              </Button>
+              <Button
+                onClick={handleGenerateQuote}
+                disabled={submitting}
+                className="min-h-[48px] text-base"
+              >
+                {submitting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <MessageSquare className="mr-1.5 h-4 w-4" />}
+                Generate Quote
+              </Button>
             </div>
           </div>
         )}
