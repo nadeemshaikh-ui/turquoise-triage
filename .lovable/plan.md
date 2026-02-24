@@ -1,159 +1,103 @@
 
 
-# Lead Triage and Quote Generation Engine - "Choice Architecture" UI
+# Minimalist Command Center -- Restoree 360 UI Finalization
 
 ## Overview
 
-A complete overhaul of the lead intake flow, replacing form-heavy steps with a tap-first "Choice Architecture" UX. The new flow features large icon-based category selection, tap-only issue tagging, a dual-input pricing slider, automatic Elite/Premium math, and a shareable Digital Quote page. The UI will be hybrid-optimized for both desktop executives and iPad touch review.
+Strip the UI down to an executive-focused "Command Center" with two primary views (Triage Inbox + Active Workshop), a single-screen triage dialog, Elite-first pricing, iPad-optimized touch targets, and an inline quote preview before sending.
 
 ---
 
-## Architecture
+## Changes
 
-```text
-+---------------------------+     +----------------------------+
-|   NewLeadDialog (revised) |     |   /quote/:id (public page) |
-|   3-Step Tap-to-Triage    |---->|   Luxury Quote Design      |
-|                           |     |   Elite vs Premium compare |
-+---------------------------+     +----------------------------+
-         |                                     |
-         v                                     v
-  [leads table]                     [lead_quotes table]
-  + issue_tags (jsonb)              + quote_token (unique)
-  + condition_note (text)           + viewed_at, accepted_tier
-```
+### 1. Simplify Navigation -- Hide Advanced Settings
 
----
+**File: `src/components/AppLayout.tsx`**
 
-## Step-by-Step Plan
+Reduce the bottom nav to only 2 core items for all users, plus a conditional admin toggle:
 
-### 1. Database Migration
+- **Visible to all**: Dashboard (renamed "Triage Inbox") and Workshop (renamed "Active Workshop")
+- **Hidden by default**: Inventory, Customers, Finance, Recovery, Services, Automations
+- Add a small "More" overflow button (three dots icon) that reveals the hidden nav items in a popover/sheet -- only when needed
+- Keep the header clean: just the logo, "New Lead" button, alert bell, and sign out
 
-Add new columns and a new table:
+### 2. Single-Screen Triage -- All 3 Steps on One View
 
-**`leads` table additions:**
-- `issue_tags` (jsonb, default `'[]'`) -- stores selected issue tag IDs
-- `condition_note` (text, nullable) -- auto-generated professional condition description
+**File: `src/components/intake/NewLeadDialog.tsx`**
 
-**New `lead_quotes` table:**
-- `id` (uuid, PK)
-- `lead_id` (uuid, FK to leads)
-- `quote_token` (text, unique, not null) -- short random token for URL
-- `premium_price` (numeric)
-- `elite_price` (numeric)
-- `premium_tat_min` / `premium_tat_max` (integer)
-- `elite_tat_min` / `elite_tat_max` (integer)
-- `viewed_at` (timestamptz, nullable)
-- `accepted_tier` (text, nullable) -- "Premium" or "Elite" when customer accepts
-- `accepted_at` (timestamptz, nullable)
-- `created_at` (timestamptz, default now())
-- RLS: authenticated users can manage; public SELECT by quote_token for the public quote page
+Replace the multi-step wizard with a single scrollable (but compact) screen inside the dialog:
 
-### 2. Rewrite NewLeadDialog -- 3-Step Tap-to-Triage
+- Remove the `step` state, `STEPS` array, progress bar, and Next/Back buttons entirely
+- Render all three sections vertically in one view:
+  1. **Category + Service** -- compact 2x2 category icons (smaller, 48px) with inline filtered service chips below
+  2. **Issue Tags** -- compact 4-col tag grid (smaller chips, `min-h-[44px]`)
+  3. **Price Slider** -- dual-input slider with Elite/Premium cards side by side
+- **Customer details** collapse into a minimal inline row: just Name and Phone fields side by side (email and notes hidden behind an "Add details" toggle)
+- Dialog uses `sm:max-w-2xl` for desktop width and `max-h-[85vh] overflow-y-auto` to fit on iPad without external scrolling
+- Remove `RecentTriages` from inside the dialog (move to dashboard)
 
-Replace the current 4-step flow (Service -> Customer -> Photos -> Confirm) with a streamlined 3-step flow plus a sticky customer bar:
+**File: `src/components/intake/ServiceSelection.tsx`**
+- Reduce icon size from `h-10 w-10` to `h-8 w-8`, tile `min-h` from 96px to 64px
+- Make service cards single-line compact chips instead of multi-line cards
 
-**Step 1: Category + Service Selection**
-- Large tap-friendly icon tiles (64x64) for 4 categories: Bag (handbag icon), Shoe (footprints icon), Jacket (shirt icon), Other (sparkles icon)
-- Tapping a category filters services below as compact selectable cards
-- Responsive: 2x2 grid on mobile/iPad, horizontal row on desktop
+**File: `src/components/intake/IssueTagger.tsx`**
+- Remove the section header (save vertical space)
+- Compact the tag grid to always show 4 columns with smaller padding
 
-**Step 2: Issue Tagging + Photos**
-- Pre-defined clickable tag chips: "Color Fading", "Deep Scuffs", "Ink Stains", "Sole Separation", "Water Damage", "Peeling", "Hardware Damage", "Structural Deform"
-- Multi-select; each tag has a mapped professional condition note snippet
-- Auto-generates a combined "Condition Report" text from selected tags (no typing)
-- Below tags: standardized Before photo upload grid (labeled "Before" slots)
-- Merge photo upload into this step to reduce total steps
+**File: `src/components/intake/DualPriceSlider.tsx`**
+- Remove the "Base Price" label section header
+- Make the slider thumb larger (`h-6 w-6`) for thumb-friendly sliding
+- Compact the Elite/Premium comparison cards (reduce padding)
 
-**Step 3: Pricing + Confirm**
-- **Dual-Input Slider**: A range slider (1,000 - 50,000) synced with a manual input field; moving one updates the other
-- **Elite Math Engine**: Auto-calculates both tiers side-by-side:
-  - Premium: Base price + shipping estimate
-  - Elite: Base + 40%, free shipping, 8-12 day express
-- **Default to Elite**: The tier selector defaults to "Elite" instead of "Premium"
-- Customer details (name, phone, email) collected inline at the bottom of this step
-- Sticky "Generate WhatsApp Quote" button always visible at bottom
+**File: `src/components/intake/CustomerDetails.tsx`**
+- Restructure to a 2-column inline layout: Name and Phone side by side
+- Email and Notes hidden behind an expandable "More details" link
 
-### 3. New Component: `IssueTagger.tsx`
+### 3. Default to Profit -- Elite Pre-Selected
 
-A dedicated component for Step 2:
-- Renders tag chips in a flex-wrap grid
-- Each tag has an icon and label; selected state uses primary color fill
-- Condition note mapping:
+**File: `src/components/intake/NewLeadDialog.tsx`**
+- Already defaults to Elite (`useState<"Premium" | "Elite">("Elite")`)
+- Add visible "Downgrade to Premium" text button below the price cards
+- When tapped, switches tier and shows the Premium price as the selected quote
+- Visual emphasis: Elite card gets a glowing border; Premium card is muted/dimmed until actively selected
 
-```text
-"Color Fading"       -> "Visible color degradation across surface areas"
-"Deep Scuffs"        -> "Deep surface scratches requiring restoration treatment"
-"Ink Stains"         -> "Ink contamination requiring specialized solvent treatment"
-"Sole Separation"    -> "Sole detachment requiring structural re-bonding"
-"Water Damage"       -> "Water exposure damage with potential material warping"
-"Peeling"            -> "Surface material peeling requiring re-lamination"
-"Hardware Damage"    -> "Metal hardware showing corrosion or mechanical failure"
-"Structural Deform"  -> "Structural deformation requiring reshaping treatment"
-```
+### 4. iPad Touch Optimization
 
-- Auto-generates a combined professional condition note from selected tags
+**File: `src/components/ui/slider.tsx`** (or via className overrides)
+- Increase slider thumb to `h-7 w-7` with a visible ring for easier thumb control
+- Increase slider track height to `h-2`
 
-### 4. New Component: `DualPriceSlider.tsx`
+**Across all intake components:**
+- All interactive buttons use `min-h-[48px]` (already mostly done)
+- Category tiles: `min-h-[64px]` with clear active state
+- Issue tags: `min-h-[44px]` with bold selected fill
+- CTA buttons: `min-h-[52px]` with larger text (`text-base`)
 
-- Radix Slider (range 1000-50000, step 500) bound to an Input field
-- Changing the slider updates the input; typing in the input moves the slider
-- Below the slider: two side-by-side cards showing:
-  - **Premium**: base price + estimated shipping (flat 200)
-  - **Elite**: base * 1.4 + free shipping, with "RECOMMENDED" badge
+### 5. Instant Quote Preview Window
 
-### 5. Digital Quote Page: `/quote/:token` (Public)
+**File: `src/components/intake/NewLeadDialog.tsx`**
 
-A new public route (no auth required) that renders a luxury comparison card:
+Add a new state `showPreview` and a `QuotePreview` inline component:
 
-**Layout:**
-- Header: Restoree 360 branding
-- Before photo (prominent, from lead_photos)
-- Condition Report (from issue tags)
-- Side-by-side tier comparison table:
+- When "Generate Quote" is clicked, instead of immediately submitting, set `showPreview = true`
+- Display a preview panel that slides in (or replaces the form content) showing exactly what the customer will see:
+  - Service name and condition report
+  - Elite vs Premium side-by-side cards (reuse the same layout from `Quote.tsx`)
+  - Customer name and phone
+  - "Confirm & Send via WhatsApp" and "Confirm & Create Lead" buttons
+  - "Edit" button to go back to the form
+- Only after confirming in the preview does the actual submission happen
 
-```text
-| Feature              | Elite Artisan        | Premium              |
-|----------------------|----------------------|----------------------|
-| Delivery             | 8-12 Day Express     | 15-20 Day Standard   |
-| Quality Check        | Master Artisan       | Professional Grade   |
-|                      | Dual-Stage Check     |                      |
-| Materials            | Imported Italian     | Professional Grade   |
-|                      | Pigments             | Materials            |
-| Protection           | Nano-Ceramic Shield  | Standard Finish      |
-| Shipping             | FREE Pan-India       | +200 Shipping        |
-| Price                | Elite price          | Premium price        |
-```
+**New file: `src/components/intake/QuotePreview.tsx`**
+- Receives: service name, condition note, elite price, premium price, customer name, selected tier, photos (preview URLs)
+- Renders a compact version of the public quote page layout
+- Two action buttons: "Send WhatsApp" and "Create Lead"
+- "Back to Edit" link
 
-- Two CTA buttons: "Choose Elite" / "Choose Premium"
-- Clicking updates `lead_quotes.accepted_tier` and `accepted_at`
-- Mobile-responsive with large touch targets
+### 6. Move Recent Triages to Dashboard
 
-**Edge function: `serve-quote`** to handle the public page data fetch (reads lead + photos + quote by token without auth).
-
-### 6. WhatsApp Quote Generation
-
-When "Generate WhatsApp Quote" is clicked in Step 3:
-- Creates the lead, generates a `lead_quotes` record with a random token
-- Constructs the quote URL: `{SITE_URL}/quote/{token}`
-- Invokes `send-whatsapp` with a new `template_type: "digital_quote"` containing the quote URL
-- Falls back to copying the URL to clipboard if WhatsApp is disabled
-
-### 7. Recent Activity Bar
-
-At the bottom of the NewLeadDialog (or as a collapsible section on the Index page):
-- Shows the last 5 created leads with: customer name, service, price, time ago
-- Each item is clickable to navigate to the lead detail
-- Compact horizontal scroll on mobile, row on desktop
-
-### 8. Device Optimization (Hybrid UI)
-
-- All category icons and issue tags use `min-h-[48px]` touch targets (iPad-friendly)
-- High-contrast selected states with primary color fills (not just outlines)
-- Desktop: wider grid layouts (4-col categories, 4-col tags)
-- iPad/mobile: 2-col grids, larger text, more padding
-- Use `useIsMobile()` hook already in codebase for conditional layouts
-- Sticky bottom bar for the WhatsApp quote button uses `position: sticky; bottom: 0`
+**File: `src/pages/Index.tsx`**
+- Add `RecentTriages` component below the stats bar on the main dashboard instead of inside the dialog
 
 ---
 
@@ -161,31 +105,27 @@ At the bottom of the NewLeadDialog (or as a collapsible section on the Index pag
 
 | File | Purpose |
 |------|---------|
-| `src/components/intake/IssueTagger.tsx` | Tag-based issue selection component |
-| `src/components/intake/DualPriceSlider.tsx` | Synced slider + input pricing component |
-| `src/components/intake/RecentTriages.tsx` | Last 5 triages bar |
-| `src/pages/Quote.tsx` | Public digital quote page |
-| `supabase/functions/serve-quote/index.ts` | Edge function to serve quote data publicly |
-| Migration SQL | Add issue_tags, condition_note to leads; create lead_quotes table |
+| `src/components/intake/QuotePreview.tsx` | Inline preview of customer-facing quote before sending |
 
 ## Files to Modify
 
-| File | Changes |
-|------|---------|
-| `src/components/intake/NewLeadDialog.tsx` | Complete rewrite to 3-step Tap-to-Triage with Elite default |
-| `src/components/intake/ServiceSelection.tsx` | Replace with large icon category tiles |
-| `src/components/intake/PhotoUpload.tsx` | Add "Before" label slots |
-| `supabase/functions/send-whatsapp/index.ts` | Add `digital_quote` template type |
-| `src/App.tsx` | Add public `/quote/:token` route |
-| `src/integrations/supabase/types.ts` | Auto-updated after migration |
+| File | Key Changes |
+|------|-------------|
+| `src/components/AppLayout.tsx` | Simplify nav to 2 core items + "More" overflow |
+| `src/components/intake/NewLeadDialog.tsx` | Single-screen layout, remove steps, add preview state |
+| `src/components/intake/ServiceSelection.tsx` | Compact category tiles and service chips |
+| `src/components/intake/IssueTagger.tsx` | Remove header, compact grid |
+| `src/components/intake/DualPriceSlider.tsx` | Larger slider thumb, compact cards |
+| `src/components/intake/CustomerDetails.tsx` | 2-column inline layout with collapsible extras |
+| `src/pages/Index.tsx` | Add RecentTriages to dashboard |
 
 ---
 
-## Technical Considerations
+## Technical Notes
 
-- The `/quote/:token` page must be outside the `ProtectedRoute` wrapper so customers can view it without login
-- The `lead_quotes` table needs a public SELECT policy filtered by `quote_token` for unauthenticated access
-- The `serve-quote` edge function uses service role key to bypass RLS for fetching lead data
-- Elite default: `useState<"Premium" | "Elite">("Elite")` in the dialog
-- Slider uses `@radix-ui/react-slider` already installed in the project
+- No database changes required -- this is purely a UI/UX restructuring
+- The `QuotePreview` component reuses the same price calculation logic already in `NewLeadDialog`
+- The "More" nav overflow uses the existing `Sheet` or `Popover` component from the UI library
+- The slider thumb size is controlled via Tailwind classes on the Radix slider component
+- All changes maintain the existing submission logic -- only the presentation layer changes
 
