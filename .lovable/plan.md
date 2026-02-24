@@ -1,103 +1,137 @@
 
 
-# Minimalist Command Center -- Restoree 360 UI Finalization
+# Automations Framework -- Central Nervous System for Restoree 360
 
 ## Overview
 
-Strip the UI down to an executive-focused "Command Center" with two primary views (Triage Inbox + Active Workshop), a single-screen triage dialog, Elite-first pricing, iPad-optimized touch targets, and an inline quote preview before sending.
+Rebuild the Automations page into a clean, iOS-style control center with toggle-based triggers, read-only WhatsApp template previews, and a live automation log. Three core triggers will be wired up: Elite Alert, Milestone Message, and Recovery Nudge.
+
+---
+
+## Database Changes
+
+### New table: `automation_logs`
+
+Stores every automation action for the live status log.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid | PK, auto-generated |
+| trigger_type | text | `elite_alert`, `milestone_message`, `recovery_nudge` |
+| lead_id | uuid | nullable, reference |
+| message | text | Human-readable log line |
+| created_at | timestamptz | default now() |
+
+RLS: Authenticated users can SELECT. System (service role) can INSERT.
+
+### New `app_settings` keys (seeded via insert)
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `trigger_elite_alert` | `"true"` | Toggle for Elite Alert |
+| `trigger_milestone_triage_to_workshop` | `"true"` | Toggle for Triage-to-Workshop WhatsApp |
+| `trigger_milestone_workshop_to_ready` | `"true"` | Toggle for Workshop-to-Ready WhatsApp |
+| `trigger_recovery_nudge` | `"true"` | Toggle for 48h Recovery Nudge |
 
 ---
 
 ## Changes
 
-### 1. Simplify Navigation -- Hide Advanced Settings
+### 1. Rewrite `src/pages/Automations.tsx`
 
-**File: `src/components/AppLayout.tsx`**
+Replace the current page with a clean, sectioned layout:
 
-Reduce the bottom nav to only 2 core items for all users, plus a conditional admin toggle:
+**Section A: Connection Status** (compact)
+- Interakt API key input + Connected badge (keep existing logic, make it collapsible)
 
-- **Visible to all**: Dashboard (renamed "Triage Inbox") and Workshop (renamed "Active Workshop")
-- **Hidden by default**: Inventory, Customers, Finance, Recovery, Services, Automations
-- Add a small "More" overflow button (three dots icon) that reveals the hidden nav items in a popover/sheet -- only when needed
-- Keep the header clean: just the logo, "New Lead" button, alert bell, and sign out
+**Section B: Trigger Toggles** (main content)
+- Three cards, each with an iOS-style Switch toggle:
+  1. **The Elite Alert** -- "Notify when a customer accepts an Elite tier quote"
+     - Toggle key: `trigger_elite_alert`
+  2. **The Milestone Message** -- Two sub-toggles:
+     - "WhatsApp on Triage to Workshop" (`trigger_milestone_triage_to_workshop`)
+     - "WhatsApp on Workshop to Ready" (`trigger_milestone_workshop_to_ready`)
+  3. **The Recovery Nudge** -- "Auto-flag leads for follow-up after 48h without quote acceptance"
+     - Toggle key: `trigger_recovery_nudge`
 
-### 2. Single-Screen Triage -- All 3 Steps on One View
+Each toggle saves to `app_settings` using the existing `saveSetting` mutation pattern.
 
-**File: `src/components/intake/NewLeadDialog.tsx`**
+**Section C: Template Previews** (read-only)
+- Collapsible accordion showing the 4 WhatsApp template texts:
+  - `ready_for_pickup`: "Hi {name}, your {service} is ready for pickup!"
+  - `order_confirmation`: "Hi {name}, your {service} has been received and work has begun."
+  - `second_chance_offer`: "Hi {name}, we have a special {discount}% offer on your {service}."
+  - `digital_quote`: "Hi {name}, your personalized quote for {service} is ready: {link}"
+- Displayed in code-style blocks with variable placeholders highlighted
 
-Replace the multi-step wizard with a single scrollable (but compact) screen inside the dialog:
+**Section D: Live Automation Log** (bottom)
+- Query `automation_logs` ordered by `created_at DESC`, limit 20
+- Each row shows: timestamp (relative, e.g. "2m ago"), icon by trigger type, message text
+- Phone numbers masked: show last 4 digits only (e.g., "+91XXXX1234")
+- Realtime subscription on `automation_logs` table for live updates
 
-- Remove the `step` state, `STEPS` array, progress bar, and Next/Back buttons entirely
-- Render all three sections vertically in one view:
-  1. **Category + Service** -- compact 2x2 category icons (smaller, 48px) with inline filtered service chips below
-  2. **Issue Tags** -- compact 4-col tag grid (smaller chips, `min-h-[44px]`)
-  3. **Price Slider** -- dual-input slider with Elite/Premium cards side by side
-- **Customer details** collapse into a minimal inline row: just Name and Phone fields side by side (email and notes hidden behind an "Add details" toggle)
-- Dialog uses `sm:max-w-2xl` for desktop width and `max-h-[85vh] overflow-y-auto` to fit on iPad without external scrolling
-- Remove `RecentTriages` from inside the dialog (move to dashboard)
+Move the Labor Cost setting to the Finance page or keep it as a collapsible "Finance Settings" at the very bottom.
 
-**File: `src/components/intake/ServiceSelection.tsx`**
-- Reduce icon size from `h-10 w-10` to `h-8 w-8`, tile `min-h` from 96px to 64px
-- Make service cards single-line compact chips instead of multi-line cards
+### 2. Wire Elite Alert Trigger
 
-**File: `src/components/intake/IssueTagger.tsx`**
-- Remove the section header (save vertical space)
-- Compact the tag grid to always show 4 columns with smaller padding
+**File: `src/pages/Quote.tsx`** (or the `serve-quote` edge function)
 
-**File: `src/components/intake/DualPriceSlider.tsx`**
-- Remove the "Base Price" label section header
-- Make the slider thumb larger (`h-6 w-6`) for thumb-friendly sliding
-- Compact the Elite/Premium comparison cards (reduce padding)
+When a customer accepts the Elite tier (the `handleAccept("Elite")` flow already calls `serve-quote` with `action: "accept"`):
 
-**File: `src/components/intake/CustomerDetails.tsx`**
-- Restructure to a 2-column inline layout: Name and Phone side by side
-- Email and Notes hidden behind an expandable "More details" link
+**File: `supabase/functions/serve-quote/index.ts`**
+- After updating `accepted_tier` to "Elite", check `app_settings` for `trigger_elite_alert === "true"`
+- If enabled, insert into `automation_logs`: `"Elite Alert: {customerName} accepted Elite for {serviceName} (₹{price})"`
+- Insert into `lead_activity` as well for the lead's activity feed
 
-### 3. Default to Profit -- Elite Pre-Selected
+This creates in-app notification visibility. The AlertBell component already reads `low_stock_alerts`; we can extend it or keep it separate via the automation log on the Automations page.
 
-**File: `src/components/intake/NewLeadDialog.tsx`**
-- Already defaults to Elite (`useState<"Premium" | "Elite">("Elite")`)
-- Add visible "Downgrade to Premium" text button below the price cards
-- When tapped, switches tier and shows the Premium price as the selected quote
-- Visual emphasis: Elite card gets a glowing border; Premium card is muted/dimmed until actively selected
+### 3. Wire Milestone Message Trigger
 
-### 4. iPad Touch Optimization
+**File: `src/pages/Workshop.tsx`**
 
-**File: `src/components/ui/slider.tsx`** (or via className overrides)
-- Increase slider thumb to `h-7 w-7` with a visible ring for easier thumb control
-- Increase slider track height to `h-2`
+In the `updateStatus` mutation's `onSuccess`:
+- When status changes FROM "New" TO "Assigned" or "In Progress" (Triage to Workshop):
+  - Check `trigger_milestone_triage_to_workshop` setting
+  - If enabled, call `send-whatsapp` with `template_type: "order_confirmation"`
+  - Insert into `automation_logs`
+- When status changes TO "Ready for Pickup" (Workshop to Ready):
+  - Already sends WhatsApp via `showDeductionToast` -- just add the automation log entry
+  - Check `trigger_milestone_workshop_to_ready` setting before sending
 
-**Across all intake components:**
-- All interactive buttons use `min-h-[48px]` (already mostly done)
-- Category tiles: `min-h-[64px]` with clear active state
-- Issue tags: `min-h-[44px]` with bold selected fill
-- CTA buttons: `min-h-[52px]` with larger text (`text-base`)
+**File: `supabase/functions/send-whatsapp/index.ts`**
+- Add support for `template_type: "order_confirmation"` with template name `order_confirmation` and body values `[customer_name, service_name]`
 
-### 5. Instant Quote Preview Window
+### 4. Wire Recovery Nudge Trigger
 
-**File: `src/components/intake/NewLeadDialog.tsx`**
+**File: `src/pages/Recovery.tsx`** (or a scheduled edge function)
 
-Add a new state `showPreview` and a `QuotePreview` inline component:
+For the initial implementation (no cron needed yet):
+- When the Recovery page loads, check `trigger_recovery_nudge` setting
+- If enabled, auto-flag leads that are 48h+ stale and have no existing `recovery_offers` record
+- Insert into `automation_logs`: `"Recovery Nudge: Flagged {customerName} for follow-up ({hours}h stale)"`
+- The existing Recovery page already shows these leads -- this just adds the logging/flagging
 
-- When "Generate Quote" is clicked, instead of immediately submitting, set `showPreview = true`
-- Display a preview panel that slides in (or replaces the form content) showing exactly what the customer will see:
-  - Service name and condition report
-  - Elite vs Premium side-by-side cards (reuse the same layout from `Quote.tsx`)
-  - Customer name and phone
-  - "Confirm & Send via WhatsApp" and "Confirm & Create Lead" buttons
-  - "Edit" button to go back to the form
-- Only after confirming in the preview does the actual submission happen
+### 5. Update `serve-quote` Edge Function
 
-**New file: `src/components/intake/QuotePreview.tsx`**
-- Receives: service name, condition note, elite price, premium price, customer name, selected tier, photos (preview URLs)
-- Renders a compact version of the public quote page layout
-- Two action buttons: "Send WhatsApp" and "Create Lead"
-- "Back to Edit" link
+Add Elite Alert logging after accept:
 
-### 6. Move Recent Triages to Dashboard
+```typescript
+if (tier === "Elite") {
+  const { data: triggerSetting } = await supabase
+    .from("app_settings")
+    .select("value")
+    .eq("key", "trigger_elite_alert")
+    .single();
 
-**File: `src/pages/Index.tsx`**
-- Add `RecentTriages` component below the stats bar on the main dashboard instead of inside the dialog
+  if (triggerSetting?.value === "true") {
+    await supabase.from("automation_logs").insert({
+      trigger_type: "elite_alert",
+      lead_id: quoteRecord.lead_id,
+      message: `Elite Alert: Customer accepted Elite tier for Lead #${quoteRecord.lead_id.slice(0,8)}`,
+    });
+  }
+}
+```
 
 ---
 
@@ -105,27 +139,24 @@ Add a new state `showPreview` and a `QuotePreview` inline component:
 
 | File | Purpose |
 |------|---------|
-| `src/components/intake/QuotePreview.tsx` | Inline preview of customer-facing quote before sending |
+| `supabase/migrations/xxx_automation_logs.sql` | Create `automation_logs` table with RLS |
 
 ## Files to Modify
 
 | File | Key Changes |
 |------|-------------|
-| `src/components/AppLayout.tsx` | Simplify nav to 2 core items + "More" overflow |
-| `src/components/intake/NewLeadDialog.tsx` | Single-screen layout, remove steps, add preview state |
-| `src/components/intake/ServiceSelection.tsx` | Compact category tiles and service chips |
-| `src/components/intake/IssueTagger.tsx` | Remove header, compact grid |
-| `src/components/intake/DualPriceSlider.tsx` | Larger slider thumb, compact cards |
-| `src/components/intake/CustomerDetails.tsx` | 2-column inline layout with collapsible extras |
-| `src/pages/Index.tsx` | Add RecentTriages to dashboard |
+| `src/pages/Automations.tsx` | Full rewrite: trigger toggles, template previews, live log |
+| `src/pages/Workshop.tsx` | Add milestone trigger checks + automation log inserts |
+| `supabase/functions/serve-quote/index.ts` | Add Elite Alert logging on accept |
+| `supabase/functions/send-whatsapp/index.ts` | Add `order_confirmation` template type |
 
 ---
 
 ## Technical Notes
 
-- No database changes required -- this is purely a UI/UX restructuring
-- The `QuotePreview` component reuses the same price calculation logic already in `NewLeadDialog`
-- The "More" nav overflow uses the existing `Sheet` or `Popover` component from the UI library
-- The slider thumb size is controlled via Tailwind classes on the Radix slider component
-- All changes maintain the existing submission logic -- only the presentation layer changes
+- All trigger toggles use the existing `app_settings` table pattern (key-value upserts)
+- `automation_logs` table uses Realtime (`ALTER PUBLICATION supabase_realtime ADD TABLE automation_logs`) for live updates on the Automations page
+- No external cron jobs needed for V1 -- Recovery Nudge flags on page load; can be upgraded to a scheduled function later
+- Template previews are hardcoded strings matching the Interakt template names already configured in `send-whatsapp`
+- The Interakt API key and WhatsApp enabled toggle remain as the "Connection" section at the top
 
