@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Crown, Loader2, AlertTriangle, Clock, Package, StickyNote, Check, ClipboardCheck } from "lucide-react";
+import { Crown, Loader2, AlertTriangle, Clock, Package, StickyNote, Check, ClipboardCheck, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useNavigate } from "react-router-dom";
@@ -32,6 +32,7 @@ interface KanbanLead {
   serviceId: string;
   quotedPrice: number;
   status: string;
+  tier: string;
   isGoldTier: boolean;
   tatDaysMax: number;
   createdAt: string;
@@ -73,7 +74,7 @@ const Workshop = () => {
         .from("leads")
         .select(`
           id, quoted_price, status, tat_days_max, is_gold_tier, created_at, notes, service_id,
-          qc_checklist, custom_service_name,
+          qc_checklist, custom_service_name, tier,
           customers ( name ),
           services ( name )
         `)
@@ -87,6 +88,7 @@ const Workshop = () => {
         serviceId: r.service_id,
         quotedPrice: Number(r.quoted_price),
         status: r.status,
+        tier: r.tier || "Premium",
         isGoldTier: r.is_gold_tier,
         tatDaysMax: r.tat_days_max,
         createdAt: r.created_at,
@@ -238,11 +240,23 @@ const Workshop = () => {
                       snapshot.isDraggingOver && "bg-primary/5"
                     )}
                   >
-                    {col.items.map((lead, index) => (
+                    {/* Elite leads first */}
+                    {col.items.filter(l => l.tier === "Elite").map((lead, index) => (
                       <KanbanCard
                         key={lead.id}
                         lead={lead}
                         index={index}
+                        materials={materialsByService.get(lead.serviceId) || []}
+                        onStatusChange={(status) => updateStatus.mutate({ id: lead.id, status })}
+                        onNavigate={() => navigate(`/leads/${lead.id}`)}
+                      />
+                    ))}
+                    {/* Premium leads after */}
+                    {col.items.filter(l => l.tier !== "Elite").map((lead, index) => (
+                      <KanbanCard
+                        key={lead.id}
+                        lead={lead}
+                        index={col.items.filter(l => l.tier === "Elite").length + index}
                         materials={materialsByService.get(lead.serviceId) || []}
                         onStatusChange={(status) => updateStatus.mutate({ id: lead.id, status })}
                         onNavigate={() => navigate(`/leads/${lead.id}`)}
@@ -313,7 +327,9 @@ const KanbanCard = ({
           {...provided.dragHandleProps}
           className={cn(
             "rounded-[20px] border-2 bg-card p-3 shadow-[0_2px_10px_-4px_hsl(16_100%_50%/0.10)] transition-all cursor-grab active:cursor-grabbing",
-            slaBorder[sla],
+            lead.tier === "Elite"
+              ? "border-primary shadow-[0_0_16px_-2px_hsl(16_100%_50%/0.45)] ring-1 ring-primary/30"
+              : slaBorder[sla],
             snapshot.isDragging && "shadow-[0_8px_24px_-4px_hsl(16_100%_50%/0.25)] rotate-1 scale-[1.02]"
           )}
           onClick={() => !snapshot.isDragging && !editingNotes && onNavigate()}
@@ -321,6 +337,7 @@ const KanbanCard = ({
           <div className="flex items-start justify-between gap-1">
             <p className="text-sm font-semibold text-card-foreground leading-tight">{lead.customerName}</p>
             {lead.isGoldTier && <Crown className="h-3.5 w-3.5 shrink-0 text-gold" />}
+            {lead.tier === "Elite" && <Badge className="h-4 text-[8px] px-1.5 bg-primary text-primary-foreground gap-0.5"><Zap className="h-2.5 w-2.5" />ELITE</Badge>}
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground truncate">{lead.serviceName}</p>
           <p className="mt-1 text-sm font-bold text-primary">₹{lead.quotedPrice.toLocaleString("en-IN")}</p>
