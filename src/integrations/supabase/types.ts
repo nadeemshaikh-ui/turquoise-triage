@@ -181,6 +181,7 @@ export type Database = {
           status: string
           tat_days_max: number
           tat_days_min: number
+          tier: string
           updated_at: string
         }
         Insert: {
@@ -198,6 +199,7 @@ export type Database = {
           status?: string
           tat_days_max?: number
           tat_days_min?: number
+          tier?: string
           updated_at?: string
         }
         Update: {
@@ -215,6 +217,7 @@ export type Database = {
           status?: string
           tat_days_max?: number
           tat_days_min?: number
+          tier?: string
           updated_at?: string
         }
         Relationships: [
@@ -336,7 +339,9 @@ export type Database = {
           customer_name: string | null
           date: string
           id: string
+          matched_lead_id: string | null
           order_ref: string | null
+          phone: string | null
           source: string | null
         }
         Insert: {
@@ -345,7 +350,9 @@ export type Database = {
           customer_name?: string | null
           date: string
           id?: string
+          matched_lead_id?: string | null
           order_ref?: string | null
+          phone?: string | null
           source?: string | null
         }
         Update: {
@@ -354,10 +361,20 @@ export type Database = {
           customer_name?: string | null
           date?: string
           id?: string
+          matched_lead_id?: string | null
           order_ref?: string | null
+          phone?: string | null
           source?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "revenue_imports_matched_lead_id_fkey"
+            columns: ["matched_lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       service_recipes: {
         Row: {
@@ -439,6 +456,53 @@ export type Database = {
           requires_photos?: boolean
         }
         Relationships: []
+      }
+      turns_sales: {
+        Row: {
+          amount: number
+          created_at: string
+          customer_name: string | null
+          date: string
+          id: string
+          matched_at: string | null
+          matched_lead_id: string | null
+          order_ref: string | null
+          phone: string | null
+          sanitized_phone: string | null
+        }
+        Insert: {
+          amount?: number
+          created_at?: string
+          customer_name?: string | null
+          date: string
+          id?: string
+          matched_at?: string | null
+          matched_lead_id?: string | null
+          order_ref?: string | null
+          phone?: string | null
+          sanitized_phone?: string | null
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          customer_name?: string | null
+          date?: string
+          id?: string
+          matched_at?: string | null
+          matched_lead_id?: string | null
+          order_ref?: string | null
+          phone?: string | null
+          sanitized_phone?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "turns_sales_matched_lead_id_fkey"
+            columns: ["matched_lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {

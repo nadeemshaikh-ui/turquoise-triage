@@ -33,10 +33,18 @@ import {
 } from "recharts";
 import { format as fnsFormat, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths, isWithinInterval } from "date-fns";
 
+// Sanitize phone: remove +91, spaces, dashes, parens, dots
+const sanitizePhone = (raw: string): string => {
+  let p = raw.replace(/[\s\-().+]/g, "");
+  if (p.startsWith("91") && p.length > 10) p = p.slice(p.length - 10);
+  return p.slice(-10); // last 10 digits
+};
+
 const Finance = () => {
   const queryClient = useQueryClient();
   const [uploadingAds, setUploadingAds] = useState(false);
   const [uploadingRevenue, setUploadingRevenue] = useState(false);
+  const [uploadingTurns, setUploadingTurns] = useState(false);
   const [laborValue, setLaborValue] = useState<string | null>(null);
   const [savingLabor, setSavingLabor] = useState(false);
   const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined);
@@ -62,6 +70,19 @@ const Finance = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("revenue_imports")
+        .select("*")
+        .order("date");
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // Turns sales data
+  const { data: turnsSales = [] } = useQuery({
+    queryKey: ["finance-turns-sales"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("turns_sales")
         .select("*")
         .order("date");
       if (error) throw error;
@@ -418,6 +439,150 @@ const Finance = () => {
     }
   };
 
+  // Turns Sales CSV upload with phone-number matching
+  const handleTurnsCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingTurns(true);
+    try {
+      const text = await file.text();
+      const lines = text.split("\n").filter((l) => l.trim());
+      if (lines.length < 2) throw new Error("CSV is empty");
+
+      const parseCSVLine = (line: string) => {
+        const result: string[] = [];
+        let current = "";
+        let inQuotes = false;
+        for (const char of line) {
+          if (char === '"') { inQuotes = !inQuotes; }
+          else if (char === ',' && !inQuotes) { result.push(current.trim()); current = ""; }
+          else { current += char; }
+        }
+        result.push(current.trim());
+        return result;
+      };
+
+      // Find header row (search-and-skip)
+      let headerIdx = -1;
+      let headerCols: string[] = [];
+      for (let i = 0; i < lines.length; i++) {
+        const cols = parseCSVLine(lines[i]).map((c) => c.toLowerCase().replace(/"/g, ""));
+        if (cols.some((c) => c.includes("date")) && cols.some((c) => c.includes("amount") || c.includes("total") || c.includes("price"))) {
+          headerIdx = i;
+          headerCols = cols;
+          break;
+        }
+      }
+      if (headerIdx < 0) throw new Error("Invalid Turns CSV: must contain Date and Amount/Total columns");
+
+      const dateCol = headerCols.findIndex((c) => c.includes("date"));
+      const amountCol = headerCols.findIndex((c) => c.includes("amount") || c.includes("total") || c.includes("price"));
+      const phoneCol = headerCols.findIndex((c) => c.includes("phone") || c.includes("mobile") || c.includes("contact"));
+      const nameCol = headerCols.findIndex((c) => c.includes("customer") || c.includes("name") || c.includes("client"));
+      const orderCol = headerCols.findIndex((c) => c.includes("order") || c.includes("invoice") || c.includes("ref"));
+
+      const skipPhrases = ["total", "gst", "tds", "subtotal", "grand total"];
+      const rows: { date: string; amount: number; phone: string; sanitized_phone: string; customer_name: string; order_ref: string }[] = [];
+
+      for (let i = headerIdx + 1; i < lines.length; i++) {
+        const lower = lines[i].toLowerCase();
+        if (skipPhrases.some((p) => lower.includes(p))) continue;
+
+        const cells = parseCSVLine(lines[i]);
+        const rawDate = (cells[dateCol] || "").replace(/"/g, "").trim();
+        const rawAmount = (cells[amountCol] || "").replace(/["₹,\s()]/g, "").trim();
+        const amount = Math.abs(parseFloat(rawAmount) || 0);
+        if (amount <= 0) continue;
+
+        // Parse date
+        const parsedDate = new Date(rawDate);
+        if (isNaN(parsedDate.getTime())) continue;
+        const dateStr = fnsFormat(parsedDate, "yyyy-MM-dd");
+
+        const rawPhone = phoneCol >= 0 ? (cells[phoneCol] || "").replace(/"/g, "").trim() : "";
+        const sPhone = sanitizePhone(rawPhone);
+        const custName = nameCol >= 0 ? (cells[nameCol] || "").replace(/"/g, "").trim() : "";
+        const orderRef = orderCol >= 0 ? (cells[orderCol] || "").replace(/"/g, "").trim() : "";
+
+        rows.push({ date: dateStr, amount, phone: rawPhone, sanitized_phone: sPhone, customer_name: custName, order_ref: orderRef });
+      }
+
+      if (rows.length === 0) throw new Error("No valid data rows found in Turns CSV");
+
+      // Fetch customers for phone matching
+      const { data: customers } = await supabase.from("customers").select("id, phone, name");
+      const customerByPhone = new Map<string, { id: string; name: string }>();
+      (customers || []).forEach((c) => {
+        const sp = sanitizePhone(c.phone);
+        if (sp.length >= 10) customerByPhone.set(sp, { id: c.id, name: c.name });
+      });
+
+      // Fetch recent leads (30-day window) for matching
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const { data: recentLeads } = await supabase
+        .from("leads")
+        .select("id, customer_id, created_at, quoted_price")
+        .gte("created_at", thirtyDaysAgo.toISOString());
+      const leadsByCustomer = new Map<string, { id: string; created_at: string }[]>();
+      (recentLeads || []).forEach((l) => {
+        const arr = leadsByCustomer.get(l.customer_id) || [];
+        arr.push({ id: l.id, created_at: l.created_at });
+        leadsByCustomer.set(l.customer_id, arr);
+      });
+
+      let matchedCount = 0;
+      const insertRows = rows.map((r) => {
+        let matched_lead_id: string | null = null;
+        if (r.sanitized_phone.length >= 10) {
+          const customer = customerByPhone.get(r.sanitized_phone);
+          if (customer) {
+            const customerLeads = leadsByCustomer.get(customer.id);
+            if (customerLeads && customerLeads.length > 0) {
+              // Match to closest lead by date within 30-day window
+              const saleDate = new Date(r.date).getTime();
+              let closest = customerLeads[0];
+              let closestDiff = Math.abs(new Date(closest.created_at).getTime() - saleDate);
+              customerLeads.forEach((l) => {
+                const diff = Math.abs(new Date(l.created_at).getTime() - saleDate);
+                if (diff < closestDiff) { closest = l; closestDiff = diff; }
+              });
+              if (closestDiff <= 30 * 24 * 60 * 60 * 1000) {
+                matched_lead_id = closest.id;
+                matchedCount++;
+              }
+            }
+          }
+        }
+        return {
+          date: r.date,
+          order_ref: r.order_ref || null,
+          customer_name: r.customer_name || null,
+          phone: r.phone || null,
+          sanitized_phone: r.sanitized_phone || null,
+          amount: r.amount,
+          matched_lead_id,
+          matched_at: matched_lead_id ? new Date().toISOString() : null,
+        };
+      });
+
+      const { error } = await supabase.from("turns_sales").insert(insertRows);
+      if (error) throw error;
+
+      const totalAmount = rows.reduce((s, r) => s + r.amount, 0);
+      toast({
+        title: `✅ Synced ₹${totalAmount.toLocaleString("en-IN")} from ${rows.length} Turns orders`,
+        description: `${matchedCount} orders matched to leads via phone number`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["finance-turns-sales"] });
+    } catch (err: any) {
+      toast({ title: "Upload Error", description: err.message, variant: "destructive" });
+    } finally {
+      setUploadingTurns(false);
+      e.target.value = "";
+    }
+  };
+
   const handleLaborSave = async () => {
     if (!laborValue) return;
     setSavingLabor(true);
@@ -444,8 +609,11 @@ const Finance = () => {
       if (e1) throw e1;
       const { error: e2 } = await supabase.from("revenue_imports").delete().neq("id", "00000000-0000-0000-0000-000000000000");
       if (e2) throw e2;
+      const { error: e3 } = await supabase.from("turns_sales").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      if (e3) throw e3;
       queryClient.invalidateQueries({ queryKey: ["finance-ad-spend"] });
       queryClient.invalidateQueries({ queryKey: ["finance-revenue-imports"] });
+      queryClient.invalidateQueries({ queryKey: ["finance-turns-sales"] });
       queryClient.invalidateQueries({ queryKey: ["finance-top-customers"] });
       toast({ title: "✅ Finance data has been reset." });
     } catch (err: any) {
@@ -605,7 +773,7 @@ const Finance = () => {
           <AlertDialogHeader>
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will delete all uploaded Meta Spend and Historical Revenue data. This action cannot be undone.
+              This will delete all uploaded Meta Spend, Turns Sales, and Historical Revenue data. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -621,7 +789,16 @@ const Finance = () => {
         <CardHeader className="pb-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle className="text-sm font-semibold">Revenue vs Ad Spend (ROAS)</CardTitle>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              <label className="cursor-pointer">
+                <input type="file" accept=".csv" className="hidden" onChange={handleTurnsCsvUpload} disabled={uploadingTurns} />
+                <Button variant="outline" size="sm" className="rounded-[28px] gap-2 pointer-events-none" asChild>
+                  <span>
+                    {uploadingTurns ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                    Upload Turns CSV
+                  </span>
+                </Button>
+              </label>
               <label className="cursor-pointer">
                 <input type="file" accept=".csv" className="hidden" onChange={handleRevenueCsvUpload} disabled={uploadingRevenue} />
                 <Button variant="outline" size="sm" className="rounded-[28px] gap-2 pointer-events-none" asChild>
