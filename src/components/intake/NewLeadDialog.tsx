@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { ArrowLeft, ArrowRight, Check, Loader2, MessageSquare } from "lucide-react";
+import { Loader2, MessageSquare, Check } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import ServiceSelection, { type Service } from "./ServiceSelection";
@@ -10,7 +9,7 @@ import CustomerDetails, { type CustomerData } from "./CustomerDetails";
 import PhotoUpload from "./PhotoUpload";
 import IssueTagger, { generateConditionNote } from "./IssueTagger";
 import DualPriceSlider from "./DualPriceSlider";
-import RecentTriages from "./RecentTriages";
+import QuotePreview from "./QuotePreview";
 
 type Props = {
   open: boolean;
@@ -18,27 +17,25 @@ type Props = {
   onCreated?: () => void;
 };
 
-const STEPS = ["Category & Service", "Issues & Photos", "Pricing & Confirm"];
-
 const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
-  const [step, setStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
-  // Step 1 — Service
+  // Service
   const [services, setServices] = useState<Service[]>([]);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
 
-  // Step 2 — Issue Tags + Photos
+  // Issues + Photos
   const [issueTags, setIssueTags] = useState<string[]>([]);
   const [photos, setPhotos] = useState<File[]>([]);
   const [photoError, setPhotoError] = useState("");
 
-  // Step 3 — Pricing + Customer
+  // Pricing + Customer
   const [basePrice, setBasePrice] = useState(1000);
   const [priceError, setPriceError] = useState("");
+  const [tier, setTier] = useState<"Premium" | "Elite">("Elite");
   const [customer, setCustomer] = useState<CustomerData>({ name: "", phone: "", email: "", notes: "" });
   const [customerErrors, setCustomerErrors] = useState<Partial<Record<keyof CustomerData, string>>>({});
-  const [tier] = useState<"Premium" | "Elite">("Elite"); // Default Elite
 
   // Load services
   useEffect(() => {
@@ -57,15 +54,16 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
   // Reset on close
   useEffect(() => {
     if (!open) {
-      setStep(0);
       setSelectedService(null);
       setIssueTags([]);
       setPhotos([]);
       setPhotoError("");
       setBasePrice(1000);
       setPriceError("");
+      setTier("Elite");
       setCustomer({ name: "", phone: "", email: "", notes: "" });
       setCustomerErrors({});
+      setShowPreview(false);
     }
   }, [open]);
 
@@ -76,53 +74,50 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
     }
   }, [selectedService]);
 
-  const isGoldTier =
-    selectedService?.category === "Luxury Bags" || basePrice > 6000;
-
-  const validateStep = (): boolean => {
-    if (step === 0) return !!selectedService;
-
-    if (step === 1) {
-      if (selectedService?.requires_photos && photos.length < 3) {
-        setPhotoError("Please upload at least 3 photos");
-        return false;
-      }
-      setPhotoError("");
-      return true;
-    }
-
-    if (step === 2) {
-      const errors: Partial<Record<keyof CustomerData, string>> = {};
-      if (!customer.name.trim()) errors.name = "Name is required";
-      if (!customer.phone.trim()) errors.phone = "Phone is required";
-      else if (!/^\d{10}$/.test(customer.phone.trim())) errors.phone = "Enter a valid 10-digit number";
-      if (customer.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer.email))
-        errors.email = "Enter a valid email";
-      setCustomerErrors(errors);
-      if (Object.keys(errors).length > 0) return false;
-
-      if (!basePrice || basePrice < 1000) {
-        setPriceError("Enter a price ≥ ₹1,000");
-        return false;
-      }
-      setPriceError("");
-      return true;
-    }
-
-    return true;
-  };
-
-  const next = () => {
-    if (validateStep()) setStep((s) => Math.min(s + 1, STEPS.length - 1));
-  };
-
-  const prev = () => setStep((s) => Math.max(s - 1, 0));
-
+  const isGoldTier = selectedService?.category === "Luxury Bags" || basePrice > 6000;
   const elitePrice = Math.round(basePrice * 1.4);
   const premiumPrice = basePrice + 200;
 
+  const validate = (): boolean => {
+    let valid = true;
+
+    if (!selectedService) {
+      toast({ title: "Select a service", variant: "destructive" });
+      return false;
+    }
+
+    if (selectedService.requires_photos && photos.length < 3) {
+      setPhotoError("Upload at least 3 photos");
+      valid = false;
+    } else {
+      setPhotoError("");
+    }
+
+    const errors: Partial<Record<keyof CustomerData, string>> = {};
+    if (!customer.name.trim()) errors.name = "Required";
+    if (!customer.phone.trim()) errors.phone = "Required";
+    else if (!/^\d{10}$/.test(customer.phone.trim())) errors.phone = "10 digits";
+    if (customer.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer.email))
+      errors.email = "Invalid email";
+    setCustomerErrors(errors);
+    if (Object.keys(errors).length > 0) valid = false;
+
+    if (!basePrice || basePrice < 1000) {
+      setPriceError("Min ₹1,000");
+      valid = false;
+    } else {
+      setPriceError("");
+    }
+
+    return valid;
+  };
+
+  const handleGenerateQuote = () => {
+    if (validate()) setShowPreview(true);
+  };
+
   const handleSubmit = async (sendWhatsApp = false) => {
-    if (!validateStep() || !selectedService) return;
+    if (!selectedService) return;
     setSubmitting(true);
 
     try {
@@ -237,83 +232,97 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
     }
   };
 
+  const conditionNote = generateConditionNote(issueTags);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="text-foreground">New Lead — Tap to Triage</DialogTitle>
+          <DialogTitle className="text-foreground text-sm">New Lead — Tap to Triage</DialogTitle>
         </DialogHeader>
 
-        {/* Progress */}
-        <div className="space-y-2">
-          <div className="flex justify-between text-xs text-muted-foreground">
-            {STEPS.map((label, i) => (
-              <span key={label} className={i <= step ? "font-semibold text-primary" : ""}>
-                {label}
-              </span>
-            ))}
-          </div>
-          <Progress value={((step + 1) / STEPS.length) * 100} className="h-1.5" />
-        </div>
-
-        {/* Steps */}
-        <div className="py-2">
-          {step === 0 && (
+        {showPreview ? (
+          <QuotePreview
+            serviceName={selectedService?.name ?? ""}
+            conditionNote={conditionNote}
+            elitePrice={elitePrice}
+            premiumPrice={premiumPrice}
+            customerName={customer.name}
+            customerPhone={customer.phone}
+            selectedTier={tier}
+            photos={photos}
+            submitting={submitting}
+            onConfirmCreate={() => handleSubmit(false)}
+            onConfirmWhatsApp={() => handleSubmit(true)}
+            onBack={() => setShowPreview(false)}
+          />
+        ) : (
+          <div className="space-y-4">
+            {/* Section 1: Category + Service */}
             <ServiceSelection
               services={services}
               selectedServiceId={selectedService?.id ?? null}
               onSelect={setSelectedService}
             />
-          )}
-          {step === 1 && (
-            <div className="space-y-6">
-              <IssueTagger selectedTags={issueTags} onTagsChange={setIssueTags} />
-              <PhotoUpload
-                files={photos}
-                onFilesChange={setPhotos}
-                required={selectedService?.requires_photos ?? false}
-                error={photoError}
-              />
-            </div>
-          )}
-          {step === 2 && (
-            <div className="space-y-6">
-              <DualPriceSlider
-                basePrice={basePrice}
-                onBasePriceChange={setBasePrice}
-                error={priceError}
-              />
-              <CustomerDetails data={customer} onChange={setCustomer} errors={customerErrors} />
-            </div>
-          )}
-        </div>
 
-        {/* Navigation */}
-        <div className="flex items-center justify-between pt-2">
-          <Button variant="ghost" onClick={prev} disabled={step === 0}>
-            <ArrowLeft className="mr-1 h-4 w-4" /> Back
-          </Button>
+            {/* Section 2: Issue Tags + Photos */}
+            {selectedService && (
+              <>
+                <IssueTagger selectedTags={issueTags} onTagsChange={setIssueTags} />
 
-          {step < STEPS.length - 1 ? (
-            <Button onClick={next}>
-              Next <ArrowRight className="ml-1 h-4 w-4" />
-            </Button>
-          ) : (
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => handleSubmit(false)} disabled={submitting}>
-                {submitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Check className="mr-1 h-4 w-4" />}
-                Create Lead
-              </Button>
-              <Button onClick={() => handleSubmit(true)} disabled={submitting} className="sticky bottom-0">
-                {submitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <MessageSquare className="mr-1 h-4 w-4" />}
-                WhatsApp Quote
-              </Button>
-            </div>
-          )}
-        </div>
+                {conditionNote && (
+                  <div className="rounded-lg border border-border bg-muted/30 p-2">
+                    <p className="text-[10px] font-semibold text-muted-foreground">Condition Report</p>
+                    <p className="text-xs text-foreground">{conditionNote}</p>
+                  </div>
+                )}
 
-        {/* Recent Triages */}
-        <RecentTriages />
+                <PhotoUpload
+                  files={photos}
+                  onFilesChange={setPhotos}
+                  required={selectedService.requires_photos}
+                  error={photoError}
+                />
+              </>
+            )}
+
+            {/* Section 3: Pricing + Customer */}
+            {selectedService && (
+              <>
+                <DualPriceSlider
+                  basePrice={basePrice}
+                  onBasePriceChange={setBasePrice}
+                  selectedTier={tier}
+                  onTierChange={setTier}
+                  error={priceError}
+                />
+
+                <CustomerDetails data={customer} onChange={setCustomer} errors={customerErrors} />
+
+                {/* Sticky CTA */}
+                <div className="flex gap-2 pt-2 sticky bottom-0 bg-background pb-1">
+                  <Button
+                    variant="outline"
+                    onClick={() => { if (validate()) handleSubmit(false); }}
+                    disabled={submitting}
+                    className="flex-1 min-h-[52px] text-base"
+                  >
+                    {submitting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Check className="mr-1.5 h-4 w-4" />}
+                    Create Lead
+                  </Button>
+                  <Button
+                    onClick={handleGenerateQuote}
+                    disabled={submitting}
+                    className="flex-1 min-h-[52px] text-base"
+                  >
+                    {submitting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <MessageSquare className="mr-1.5 h-4 w-4" />}
+                    Generate Quote
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

@@ -1,41 +1,37 @@
 import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { IndianRupee, Truck, Zap, Crown } from "lucide-react";
+import { Truck, Zap, Crown } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type Props = {
   basePrice: number;
   onBasePriceChange: (price: number) => void;
+  selectedTier: "Premium" | "Elite";
+  onTierChange: (tier: "Premium" | "Elite") => void;
   error?: string;
 };
 
 const SHIPPING_FLAT = 200;
 
-const DualPriceSlider = ({ basePrice, onBasePriceChange, error }: Props) => {
+const DualPriceSlider = ({ basePrice, onBasePriceChange, selectedTier, onTierChange, error }: Props) => {
   const premiumTotal = basePrice + SHIPPING_FLAT;
   const eliteTotal = Math.round(basePrice * 1.4);
 
   return (
-    <div className="space-y-4">
-      <div>
-        <Label className="flex items-center gap-1 mb-2">
-          <IndianRupee className="h-3.5 w-3.5" />
-          Base Price
-        </Label>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-muted-foreground whitespace-nowrap">₹1,000</span>
-          <Slider
-            min={1000}
-            max={50000}
-            step={500}
-            value={[basePrice]}
-            onValueChange={([v]) => onBasePriceChange(v)}
-            className="flex-1"
-          />
-          <span className="text-xs text-muted-foreground whitespace-nowrap">₹50,000</span>
-        </div>
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] text-muted-foreground">₹1K</span>
+        <Slider
+          min={1000}
+          max={50000}
+          step={500}
+          value={[basePrice]}
+          onValueChange={([v]) => onBasePriceChange(v)}
+          className="flex-1 [&_[role=slider]]:h-7 [&_[role=slider]]:w-7"
+        />
+        <span className="text-[10px] text-muted-foreground">₹50K</span>
         <Input
           type="number"
           min={1000}
@@ -46,44 +42,63 @@ const DualPriceSlider = ({ basePrice, onBasePriceChange, error }: Props) => {
             const v = Number(e.target.value);
             if (v >= 0 && v <= 50000) onBasePriceChange(v);
           }}
-          className="mt-2 text-center font-semibold"
-          placeholder="Enter price"
+          className="w-20 text-center text-sm font-semibold"
         />
-        {error && <p className="text-xs text-destructive mt-1">{error}</p>}
       </div>
+      {error && <p className="text-xs text-destructive">{error}</p>}
 
-      {/* Side-by-side tier comparison */}
-      <div className="grid grid-cols-2 gap-3">
-        {/* Premium */}
-        <Card className="p-3 space-y-2 border-border">
-          <div className="flex items-center gap-1.5">
-            <Crown className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-semibold text-foreground">Premium</span>
-          </div>
-          <div className="text-xs text-muted-foreground space-y-1">
-            <p>15–20 Day Standard</p>
-            <p>Professional Grade</p>
-            <p className="flex items-center gap-1"><Truck className="h-3 w-3" /> +₹{SHIPPING_FLAT} Shipping</p>
-          </div>
-          <p className="text-lg font-bold text-foreground">₹{premiumTotal.toLocaleString()}</p>
-        </Card>
-
+      {/* Side-by-side tier cards */}
+      <div className="grid grid-cols-2 gap-2">
         {/* Elite */}
-        <Card className="p-3 space-y-2 border-primary bg-primary/5 relative overflow-hidden">
-          <Badge className="absolute -top-0 right-0 rounded-none rounded-bl-lg text-[10px] bg-primary text-primary-foreground">
-            RECOMMENDED
-          </Badge>
-          <div className="flex items-center gap-1.5">
-            <Zap className="h-4 w-4 text-primary" />
-            <span className="text-sm font-semibold text-foreground">Elite Artisan</span>
-          </div>
-          <div className="text-xs text-muted-foreground space-y-1">
-            <p>8–12 Day Express</p>
-            <p>Master Artisan Check</p>
-            <p className="flex items-center gap-1 text-primary"><Truck className="h-3 w-3" /> FREE Shipping</p>
-          </div>
-          <p className="text-lg font-bold text-primary">₹{eliteTotal.toLocaleString()}</p>
-        </Card>
+        <button
+          type="button"
+          onClick={() => onTierChange("Elite")}
+          className="text-left"
+        >
+          <Card className={cn(
+            "p-2.5 space-y-1 relative overflow-hidden transition-all",
+            selectedTier === "Elite"
+              ? "border-primary bg-primary/5 ring-2 ring-primary/30 shadow-lg"
+              : "border-border opacity-60"
+          )}>
+            <Badge className="absolute -top-0 right-0 rounded-none rounded-bl-lg text-[9px] bg-primary text-primary-foreground">
+              RECOMMENDED
+            </Badge>
+            <div className="flex items-center gap-1">
+              <Zap className="h-3.5 w-3.5 text-primary" />
+              <span className="text-xs font-bold text-foreground">Elite Artisan</span>
+            </div>
+            <div className="text-[10px] text-muted-foreground space-y-0.5">
+              <p>8–12 Day Express</p>
+              <p className="text-primary flex items-center gap-0.5"><Truck className="h-2.5 w-2.5" /> FREE Shipping</p>
+            </div>
+            <p className="text-base font-bold text-primary">₹{eliteTotal.toLocaleString()}</p>
+          </Card>
+        </button>
+
+        {/* Premium */}
+        <button
+          type="button"
+          onClick={() => onTierChange("Premium")}
+          className="text-left"
+        >
+          <Card className={cn(
+            "p-2.5 space-y-1 transition-all",
+            selectedTier === "Premium"
+              ? "border-primary bg-primary/5 ring-2 ring-primary/30 shadow-lg"
+              : "border-border opacity-60"
+          )}>
+            <div className="flex items-center gap-1">
+              <Crown className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-xs font-bold text-foreground">Premium</span>
+            </div>
+            <div className="text-[10px] text-muted-foreground space-y-0.5">
+              <p>15–20 Day Standard</p>
+              <p className="flex items-center gap-0.5"><Truck className="h-2.5 w-2.5" /> +₹{SHIPPING_FLAT}</p>
+            </div>
+            <p className="text-base font-bold text-foreground">₹{premiumTotal.toLocaleString()}</p>
+          </Card>
+        </button>
       </div>
     </div>
   );
