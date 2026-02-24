@@ -35,6 +35,30 @@ export type Database = {
         }
         Relationships: []
       }
+      automation_logs: {
+        Row: {
+          created_at: string
+          id: string
+          lead_id: string | null
+          message: string
+          trigger_type: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          lead_id?: string | null
+          message: string
+          trigger_type: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          lead_id?: string | null
+          message?: string
+          trigger_type?: string
+        }
+        Relationships: []
+      }
       customers: {
         Row: {
           created_at: string
