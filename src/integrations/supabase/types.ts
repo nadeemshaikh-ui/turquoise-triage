@@ -232,6 +232,7 @@ export type Database = {
           id: string
           is_gold_tier: boolean
           issue_tags: Json | null
+          meta_campaign_name: string | null
           notes: string | null
           qc_checklist: Json | null
           quoted_price: number
@@ -252,6 +253,7 @@ export type Database = {
           id?: string
           is_gold_tier?: boolean
           issue_tags?: Json | null
+          meta_campaign_name?: string | null
           notes?: string | null
           qc_checklist?: Json | null
           quoted_price: number
@@ -272,6 +274,7 @@ export type Database = {
           id?: string
           is_gold_tier?: boolean
           issue_tags?: Json | null
+          meta_campaign_name?: string | null
           notes?: string | null
           qc_checklist?: Json | null
           quoted_price?: number
