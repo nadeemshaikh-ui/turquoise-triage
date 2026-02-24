@@ -25,7 +25,6 @@ serve(async (req) => {
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-    // Fetch quote by token
     const { data: quote, error: quoteErr } = await supabase
       .from("lead_quotes")
       .select("*")
@@ -39,7 +38,6 @@ serve(async (req) => {
       });
     }
 
-    // Handle actions
     if (action === "view") {
       await supabase
         .from("lead_quotes")
@@ -56,20 +54,17 @@ serve(async (req) => {
         .update({ accepted_tier: tier, accepted_at: new Date().toISOString() })
         .eq("id", quote.id);
 
-      // Update lead tier + status
       await supabase
         .from("leads")
         .update({ tier, status: "Assigned" })
         .eq("id", quote.lead_id);
 
-      // Log activity
       await supabase.from("lead_activity").insert({
         lead_id: quote.lead_id,
         action: `Customer accepted ${tier}`,
         details: `Customer selected ${tier} tier via digital quote`,
       });
 
-      // Elite Alert trigger
       if (tier === "Elite") {
         const { data: triggerSetting } = await supabase
           .from("app_settings")
@@ -94,9 +89,16 @@ serve(async (req) => {
     // Default: fetch full quote data for display
     const { data: lead } = await supabase
       .from("leads")
-      .select("*, customers(name, phone), services(name, category)")
+      .select("*, customers(name, phone)")
       .eq("id", quote.lead_id)
       .single();
+
+    // Fetch lead_items
+    const { data: leadItems } = await supabase
+      .from("lead_items")
+      .select("*, service_categories(name)")
+      .eq("lead_id", quote.lead_id)
+      .order("sort_order");
 
     // Fetch photos
     const { data: photoRecords } = await supabase
@@ -111,8 +113,15 @@ serve(async (req) => {
       return { url: urlData.publicUrl };
     });
 
+    const items = (leadItems || []).map((li: any) => ({
+      categoryName: li.service_categories?.name || "Item",
+      description: li.description,
+      manualPrice: li.manual_price,
+      mode: li.mode,
+    }));
+
     return new Response(
-      JSON.stringify({ quote, lead, photos }),
+      JSON.stringify({ quote, lead, photos, items }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
