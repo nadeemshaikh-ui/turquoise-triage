@@ -13,7 +13,7 @@ serve(async (req) => {
   }
 
   try {
-    const { lead_id, customer_phone, customer_name, service_name, template_type, discount_percent } = await req.json();
+    const { lead_id, customer_phone, customer_name, service_name, template_type, discount_percent, quote_url } = await req.json();
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -57,11 +57,20 @@ serve(async (req) => {
 
     // Select template based on type
     const isRecovery = template_type === "second_chance";
-    const templateName = isRecovery ? "second_chance_offer" : "ready_for_pickup";
-    const callbackData = isRecovery ? "second_chance" : "ready_pickup";
-    const bodyValues = isRecovery
-      ? [customer_name, service_name, `${discount_percent || 10}`]
-      : [customer_name, service_name];
+    const isDigitalQuote = template_type === "digital_quote";
+    let templateName = "ready_for_pickup";
+    let callbackData = "ready_pickup";
+    let bodyValues = [customer_name, service_name];
+
+    if (isRecovery) {
+      templateName = "second_chance_offer";
+      callbackData = "second_chance";
+      bodyValues = [customer_name, service_name, `${discount_percent || 10}`];
+    } else if (isDigitalQuote) {
+      templateName = "digital_quote";
+      callbackData = "digital_quote";
+      bodyValues = [customer_name, service_name, quote_url || ""];
+    }
 
     // Send via Interakt API
     const interaktRes = await fetch("https://api.interakt.ai/v1/public/message/", {
@@ -88,10 +97,15 @@ serve(async (req) => {
     console.log("Interakt response:", JSON.stringify(interaktData));
 
     // Log activity
-    const activityAction = isRecovery ? "Recovery WhatsApp Sent" : "WhatsApp Sent";
-    const activityDetails = isRecovery
-      ? `Second Chance offer (${discount_percent}% off) sent to ${phone}`
-      : `Ready for Pickup notification sent to ${phone}`;
+    let activityAction = "WhatsApp Sent";
+    let activityDetails = `Ready for Pickup notification sent to ${phone}`;
+    if (isRecovery) {
+      activityAction = "Recovery WhatsApp Sent";
+      activityDetails = `Second Chance offer (${discount_percent}% off) sent to ${phone}`;
+    } else if (isDigitalQuote) {
+      activityAction = "Digital Quote WhatsApp Sent";
+      activityDetails = `Digital quote link sent to ${phone}: ${quote_url}`;
+    }
 
     await supabase.from("lead_activity").insert({
       lead_id,
