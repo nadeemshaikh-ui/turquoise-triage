@@ -69,6 +69,23 @@ serve(async (req) => {
         details: `Customer selected ${tier} tier via digital quote`,
       });
 
+      // Elite Alert trigger
+      if (tier === "Elite") {
+        const { data: triggerSetting } = await supabase
+          .from("app_settings")
+          .select("value")
+          .eq("key", "trigger_elite_alert")
+          .single();
+
+        if (!triggerSetting || triggerSetting.value === "true") {
+          await supabase.from("automation_logs").insert({
+            trigger_type: "elite_alert",
+            lead_id: quote.lead_id,
+            message: `Elite Alert: Customer accepted Elite tier for Lead #${quote.lead_id.slice(0, 8)}`,
+          });
+        }
+      }
+
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

@@ -131,8 +131,8 @@ const Quote = () => {
         {!accepted && (
           <>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {/* Elite */}
-              <Card className="p-5 border-primary bg-primary/5 space-y-3 relative">
+              {/* Elite — shown first and larger */}
+              <Card className="p-5 border-primary bg-primary/5 space-y-3 relative sm:row-span-1">
                 <Badge className="absolute top-3 right-3 bg-primary text-primary-foreground text-[10px]">
                   RECOMMENDED
                 </Badge>

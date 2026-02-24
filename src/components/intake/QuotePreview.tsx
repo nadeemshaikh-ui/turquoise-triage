@@ -1,7 +1,7 @@
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Check, MessageSquare, Zap, Crown, Truck, Shield, Gem, Sparkles } from "lucide-react";
+import { ArrowLeft, Check, Copy, Zap, Crown, Truck, Shield, Gem, Sparkles } from "lucide-react";
 
 type Props = {
   serviceName: string;
@@ -15,6 +15,7 @@ type Props = {
   submitting: boolean;
   onConfirmCreate: () => void;
   onConfirmWhatsApp: () => void;
+  onCopyInterakt: () => void;
   onBack: () => void;
 };
 
@@ -30,6 +31,7 @@ const QuotePreview = ({
   submitting,
   onConfirmCreate,
   onConfirmWhatsApp,
+  onCopyInterakt,
   onBack,
 }: Props) => {
   return (
@@ -151,23 +153,33 @@ const QuotePreview = ({
       </Card>
 
       {/* Confirm buttons */}
-      <div className="flex gap-2">
+      <div className="flex flex-col gap-2">
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={onConfirmCreate}
+            disabled={submitting}
+            className="flex-1 min-h-[52px] text-base"
+          >
+            <Check className="mr-1.5 h-4 w-4" />
+            Create Lead
+          </Button>
+          <Button
+            onClick={onConfirmWhatsApp}
+            disabled={submitting}
+            className="flex-1 min-h-[52px] text-base"
+          >
+            <Copy className="mr-1.5 h-4 w-4" />
+            Generate Quote
+          </Button>
+        </div>
         <Button
-          variant="outline"
-          onClick={onConfirmCreate}
-          disabled={submitting}
-          className="flex-1 min-h-[52px] text-base"
+          variant="secondary"
+          onClick={onCopyInterakt}
+          className="w-full min-h-[48px] text-sm"
         >
-          <Check className="mr-1.5 h-4 w-4" />
-          Create Lead
-        </Button>
-        <Button
-          onClick={onConfirmWhatsApp}
-          disabled={submitting}
-          className="flex-1 min-h-[52px] text-base"
-        >
-          <MessageSquare className="mr-1.5 h-4 w-4" />
-          WhatsApp Quote
+          <Copy className="mr-1.5 h-4 w-4" />
+          Copy for Interakt
         </Button>
       </div>
     </div>
