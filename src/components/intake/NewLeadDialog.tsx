@@ -69,9 +69,13 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
     }
   }, [open]);
 
+  const sliderMin = selectedService?.price_range_min
+    ?? selectedService?.default_price
+    ?? 1000;
+
   useEffect(() => {
     if (selectedService?.default_price) {
-      setBasePrice(selectedService.default_price);
+      setBasePrice(Math.max(selectedService.default_price, sliderMin));
     }
   }, [selectedService]);
 
@@ -101,8 +105,8 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
     }
     setPhotoError("");
 
-    if (!basePrice || basePrice < 1000) {
-      setPriceError("Min ₹1,000");
+    if (!basePrice || basePrice < sliderMin) {
+      setPriceError(`Min ₹${sliderMin.toLocaleString()}`);
       return false;
     }
     setPriceError("");
@@ -247,6 +251,7 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
             customerPhone={customer.phone}
             selectedTier={tier}
             photos={photos}
+            issueTags={issueTags}
             submitting={submitting}
             onConfirmCreate={() => handleSubmit("create")}
             onConfirmWhatsApp={() => handleSubmit("whatsapp")}
@@ -269,6 +274,18 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
               />
             </Card>
 
+            {/* Issue Tagger */}
+            <Card className="p-4 border-primary/20 space-y-3">
+              <p className="text-xs font-semibold text-muted-foreground">Issues / Condition</p>
+              <IssueTagger selectedTags={issueTags} onTagsChange={setIssueTags} />
+              {conditionNote && (
+                <div className="rounded-lg border border-border bg-muted/30 p-2">
+                  <p className="text-[10px] font-semibold text-muted-foreground">Condition Report</p>
+                  <p className="text-xs text-foreground">{conditionNote}</p>
+                </div>
+              )}
+            </Card>
+
             {/* Pricing + Tier */}
             <Card className="p-4 border-primary/20">
               <DualPriceSlider
@@ -276,27 +293,21 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
                 onBasePriceChange={setBasePrice}
                 selectedTier={tier}
                 onTierChange={setTier}
+                minPrice={sliderMin}
                 error={priceError}
               />
             </Card>
 
-            {/* Advanced: Issues + Photos (collapsed by default) */}
+            {/* Advanced: Photos (collapsed by default) */}
             <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
               <CollapsibleTrigger asChild>
                 <Button variant="ghost" size="sm" className="w-full justify-between text-xs text-muted-foreground">
-                  Advanced (Issues & Photos)
+                  Photos
                   {advancedOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                 </Button>
               </CollapsibleTrigger>
               <CollapsibleContent>
                 <Card className="p-4 border-primary/20 space-y-4 mt-2">
-                  <IssueTagger selectedTags={issueTags} onTagsChange={setIssueTags} />
-                  {conditionNote && (
-                    <div className="rounded-lg border border-border bg-muted/30 p-2">
-                      <p className="text-[10px] font-semibold text-muted-foreground">Condition Report</p>
-                      <p className="text-xs text-foreground">{conditionNote}</p>
-                    </div>
-                  )}
                   <PhotoUpload
                     files={photos}
                     onFilesChange={setPhotos}

@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
-import { ShoppingBag, Footprints, Shirt, Sparkles } from "lucide-react";
+import { ShoppingBag, Footprints, Shirt, Sparkles, Wrench, Palette } from "lucide-react";
 
 type Service = {
   id: string;
@@ -20,15 +20,24 @@ type Props = {
   onSelect: (service: Service) => void;
 };
 
-const CATEGORIES = [
-  { key: "Luxury Bags", label: "Bag", icon: ShoppingBag },
-  { key: "Cleaning", label: "Shoe", icon: Footprints },
-  { key: "Repair & Structural", label: "Jacket", icon: Shirt },
-  { key: "Restoration & Color", label: "Other", icon: Sparkles },
-] as const;
+const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
+  "Luxury Bags": ShoppingBag,
+  "Cleaning": Footprints,
+  "Repair & Structural": Wrench,
+  "Restoration & Color": Palette,
+};
 
 const ServiceSelection = ({ services, selectedServiceId, onSelect }: Props) => {
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
+
+  const categories = useMemo(() => {
+    const unique = Array.from(new Set(services.map((s) => s.category)));
+    return unique.map((key) => ({
+      key,
+      label: key,
+      icon: ICON_MAP[key] || Sparkles,
+    }));
+  }, [services]);
 
   const filtered = activeCategory
     ? services.filter((s) => s.category === activeCategory)
@@ -36,9 +45,9 @@ const ServiceSelection = ({ services, selectedServiceId, onSelect }: Props) => {
 
   return (
     <div className="space-y-2">
-      {/* Compact 2x2 category tiles */}
+      {/* Dynamic category tiles */}
       <div className="grid grid-cols-4 gap-2">
-        {CATEGORIES.map(({ key, label, icon: Icon }) => {
+        {categories.map(({ key, label, icon: Icon }) => {
           const isActive = activeCategory === key;
           return (
             <button
@@ -53,13 +62,13 @@ const ServiceSelection = ({ services, selectedServiceId, onSelect }: Props) => {
               )}
             >
               <Icon className="h-8 w-8" />
-              <span className="text-xs font-semibold">{label}</span>
+              <span className="text-[10px] font-semibold leading-tight text-center">{label}</span>
             </button>
           );
         })}
       </div>
 
-      {/* Compact single-line service chips */}
+      {/* Service chips */}
       {filtered.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {filtered.map((svc) => {

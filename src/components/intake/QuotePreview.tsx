@@ -3,6 +3,22 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, Check, Copy, Zap, Crown, Truck, Shield, Gem, Sparkles } from "lucide-react";
 
+const JUSTIFICATION_MAP: Record<string, { elite: string; label: string }> = {
+  color_fading: { label: "Color Restoration", elite: "Premium Italian Pigments for lasting color restoration" },
+  deep_scuffs: { label: "Scuff Treatment", elite: "Micro-abrasion leveling with ceramic finish" },
+  ink_stains: { label: "Stain Removal", elite: "Specialized solvent treatment with color-safe neutralizer" },
+  sole_separation: { label: "Re-bonding", elite: "Industrial-grade re-bonding with heat-press seal" },
+  water_damage: { label: "Water Damage", elite: "Deep moisture extraction + anti-fungal treatment" },
+  peeling: { label: "Re-lamination", elite: "Full re-lamination with imported adhesive compound" },
+  hardware_damage: { label: "Hardware", elite: "Precision hardware restoration with anti-tarnish coating" },
+  structural_deform: { label: "Reshaping", elite: "Structural reshaping with memory-form insert" },
+};
+
+const DEFAULT_JUSTIFICATIONS = [
+  { label: "Materials", elite: "Imported Italian Pigments", premium: "Standard Materials" },
+  { label: "Protection", elite: "Nano-Ceramic Shield", premium: "Standard Finish" },
+];
+
 type Props = {
   serviceName: string;
   conditionNote: string;
@@ -12,6 +28,7 @@ type Props = {
   customerPhone: string;
   selectedTier: "Premium" | "Elite";
   photos: File[];
+  issueTags: string[];
   submitting: boolean;
   onConfirmCreate: () => void;
   onConfirmWhatsApp: () => void;
@@ -28,12 +45,21 @@ const QuotePreview = ({
   customerPhone,
   selectedTier,
   photos,
+  issueTags,
   submitting,
   onConfirmCreate,
   onConfirmWhatsApp,
   onCopyInterakt,
   onBack,
 }: Props) => {
+  const issueJustifications = issueTags
+    .map((id) => JUSTIFICATION_MAP[id])
+    .filter(Boolean);
+
+  const treatmentRows = issueJustifications.length > 0
+    ? issueJustifications.map((j) => ({ label: j.label, elite: j.elite, premium: "Standard Treatment" }))
+    : DEFAULT_JUSTIFICATIONS;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -115,20 +141,18 @@ const QuotePreview = ({
                 </td>
                 <td className="p-2 text-center text-muted-foreground">Professional Grade</td>
               </tr>
-              <tr>
-                <td className="p-2 text-muted-foreground">Materials</td>
-                <td className="p-2 text-center font-medium text-foreground">
-                  <span className="flex items-center justify-center gap-1"><Gem className="h-3 w-3 text-primary" /> Italian Pigments</span>
-                </td>
-                <td className="p-2 text-center text-muted-foreground">Standard Materials</td>
-              </tr>
-              <tr>
-                <td className="p-2 text-muted-foreground">Protection</td>
-                <td className="p-2 text-center font-medium text-foreground">
-                  <span className="flex items-center justify-center gap-1"><Sparkles className="h-3 w-3 text-primary" /> Nano-Ceramic Shield</span>
-                </td>
-                <td className="p-2 text-center text-muted-foreground">Standard Finish</td>
-              </tr>
+              {/* Dynamic treatment rows based on issue tags */}
+              {treatmentRows.map((row, i) => (
+                <tr key={i}>
+                  <td className="p-2 text-muted-foreground">{row.label}</td>
+                  <td className="p-2 text-center font-medium text-foreground">
+                    <span className="flex items-center justify-center gap-1">
+                      <Gem className="h-3 w-3 text-primary" /> {row.elite}
+                    </span>
+                  </td>
+                  <td className="p-2 text-center text-muted-foreground">{row.premium}</td>
+                </tr>
+              ))}
               <tr>
                 <td className="p-2 text-muted-foreground">Shipping</td>
                 <td className="p-2 text-center font-medium text-primary">
