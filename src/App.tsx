@@ -14,6 +14,8 @@ import CustomerDetail from "./pages/CustomerDetail";
 import Finance from "./pages/Finance";
 import Automations from "./pages/Automations";
 import Recovery from "./pages/Recovery";
+import Workshop from "./pages/Workshop";
+import Inventory from "./pages/Inventory";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import ForgotPassword from "./pages/ForgotPassword";
@@ -43,6 +45,8 @@ const App = () => (
               <Route path="/finance" element={<Finance />} />
               <Route path="/automations" element={<Automations />} />
               <Route path="/recovery" element={<Recovery />} />
+              <Route path="/workshop" element={<Workshop />} />
+              <Route path="/inventory" element={<Inventory />} />
             </Route>
             <Route path="/leads/:id" element={<ProtectedRoute><LeadDetail /></ProtectedRoute>} />
             <Route path="/customers/:id" element={<ProtectedRoute><CustomerDetail /></ProtectedRoute>} />

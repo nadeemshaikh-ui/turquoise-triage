@@ -1,14 +1,12 @@
 import { useState, useMemo } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Loader2, Upload, DollarSign, TrendingUp, Users, BarChart3, Settings2, CalendarIcon, ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
+import { Loader2, Upload, DollarSign, TrendingUp, BarChart3, CalendarIcon, Trash2 } from "lucide-react";
 import RoasSentinel from "@/components/finance/RoasSentinel";
 import {
   AlertDialog,
@@ -44,13 +42,9 @@ const sanitizePhone = (raw: string): string => {
 const Finance = () => {
   const queryClient = useQueryClient();
   const [uploadingAds, setUploadingAds] = useState(false);
-  const [uploadingRevenue, setUploadingRevenue] = useState(false);
   const [uploadingTurns, setUploadingTurns] = useState(false);
-  const [laborValue, setLaborValue] = useState<string | null>(null);
-  const [savingLabor, setSavingLabor] = useState(false);
   const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined);
   const [dateTo, setDateTo] = useState<Date | undefined>(undefined);
-  const [includeHistorical, setIncludeHistorical] = useState(true);
 
   // Revenue from completed leads (in-app)
   const { data: leads = [], isLoading: leadsLoading } = useQuery({
@@ -65,18 +59,6 @@ const Finance = () => {
     },
   });
 
-  // Imported revenue
-  const { data: revenueImports = [] } = useQuery({
-    queryKey: ["finance-revenue-imports"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("revenue_imports")
-        .select("*")
-        .order("date");
-      if (error) throw error;
-      return data || [];
-    },
-  });
 
   // Turns sales data
   const { data: turnsSales = [] } = useQuery({
@@ -116,15 +98,6 @@ const Finance = () => {
     },
   });
 
-  // App settings (labor cost)
-  const { data: settings = [] } = useQuery({
-    queryKey: ["app-settings"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("app_settings").select("*");
-      if (error) throw error;
-      return data || [];
-    },
-  });
 
   // Top customers by lifetime spend
   const { data: topCustomers = [] } = useQuery({
@@ -157,14 +130,6 @@ const Finance = () => {
     },
   });
 
-  const laborCostSetting = (settings as any[]).find((s) => s.key === "artisan_labor_per_order");
-  const laborCost = Number(laborCostSetting?.value || 150);
-
-  // Initialize labor input
-  if (laborValue === null && laborCostSetting) {
-    setLaborValue(laborCostSetting.value);
-  }
-
   // Helper: check if a date string is within the selected range
   const isInRange = (dateStr: string) => {
     if (!dateFrom && !dateTo) return true;
@@ -176,14 +141,15 @@ const Finance = () => {
 
   // Filtered data
   const filteredLeads = useMemo(() => leads.filter((l: any) => isInRange(l.created_at)), [leads, dateFrom, dateTo]);
-  const filteredImports = useMemo(() => includeHistorical ? (revenueImports as any[]).filter((r) => isInRange(r.date)) : [], [revenueImports, dateFrom, dateTo, includeHistorical]);
   const filteredAdSpend = useMemo(() => (adSpend as any[]).filter((a) => isInRange(a.date)), [adSpend, dateFrom, dateTo]);
 
   // Compute P&L
+  // Filtered Turns sales
+  const filteredTurnsSales = useMemo(() => (turnsSales as any[]).filter((t) => isInRange(t.date)), [turnsSales, dateFrom, dateTo]);
+
   const pnl = useMemo(() => {
-    const leadRevenue = filteredLeads.reduce((s, l: any) => s + Number(l.quoted_price), 0);
-    const importedRevenue = filteredImports.reduce((s, r: any) => s + Number(r.amount), 0);
-    const totalRevenue = leadRevenue + importedRevenue;
+    // Primary revenue = Turns Sales
+    const turnsRevenue = filteredTurnsSales.reduce((s, t: any) => s + Number(t.amount), 0);
 
     const recipeCostByService = new Map<string, number>();
     (recipes as any[]).forEach((r: any) => {
@@ -197,13 +163,11 @@ const Finance = () => {
       totalMaterialCost += recipeCostByService.get(l.service_id) || 0;
     });
 
-    const totalOrders = filteredLeads.length + filteredImports.length;
-    const totalLaborCost = totalOrders * laborCost;
     const totalAdSpend = filteredAdSpend.reduce((s, a: any) => s + Number(a.amount_spent), 0);
-    const netProfit = totalRevenue - totalMaterialCost - totalLaborCost - totalAdSpend;
+    const realProfit = turnsRevenue - totalAdSpend - totalMaterialCost;
 
-    return { totalRevenue, totalMaterialCost, totalLaborCost, totalAdSpend, netProfit, orderCount: totalOrders, importedRevenue };
-  }, [filteredLeads, filteredImports, filteredAdSpend, recipes, laborCost]);
+    return { turnsRevenue, totalMaterialCost, totalAdSpend, realProfit };
+  }, [filteredLeads, filteredTurnsSales, filteredAdSpend, recipes]);
 
   // ROAS chart data
   const roasChartData = useMemo(() => {
@@ -217,21 +181,12 @@ const Finance = () => {
       const monthLabel = fnsFormat(month, "MMM yy");
       const monthEnd = endOfMonth(month);
 
-      const leadRev = filteredLeads
-        .filter((l: any) => {
-          const d = new Date(l.created_at);
+      const revenue = filteredTurnsSales
+        .filter((t: any) => {
+          const d = new Date(t.date);
           return d >= month && d <= monthEnd;
         })
-        .reduce((s, l: any) => s + Number(l.quoted_price), 0);
-
-      const importRev = filteredImports
-        .filter((r) => {
-          const d = new Date(r.date);
-          return d >= month && d <= monthEnd;
-        })
-        .reduce((s, r: any) => s + Number(r.amount), 0);
-
-      const revenue = leadRev + importRev;
+        .reduce((s, t: any) => s + Number(t.amount), 0);
 
       const spend = filteredAdSpend
         .filter((a) => {
@@ -242,7 +197,7 @@ const Finance = () => {
 
       return { month: monthLabel, revenue, spend };
     });
-  }, [filteredLeads, filteredImports, filteredAdSpend]);
+  }, [filteredTurnsSales, filteredAdSpend]);
 
   // CSV upload handlers
   const handleAdCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -343,99 +298,6 @@ const Finance = () => {
       toast({ title: "Upload Error", description: err.message, variant: "destructive" });
     } finally {
       setUploadingAds(false);
-      e.target.value = "";
-    }
-  };
-
-  const handleRevenueCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploadingRevenue(true);
-    try {
-      const text = await file.text();
-      const lines = text.split("\n").filter((l) => l.trim());
-      if (lines.length < 2) throw new Error("CSV is empty");
-
-      const header = lines[0];
-      // Detect TurnsApp format vs simple date,revenue format
-      const isTurnsApp = header.includes("Order Creation Date") || header.includes("Order Status");
-
-      let rows: { date: string; order_ref?: string; customer_name?: string; amount: number }[] = [];
-
-      if (isTurnsApp) {
-        // Parse TurnsApp CSV (comma-separated, quoted fields)
-        const parseCSVLine = (line: string) => {
-          const result: string[] = [];
-          let current = "";
-          let inQuotes = false;
-          for (const char of line) {
-            if (char === '"') { inQuotes = !inQuotes; }
-            else if (char === ',' && !inQuotes) { result.push(current.trim()); current = ""; }
-            else { current += char; }
-          }
-          result.push(current.trim());
-          return result;
-        };
-
-        const headerCols = parseCSVLine(lines[0]);
-        const orderIdx = headerCols.findIndex((c) => c === "Order");
-        const nameIdx = headerCols.findIndex((c) => c === "Customer Name");
-        const dateIdx = headerCols.findIndex((c) => c === "Order Creation Date");
-        const amountIdx = headerCols.findIndex((c) => c === "Amount");
-
-        for (let i = 1; i < lines.length; i++) {
-          const vals = parseCSVLine(lines[i]);
-          const orderRef = vals[orderIdx]?.trim();
-          if (!orderRef) continue; // Skip total/empty rows
-          const rawDate = vals[dateIdx]?.trim();
-          const rawAmount = vals[amountIdx]?.replace(/[₹,\s]/g, "")?.trim();
-          const amount = parseFloat(rawAmount) || 0;
-
-          // Parse date "31-Jan-2026" format
-          const parsedDate = new Date(rawDate);
-          if (isNaN(parsedDate.getTime())) continue;
-          const dateStr = fnsFormat(parsedDate, "yyyy-MM-dd");
-
-          rows.push({
-            date: dateStr,
-            order_ref: orderRef,
-            customer_name: vals[nameIdx]?.trim(),
-            amount,
-          });
-        }
-      } else {
-        // Simple date,revenue format
-        const cols = lines[0].toLowerCase().split(",").map((c) => c.trim().replace(/"/g, ""));
-        const dateIdx = cols.findIndex((c) => c.includes("date"));
-        const revIdx = cols.findIndex((c) => c.includes("revenue") || c.includes("amount"));
-        if (dateIdx < 0 || revIdx < 0) throw new Error("CSV must have 'date' and 'revenue/amount' columns");
-
-        rows = lines.slice(1).map((line) => {
-          const vals = line.split(",").map((v) => v.trim().replace(/"/g, ""));
-          return { date: vals[dateIdx], amount: parseFloat(vals[revIdx]) || 0 };
-        }).filter((r) => r.date && !isNaN(new Date(r.date).getTime()));
-      }
-
-      if (rows.length === 0) throw new Error("No valid rows found");
-
-      const insertRows = rows.map((r) => ({
-        date: r.date,
-        order_ref: r.order_ref || null,
-        customer_name: r.customer_name || null,
-        amount: r.amount,
-        source: isTurnsApp ? "TurnsApp" : "CSV Import",
-      }));
-
-      const { error } = await supabase.from("revenue_imports").insert(insertRows);
-      if (error) throw error;
-      const totalAmount = rows.reduce((s, r) => s + r.amount, 0);
-      toast({ title: `✅ Successfully imported ₹${totalAmount.toLocaleString("en-IN")} revenue from ${rows.length} records` });
-      queryClient.invalidateQueries({ queryKey: ["finance-revenue-imports"] });
-      queryClient.invalidateQueries({ queryKey: ["finance-top-customers"] });
-    } catch (err: any) {
-      toast({ title: "Upload Error", description: err.message, variant: "destructive" });
-    } finally {
-      setUploadingRevenue(false);
       e.target.value = "";
     }
   };
@@ -584,25 +446,6 @@ const Finance = () => {
     }
   };
 
-  const handleLaborSave = async () => {
-    if (!laborValue) return;
-    setSavingLabor(true);
-    try {
-      if (laborCostSetting) {
-        const { error } = await supabase.from("app_settings").update({ value: laborValue }).eq("id", laborCostSetting.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from("app_settings").insert({ key: "artisan_labor_per_order", value: laborValue });
-        if (error) throw error;
-      }
-      toast({ title: "✅ Labor cost updated" });
-      queryClient.invalidateQueries({ queryKey: ["app-settings"] });
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    } finally {
-      setSavingLabor(false);
-    }
-  };
 
   const handleResetFinanceData = async () => {
     try {
@@ -663,30 +506,18 @@ const Finance = () => {
               Clear
             </Button>
           )}
-          <Button
-            variant={includeHistorical ? "default" : "outline"}
-            size="sm"
-            className="rounded-[28px] text-xs gap-1.5"
-            onClick={() => setIncludeHistorical(!includeHistorical)}
-          >
-            {includeHistorical ? <ToggleRight className="h-3.5 w-3.5" /> : <ToggleLeft className="h-3.5 w-3.5" />}
-            Historical Revenue
-          </Button>
         </div>
       </div>
 
       {/* P&L Summary Cards */}
-      <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
         <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground">
               <DollarSign className="h-4 w-4" />
-              <span className="text-xs font-medium">Total Revenue</span>
+              <span className="text-xs font-medium">Turns Revenue</span>
             </div>
-            <p className="mt-1 text-xl font-bold text-primary">₹{pnl.totalRevenue.toLocaleString("en-IN")}</p>
-            {pnl.importedRevenue > 0 && (
-              <p className="text-[10px] text-muted-foreground">Incl. ₹{pnl.importedRevenue.toLocaleString("en-IN")} imported</p>
-            )}
+            <p className="mt-1 text-xl font-bold text-primary">₹{pnl.turnsRevenue.toLocaleString("en-IN")}</p>
           </CardContent>
         </Card>
 
@@ -694,27 +525,7 @@ const Finance = () => {
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground">
               <BarChart3 className="h-4 w-4" />
-              <span className="text-xs font-medium">Material Costs</span>
-            </div>
-            <p className="mt-1 text-xl font-bold text-destructive">₹{pnl.totalMaterialCost.toLocaleString("en-IN")}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Users className="h-4 w-4" />
-              <span className="text-xs font-medium">Labor ({pnl.orderCount} orders)</span>
-            </div>
-            <p className="mt-1 text-xl font-bold text-foreground">₹{pnl.totalLaborCost.toLocaleString("en-IN")}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <BarChart3 className="h-4 w-4" />
-              <span className="text-xs font-medium">Ad Spend</span>
+              <span className="text-xs font-medium">Meta Ad Spend</span>
             </div>
             <p className="mt-1 text-xl font-bold text-destructive">₹{pnl.totalAdSpend.toLocaleString("en-IN")}</p>
           </CardContent>
@@ -723,15 +534,26 @@ const Finance = () => {
         <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground">
-              <TrendingUp className="h-4 w-4" />
-              <span className="text-xs font-medium">Net Profit</span>
+              <BarChart3 className="h-4 w-4" />
+              <span className="text-xs font-medium">Material COGS</span>
             </div>
-            <p className={`mt-1 text-xl font-bold ${pnl.netProfit >= 0 ? "text-primary" : "text-destructive"}`}>
-              ₹{pnl.netProfit.toLocaleString("en-IN")}
+            <p className="mt-1 text-xl font-bold text-destructive">₹{pnl.totalMaterialCost.toLocaleString("en-IN")}</p>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <TrendingUp className="h-4 w-4" />
+              <span className="text-xs font-medium">Real Profit</span>
+            </div>
+            <p className={`mt-1 text-xl font-bold ${pnl.realProfit >= 0 ? "text-primary" : "text-destructive"}`}>
+              ₹{pnl.realProfit.toLocaleString("en-IN")}
             </p>
-            <p className={`text-[10px] font-medium ${pnl.netProfit >= 0 ? "text-primary/70" : "text-destructive/70"}`}>
-              {pnl.totalRevenue > 0 ? `${((pnl.netProfit / pnl.totalRevenue) * 100).toFixed(1)}% margin` : "—"}
+            <p className={`text-[10px] font-medium ${pnl.realProfit >= 0 ? "text-primary/70" : "text-destructive/70"}`}>
+              {pnl.turnsRevenue > 0 ? `${((pnl.realProfit / pnl.turnsRevenue) * 100).toFixed(1)}% margin` : "—"}
             </p>
+            <p className="text-[9px] text-muted-foreground mt-1">Turns Revenue − Ad Spend − Material COGS</p>
           </CardContent>
         </Card>
       </div>
@@ -744,31 +566,6 @@ const Finance = () => {
         dateFilter={isInRange}
       />
 
-      {/* Labor Cost Setting inline */}
-      <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
-        <CardContent className="p-4">
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Settings2 className="h-4 w-4" />
-              <Label className="text-xs font-medium">Default Labor Cost (₹/order)</Label>
-            </div>
-            <Input
-              type="number"
-              value={laborValue ?? String(laborCost)}
-              onChange={(e) => setLaborValue(e.target.value)}
-              className="max-w-[120px] h-8 text-sm"
-            />
-            <Button
-              onClick={handleLaborSave}
-              disabled={savingLabor || laborValue === String(laborCost)}
-              className="rounded-[28px] h-8"
-              size="sm"
-            >
-              {savingLabor ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Reset Finance Data */}
       <AlertDialog>
@@ -809,15 +606,6 @@ const Finance = () => {
                 </Button>
               </label>
               <label className="cursor-pointer">
-                <input type="file" accept=".csv" className="hidden" onChange={handleRevenueCsvUpload} disabled={uploadingRevenue} />
-                <Button variant="outline" size="sm" className="rounded-[28px] gap-2 pointer-events-none" asChild>
-                  <span>
-                    {uploadingRevenue ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-                    Upload Revenue CSV
-                  </span>
-                </Button>
-              </label>
-              <label className="cursor-pointer">
                 <input type="file" accept=".csv" className="hidden" onChange={handleAdCsvUpload} disabled={uploadingAds} />
                 <Button variant="outline" size="sm" className="rounded-[28px] gap-2 pointer-events-none" asChild>
                   <span>
@@ -830,7 +618,7 @@ const Finance = () => {
           </div>
         </CardHeader>
         <CardContent className="h-64 px-2">
-          {adSpend.length === 0 && revenueImports.length === 0 ? (
+          {adSpend.length === 0 && turnsSales.length === 0 ? (
             <div className="flex h-full items-center justify-center">
               <p className="text-sm text-muted-foreground">Upload CSVs to see ROAS data</p>
             </div>
