@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { useLeadDetail } from "@/hooks/useLeadDetail";
+import { supabase } from "@/integrations/supabase/client";
+import { useQuery } from "@tanstack/react-query";
 import { format, formatDistanceToNow } from "date-fns";
 import { toast } from "@/hooks/use-toast";
 
@@ -30,6 +32,19 @@ const LeadDetail = () => {
   const [note, setNote] = useState("");
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { data: leadItems } = useQuery({
+    queryKey: ["lead-items", id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("lead_items")
+        .select("*, service_categories(name)")
+        .eq("lead_id", id!)
+        .order("sort_order");
+      return (data as any[]) || [];
+    },
+    enabled: !!id,
+  });
 
   if (isLoading || !lead) {
     return (
@@ -103,6 +118,23 @@ const LeadDetail = () => {
           <div className="rounded-[var(--radius)] border border-border bg-muted/30 p-4">
             <p className="text-sm text-muted-foreground">{lead.notes}</p>
           </div>
+        )}
+
+        {/* Lead Items */}
+        {leadItems && leadItems.length > 0 && (
+          <section className="space-y-2">
+            <h2 className="text-sm font-semibold text-foreground">Items</h2>
+            {leadItems.map((item: any) => (
+              <div key={item.id} className="flex items-center justify-between rounded-[var(--radius)] border border-border bg-card p-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">{item.service_categories?.name || "Item"}</p>
+                  {item.description && <p className="text-xs text-muted-foreground">{item.description}</p>}
+                  <Badge variant="outline" className="text-[10px] mt-1">{item.mode}</Badge>
+                </div>
+                <span className="text-sm font-semibold text-foreground">₹{Number(item.manual_price).toLocaleString()}</span>
+              </div>
+            ))}
+          </section>
         )}
 
         {/* Status Stepper */}

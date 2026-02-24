@@ -59,8 +59,95 @@ export type Database = {
         }
         Relationships: []
       }
+      category_issues: {
+        Row: {
+          category_id: string
+          created_at: string
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+          suggestive_price: number
+        }
+        Insert: {
+          category_id: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+          suggestive_price?: number
+        }
+        Update: {
+          category_id?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+          suggestive_price?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "category_issues_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "service_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      category_packages: {
+        Row: {
+          category_id: string
+          created_at: string
+          description: string | null
+          id: string
+          includes: string[]
+          is_active: boolean
+          name: string
+          sort_order: number
+          suggestive_price: number
+        }
+        Insert: {
+          category_id: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          includes?: string[]
+          is_active?: boolean
+          name: string
+          sort_order?: number
+          suggestive_price?: number
+        }
+        Update: {
+          category_id?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          includes?: string[]
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+          suggestive_price?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "category_packages_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "service_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       customers: {
         Row: {
+          address: string | null
+          city: string | null
           created_at: string
           email: string | null
           id: string
@@ -69,6 +156,8 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          address?: string | null
+          city?: string | null
           created_at?: string
           email?: string | null
           id?: string
@@ -77,6 +166,8 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          address?: string | null
+          city?: string | null
           created_at?: string
           email?: string | null
           id?: string
@@ -153,6 +244,73 @@ export type Database = {
             columns: ["lead_id"]
             isOneToOne: false
             referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lead_items: {
+        Row: {
+          category_id: string
+          created_at: string
+          description: string | null
+          id: string
+          lead_id: string
+          manual_price: number
+          mode: string
+          selected_issues: Json
+          selected_package_id: string | null
+          selected_package_name: string | null
+          sort_order: number
+          suggestive_price: number
+        }
+        Insert: {
+          category_id: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          lead_id: string
+          manual_price?: number
+          mode?: string
+          selected_issues?: Json
+          selected_package_id?: string | null
+          selected_package_name?: string | null
+          sort_order?: number
+          suggestive_price?: number
+        }
+        Update: {
+          category_id?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          lead_id?: string
+          manual_price?: number
+          mode?: string
+          selected_issues?: Json
+          selected_package_id?: string | null
+          selected_package_name?: string | null
+          sort_order?: number
+          suggestive_price?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_items_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "service_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_items_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_items_selected_package_id_fkey"
+            columns: ["selected_package_id"]
+            isOneToOne: false
+            referencedRelation: "category_packages"
             referencedColumns: ["id"]
           },
         ]
@@ -260,7 +418,7 @@ export type Database = {
           notes: string | null
           qc_checklist: Json | null
           quoted_price: number
-          service_id: string
+          service_id: string | null
           status: string
           tat_days_max: number
           tat_days_min: number
@@ -281,7 +439,7 @@ export type Database = {
           notes?: string | null
           qc_checklist?: Json | null
           quoted_price: number
-          service_id: string
+          service_id?: string | null
           status?: string
           tat_days_max?: number
           tat_days_min?: number
@@ -302,7 +460,7 @@ export type Database = {
           notes?: string | null
           qc_checklist?: Json | null
           quoted_price?: number
-          service_id?: string
+          service_id?: string | null
           status?: string
           tat_days_max?: number
           tat_days_min?: number
@@ -508,6 +666,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      service_categories: {
+        Row: {
+          created_at: string
+          icon_name: string
+          id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+        }
+        Insert: {
+          created_at?: string
+          icon_name?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+        }
+        Update: {
+          created_at?: string
+          icon_name?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+        }
+        Relationships: []
       }
       service_recipes: {
         Row: {
