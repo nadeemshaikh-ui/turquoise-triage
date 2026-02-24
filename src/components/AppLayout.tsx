@@ -1,5 +1,5 @@
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
-import { LayoutDashboard, Columns3, Package, Settings, LogOut, Plus, Users, TrendingUp, Zap } from "lucide-react";
+import { LayoutDashboard, Columns3, Package, Settings, LogOut, Plus, Users, TrendingUp, Zap, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -18,6 +18,7 @@ const AppLayout = () => {
     { path: "/inventory", label: "Inventory", icon: Package },
     { path: "/customers", label: "Customers", icon: Users },
     { path: "/finance", label: "Finance", icon: TrendingUp },
+    { path: "/recovery", label: "Recovery", icon: RotateCcw },
     ...(isAdmin ? [
       { path: "/services", label: "Services", icon: Settings },
       { path: "/automations", label: "Auto", icon: Zap },

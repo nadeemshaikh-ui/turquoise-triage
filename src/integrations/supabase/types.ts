@@ -332,6 +332,50 @@ export type Database = {
         }
         Relationships: []
       }
+      recovery_offers: {
+        Row: {
+          created_at: string
+          discount_percent: number
+          expires_at: string
+          id: string
+          lead_id: string
+          offer_type: string
+          responded_at: string | null
+          sent_at: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          discount_percent?: number
+          expires_at?: string
+          id?: string
+          lead_id: string
+          offer_type?: string
+          responded_at?: string | null
+          sent_at?: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          discount_percent?: number
+          expires_at?: string
+          id?: string
+          lead_id?: string
+          offer_type?: string
+          responded_at?: string | null
+          sent_at?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recovery_offers_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       revenue_imports: {
         Row: {
           amount: number
