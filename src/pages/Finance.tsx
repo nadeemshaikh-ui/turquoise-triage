@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Loader2, Upload, DollarSign, TrendingUp, Users, BarChart3, Settings2, CalendarIcon, ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
+import RoasSentinel from "@/components/finance/RoasSentinel";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -734,6 +735,14 @@ const Finance = () => {
           </CardContent>
         </Card>
       </div>
+
+
+      {/* ROAS Sentinel */}
+      <RoasSentinel
+        turnsSales={turnsSales as any[]}
+        adSpend={adSpend as any[]}
+        dateFilter={isInRange}
+      />
 
       {/* Labor Cost Setting inline */}
       <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
