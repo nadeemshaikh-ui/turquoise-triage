@@ -35,14 +35,9 @@ const ServiceSelection = ({ services, selectedServiceId, onSelect }: Props) => {
     : services;
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h2 className="text-lg font-bold text-foreground">Select Category & Service</h2>
-        <p className="text-sm text-muted-foreground">Tap a category, then pick the service</p>
-      </div>
-
-      {/* Large category tiles */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <div className="space-y-2">
+      {/* Compact 2x2 category tiles */}
+      <div className="grid grid-cols-4 gap-2">
         {CATEGORIES.map(({ key, label, icon: Icon }) => {
           const isActive = activeCategory === key;
           return (
@@ -51,43 +46,38 @@ const ServiceSelection = ({ services, selectedServiceId, onSelect }: Props) => {
               type="button"
               onClick={() => setActiveCategory(isActive ? null : key)}
               className={cn(
-                "flex flex-col items-center justify-center gap-2 rounded-xl border-2 p-4 min-h-[96px] transition-all",
+                "flex flex-col items-center justify-center gap-1 rounded-lg border-2 p-2 min-h-[64px] transition-all",
                 isActive
                   ? "border-primary bg-primary text-primary-foreground shadow-md"
-                  : "border-border bg-card text-foreground hover:border-primary/50 hover:bg-muted/50"
+                  : "border-border bg-card text-foreground hover:border-primary/50"
               )}
             >
-              <Icon className="h-10 w-10" />
-              <span className="text-sm font-semibold">{label}</span>
+              <Icon className="h-8 w-8" />
+              <span className="text-xs font-semibold">{label}</span>
             </button>
           );
         })}
       </div>
 
-      {/* Filtered service cards */}
+      {/* Compact single-line service chips */}
       {filtered.length > 0 && (
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="flex flex-wrap gap-1.5">
           {filtered.map((svc) => {
             const isSelected = selectedServiceId === svc.id;
-            const priceLabel = svc.default_price
-              ? `₹${svc.default_price.toLocaleString()}`
-              : "Quoted after review";
-
             return (
               <button
                 key={svc.id}
                 type="button"
                 onClick={() => onSelect(svc)}
                 className={cn(
-                  "flex flex-col items-start gap-1 rounded-lg border min-h-[48px] p-3 text-left transition-all",
+                  "rounded-full border px-3 py-1.5 text-xs font-medium transition-all min-h-[36px]",
                   isSelected
-                    ? "border-primary bg-secondary shadow-sm"
-                    : "border-border hover:border-primary/50 hover:bg-muted/50"
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border text-foreground hover:border-primary/50"
                 )}
               >
-                <span className="text-sm font-semibold text-foreground">{svc.name}</span>
-                <span className="text-xs text-muted-foreground">{svc.category}</span>
-                <span className="text-sm font-medium text-primary">{priceLabel}</span>
+                {svc.name}
+                {svc.default_price ? ` · ₹${svc.default_price.toLocaleString()}` : ""}
               </button>
             );
           })}

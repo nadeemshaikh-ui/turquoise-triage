@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
-import { LayoutDashboard, Columns3, Package, Settings, LogOut, Plus, Users, TrendingUp, Zap, RotateCcw } from "lucide-react";
+import { LayoutDashboard, Columns3, Package, Users, TrendingUp, Zap, RotateCcw, Settings, LogOut, Plus, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserRole } from "@/hooks/useUserRole";
 import { cn } from "@/lib/utils";
@@ -11,17 +13,21 @@ const AppLayout = () => {
   const location = useLocation();
   const { signOut } = useAuth();
   const { isAdmin } = useUserRole();
+  const [moreOpen, setMoreOpen] = useState(false);
 
-  const navItems = [
-    { path: "/", label: "Dashboard", icon: LayoutDashboard },
+  const coreNav = [
+    { path: "/", label: "Triage", icon: LayoutDashboard },
     { path: "/workshop", label: "Workshop", icon: Columns3 },
+  ];
+
+  const moreNav = [
     { path: "/inventory", label: "Inventory", icon: Package },
     { path: "/customers", label: "Customers", icon: Users },
     { path: "/finance", label: "Finance", icon: TrendingUp },
     { path: "/recovery", label: "Recovery", icon: RotateCcw },
     ...(isAdmin ? [
       { path: "/services", label: "Services", icon: Settings },
-      { path: "/automations", label: "Auto", icon: Zap },
+      { path: "/automations", label: "Automations", icon: Zap },
     ] : []),
   ];
 
@@ -32,7 +38,6 @@ const AppLayout = () => {
 
   return (
     <div className="min-h-screen bg-background pb-20">
-      {/* Header */}
       <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
           <button onClick={() => navigate("/")} className="text-left">
@@ -43,7 +48,7 @@ const AppLayout = () => {
           </button>
           <div className="flex items-center gap-2">
             <Button
-              className="rounded-[28px] gap-2 px-5 shadow-md hover:shadow-lg transition-shadow"
+              className="rounded-[28px] gap-2 px-5 shadow-md hover:shadow-lg transition-shadow min-h-[48px]"
               onClick={() => navigate("/?newLead=1")}
             >
               <Plus className="h-4 w-4" />
@@ -57,20 +62,18 @@ const AppLayout = () => {
         </div>
       </header>
 
-      {/* Page content */}
       <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
         <Outlet />
       </main>
 
-      {/* Bottom Nav */}
       <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-border bg-background/95 backdrop-blur-md">
         <div className="mx-auto flex max-w-md items-center justify-around py-2">
-          {navItems.map(({ path, label, icon: Icon }) => (
+          {coreNav.map(({ path, label, icon: Icon }) => (
             <button
               key={path}
               onClick={() => navigate(path)}
               className={cn(
-                "flex flex-col items-center gap-0.5 px-3 py-1.5 text-[10px] font-medium transition-colors",
+                "flex flex-col items-center gap-0.5 px-6 py-1.5 text-[11px] font-medium transition-colors min-h-[48px] justify-center",
                 isActive(path) ? "text-primary" : "text-muted-foreground hover:text-foreground"
               )}
             >
@@ -78,6 +81,35 @@ const AppLayout = () => {
               {label}
             </button>
           ))}
+
+          <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
+            <SheetTrigger asChild>
+              <button className="flex flex-col items-center gap-0.5 px-6 py-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground min-h-[48px] justify-center">
+                <MoreHorizontal className="h-5 w-5" />
+                More
+              </button>
+            </SheetTrigger>
+            <SheetContent side="bottom" className="rounded-t-2xl">
+              <SheetHeader>
+                <SheetTitle>More</SheetTitle>
+              </SheetHeader>
+              <div className="grid grid-cols-3 gap-3 py-4">
+                {moreNav.map(({ path, label, icon: Icon }) => (
+                  <button
+                    key={path}
+                    onClick={() => { navigate(path); setMoreOpen(false); }}
+                    className={cn(
+                      "flex flex-col items-center gap-1.5 rounded-xl p-4 min-h-[64px] transition-colors",
+                      isActive(path) ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"
+                    )}
+                  >
+                    <Icon className="h-6 w-6" />
+                    <span className="text-xs font-medium">{label}</span>
+                  </button>
+                ))}
+              </div>
+            </SheetContent>
+          </Sheet>
         </div>
       </nav>
     </div>

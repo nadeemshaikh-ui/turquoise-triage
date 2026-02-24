@@ -5,6 +5,7 @@ import StatsBar from "@/components/dashboard/StatsBar";
 import GoldTierLeads from "@/components/dashboard/GoldTierLeads";
 import LeadsPipeline from "@/components/dashboard/LeadsPipeline";
 import NewLeadDialog from "@/components/intake/NewLeadDialog";
+import RecentTriages from "@/components/intake/RecentTriages";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 
@@ -43,6 +44,7 @@ const Index = () => {
         revenue={stats.revenue}
         pendingPickup={stats.pendingPickup}
       />
+      <RecentTriages />
       <GoldTierLeads leads={goldTierLeads} onViewLead={(id) => navigate(`/leads/${id}`)} />
       <LeadsPipeline leads={recentLeads} onViewLead={(id) => navigate(`/leads/${id}`)} />
       <NewLeadDialog open={showNewLead} onOpenChange={setShowNewLead} onCreated={handleLeadCreated} />
