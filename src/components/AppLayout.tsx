@@ -28,7 +28,7 @@ const AppLayout = () => {
     ...(isAdmin ? [
       { path: "/services", label: "Services", icon: Settings },
       { path: "/automations", label: "Automations", icon: Zap },
-      { path: "/service-master", label: "Service Master", icon: Cog },
+      { path: "/admin-hub", label: "Admin Hub", icon: Cog },
     ] : []),
   ];
 

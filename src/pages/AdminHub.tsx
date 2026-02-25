@@ -11,6 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import BrandsTab from "@/components/admin/BrandsTab";
+import CampaignsTab from "@/components/admin/CampaignsTab";
 
 const ICON_OPTIONS = [
   "Footprints", "ShoppingBag", "Shirt", "Sparkles", "Wrench", "Palette",
@@ -21,14 +23,13 @@ type Category = { id: string; name: string; icon_name: string; sort_order: numbe
 type Issue = { id: string; category_id: string; name: string; suggestive_price: number; description: string | null; sort_order: number; is_active: boolean };
 type Package = { id: string; category_id: string; name: string; suggestive_price: number; includes: string[]; description: string | null; sort_order: number; is_active: boolean };
 
-const ServiceMaster = () => {
+const AdminHub = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
   const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Dialog state
   const [catDialog, setCatDialog] = useState<{ open: boolean; editing: Category | null }>({ open: false, editing: null });
   const [issueDialog, setIssueDialog] = useState<{ open: boolean; editing: Issue | null }>({ open: false, editing: null });
   const [pkgDialog, setPkgDialog] = useState<{ open: boolean; editing: Package | null }>({ open: false, editing: null });
@@ -57,15 +58,17 @@ const ServiceMaster = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-bold text-foreground">Service Master</h1>
-        <p className="text-sm text-muted-foreground">Manage categories, alacarte issues, and professional packages</p>
+        <h1 className="text-xl font-bold text-foreground">Admin Hub</h1>
+        <p className="text-sm text-muted-foreground">Manage categories, issues, packages, brands & campaigns</p>
       </div>
 
       <Tabs defaultValue="categories">
-        <TabsList>
+        <TabsList className="flex-wrap">
           <TabsTrigger value="categories">Categories</TabsTrigger>
-          <TabsTrigger value="issues">Alacarte Issues</TabsTrigger>
+          <TabsTrigger value="issues">Issues</TabsTrigger>
           <TabsTrigger value="packages">Packages</TabsTrigger>
+          <TabsTrigger value="brands">Brands</TabsTrigger>
+          <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
         </TabsList>
 
         {/* CATEGORIES TAB */}
@@ -158,31 +161,22 @@ const ServiceMaster = () => {
             {filteredPackages.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No packages for this category yet.</p>}
           </div>
         </TabsContent>
+
+        {/* BRANDS TAB */}
+        <TabsContent value="brands">
+          <BrandsTab categories={categories.map((c) => ({ id: c.id, name: c.name }))} />
+        </TabsContent>
+
+        {/* CAMPAIGNS TAB */}
+        <TabsContent value="campaigns">
+          <CampaignsTab />
+        </TabsContent>
       </Tabs>
 
       {/* Category Dialog */}
-      <CategoryDialog
-        open={catDialog.open}
-        editing={catDialog.editing}
-        onClose={() => setCatDialog({ open: false, editing: null })}
-        onSaved={fetchAll}
-      />
-      {/* Issue Dialog */}
-      <IssueDialog
-        open={issueDialog.open}
-        editing={issueDialog.editing}
-        categoryId={selectedCatId}
-        onClose={() => setIssueDialog({ open: false, editing: null })}
-        onSaved={fetchAll}
-      />
-      {/* Package Dialog */}
-      <PackageDialog
-        open={pkgDialog.open}
-        editing={pkgDialog.editing}
-        categoryId={selectedCatId}
-        onClose={() => setPkgDialog({ open: false, editing: null })}
-        onSaved={fetchAll}
-      />
+      <CategoryDialog open={catDialog.open} editing={catDialog.editing} onClose={() => setCatDialog({ open: false, editing: null })} onSaved={fetchAll} />
+      <IssueDialog open={issueDialog.open} editing={issueDialog.editing} categoryId={selectedCatId} onClose={() => setIssueDialog({ open: false, editing: null })} onSaved={fetchAll} />
+      <PackageDialog open={pkgDialog.open} editing={pkgDialog.editing} categoryId={selectedCatId} onClose={() => setPkgDialog({ open: false, editing: null })} onSaved={fetchAll} />
     </div>
   );
 };
@@ -330,4 +324,4 @@ function PackageDialog({ open, editing, categoryId, onClose, onSaved }: { open: 
   );
 }
 
-export default ServiceMaster;
+export default AdminHub;

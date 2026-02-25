@@ -1,9 +1,17 @@
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { ArrowLeft, Check, Copy, Zap, Crown, Truck } from "lucide-react";
 import type { QuoteItem } from "./NewLeadDialog";
+
+const TIER_BADGE: Record<string, string> = {
+  standard: "bg-muted text-muted-foreground",
+  luxury: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
+  ultra_luxury: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
+};
+const TIER_LABEL: Record<string, string> = { standard: "Standard", luxury: "Luxury", ultra_luxury: "Ultra-Luxury" };
 
 type Props = {
   items: QuoteItem[];
@@ -12,7 +20,6 @@ type Props = {
   premiumTotal: number;
   customerName: string;
   customerPhone: string;
-  photos: File[];
   submitting: boolean;
   onConfirmCreate: () => void;
   onConfirmWhatsApp: () => void;
@@ -21,18 +28,9 @@ type Props = {
 };
 
 const QuotePreview = ({
-  items,
-  onItemsChange,
-  eliteTotal,
-  premiumTotal,
-  customerName,
-  customerPhone,
-  photos,
-  submitting,
-  onConfirmCreate,
-  onConfirmWhatsApp,
-  onCopyInterakt,
-  onBack,
+  items, onItemsChange, eliteTotal, premiumTotal,
+  customerName, customerPhone,
+  submitting, onConfirmCreate, onConfirmWhatsApp, onCopyInterakt, onBack,
 }: Props) => {
   const updateItem = (index: number, updates: Partial<QuoteItem>) => {
     onItemsChange(items.map((item, i) => i === index ? { ...item, ...updates } : item));
@@ -54,28 +52,36 @@ const QuotePreview = ({
         For <span className="font-semibold text-foreground">{customerName}</span> ({customerPhone})
       </p>
 
-      {/* Photos */}
-      {photos.length > 0 && (
-        <div className="flex gap-2">
-          {photos.slice(0, 4).map((f, i) => (
-            <div key={i} className="h-14 w-14 rounded-lg border border-border overflow-hidden">
-              <img src={URL.createObjectURL(f)} alt={`Photo ${i + 1}`} className="h-full w-full object-cover" />
-            </div>
-          ))}
-          {photos.length > 4 && (
-            <div className="h-14 w-14 rounded-lg border border-border flex items-center justify-center text-[10px] text-muted-foreground">+{photos.length - 4}</div>
-          )}
-        </div>
-      )}
-
       {/* Items list — editable */}
       <div className="space-y-2">
         {items.map((item, idx) => (
           <Card key={idx} className="p-3 space-y-2 border-border">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-primary">{item.categoryName}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-primary">{item.categoryName}</span>
+                {item.brandName && (
+                  <>
+                    <span className="text-[10px] text-muted-foreground">·</span>
+                    <span className="text-xs font-medium text-foreground">{item.brandName}</span>
+                    <Badge className={`text-[9px] ${TIER_BADGE[item.brandTier] || ""}`}>{TIER_LABEL[item.brandTier]}</Badge>
+                  </>
+                )}
+              </div>
               <span className="text-[10px] text-muted-foreground">{item.mode === "package" ? "Package" : "Alacarte"}</span>
             </div>
+            {/* Per-item photo thumbnails */}
+            {item.photos.length > 0 && (
+              <div className="flex gap-1.5">
+                {item.photos.slice(0, 3).map((f, i) => (
+                  <div key={i} className="h-10 w-10 rounded border border-border overflow-hidden">
+                    <img src={URL.createObjectURL(f)} alt="" className="h-full w-full object-cover" />
+                  </div>
+                ))}
+                {item.photos.length > 3 && (
+                  <div className="h-10 w-10 rounded border border-border flex items-center justify-center text-[10px] text-muted-foreground">+{item.photos.length - 3}</div>
+                )}
+              </div>
+            )}
             <Textarea
               value={item.description}
               onChange={(e) => updateItem(idx, { description: e.target.value })}

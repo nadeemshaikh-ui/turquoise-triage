@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -6,11 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Loader2, MessageSquare, Check, Plus, X, ChevronDown, ChevronUp, Package } from "lucide-react";
+import { Loader2, MessageSquare, Check, Plus, X, ChevronDown, ChevronUp, Package, ImagePlus, Search } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import CustomerDetails, { type CustomerData } from "./CustomerDetails";
-import PhotoUpload from "./PhotoUpload";
 import QuotePreview from "./QuotePreview";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
@@ -18,6 +17,9 @@ import { cn } from "@/lib/utils";
 type Category = { id: string; name: string; icon_name: string; sort_order: number; is_active: boolean };
 type CatIssue = { id: string; category_id: string; name: string; suggestive_price: number; description: string | null; is_active: boolean };
 type CatPackage = { id: string; category_id: string; name: string; suggestive_price: number; includes: string[]; description: string | null; is_active: boolean };
+type Brand = { id: string; name: string; tier: string; is_active: boolean };
+type BrandTag = { brand_id: string; category_id: string };
+type Campaign = { id: string; name: string };
 
 export type QuoteItem = {
   categoryId: string;
@@ -29,6 +31,10 @@ export type QuoteItem = {
   suggestivePrice: number;
   manualPrice: number;
   description: string;
+  brandId: string | null;
+  brandName: string;
+  brandTier: string;
+  photos: File[];
 };
 
 type Props = {
@@ -47,24 +53,33 @@ const emptyItem = (): QuoteItem => ({
   suggestivePrice: 0,
   manualPrice: 0,
   description: "",
+  brandId: null,
+  brandName: "",
+  brandTier: "",
+  photos: [],
 });
+
+const TIER_BADGE: Record<string, string> = {
+  standard: "bg-muted text-muted-foreground",
+  luxury: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
+  ultra_luxury: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
+};
+const TIER_LABEL: Record<string, string> = { standard: "Standard", luxury: "Luxury", ultra_luxury: "Ultra-Luxury" };
 
 const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
   const [submitting, setSubmitting] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   // Master data
   const [categories, setCategories] = useState<Category[]>([]);
   const [allIssues, setAllIssues] = useState<CatIssue[]>([]);
   const [allPackages, setAllPackages] = useState<CatPackage[]>([]);
+  const [allBrands, setAllBrands] = useState<Brand[]>([]);
+  const [brandTags, setBrandTags] = useState<BrandTag[]>([]);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
 
   // Items
   const [items, setItems] = useState<QuoteItem[]>([emptyItem()]);
-
-  // Photos
-  const [photos, setPhotos] = useState<File[]>([]);
-  const [photoError, setPhotoError] = useState("");
 
   // Customer
   const [customer, setCustomer] = useState<CustomerData>({ name: "", phone: "", email: "", notes: "", campaign: "", city: "", address: "" });
@@ -76,22 +91,25 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
       supabase.from("service_categories").select("*").eq("is_active", true).order("sort_order"),
       supabase.from("category_issues").select("*").eq("is_active", true).order("sort_order"),
       supabase.from("category_packages").select("*").eq("is_active", true).order("sort_order"),
-    ]).then(([catRes, issRes, pkgRes]) => {
+      supabase.from("brands").select("*").eq("is_active", true).order("sort_order"),
+      supabase.from("brand_category_tags").select("brand_id, category_id"),
+      supabase.from("marketing_campaigns").select("id, name").eq("is_active", true).order("sort_order"),
+    ]).then(([catRes, issRes, pkgRes, brandRes, tagRes, campRes]) => {
       setCategories((catRes.data as any[]) || []);
       setAllIssues((issRes.data as any[]) || []);
       setAllPackages((pkgRes.data as any[]) || []);
+      setAllBrands((brandRes.data as any[]) || []);
+      setBrandTags((tagRes.data as any[]) || []);
+      setCampaigns((campRes.data as any[]) || []);
     });
   }, [open]);
 
   useEffect(() => {
     if (!open) {
       setItems([emptyItem()]);
-      setPhotos([]);
-      setPhotoError("");
       setCustomer({ name: "", phone: "", email: "", notes: "", campaign: "", city: "", address: "" });
       setCustomerErrors({});
       setShowPreview(false);
-      setAdvancedOpen(false);
     }
   }, [open]);
 
@@ -136,10 +154,7 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
     try {
       // Upsert customer
       const { data: existingCustomers } = await supabase
-        .from("customers")
-        .select("id")
-        .eq("phone", customer.phone.trim())
-        .limit(1);
+        .from("customers").select("id").eq("phone", customer.phone.trim()).limit(1);
 
       let customerId: string;
       const custPayload: any = {
@@ -154,10 +169,7 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
         await supabase.from("customers").update(custPayload).eq("id", customerId);
       } else {
         const { data: newCust, error: custErr } = await supabase
-          .from("customers")
-          .insert({ ...custPayload, phone: customer.phone.trim() })
-          .select("id")
-          .single();
+          .from("customers").insert({ ...custPayload, phone: customer.phone.trim() }).select("id").single();
         if (custErr) throw custErr;
         customerId = newCust.id;
       }
@@ -177,14 +189,13 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
           tier: "Elite",
           meta_campaign_name: customer.campaign || null,
         })
-        .select("id")
-        .single();
+        .select("id").single();
       if (leadErr) throw leadErr;
 
-      // Insert lead_items
+      // Insert lead_items & upload per-item photos
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
-        await supabase.from("lead_items").insert({
+        const { data: insertedItem } = await supabase.from("lead_items").insert({
           lead_id: lead.id,
           category_id: item.categoryId,
           mode: item.mode,
@@ -195,15 +206,23 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
           manual_price: item.manualPrice,
           description: item.description || null,
           sort_order: i,
-        });
-      }
+          brand_id: item.brandId || null,
+        }).select("id").single();
 
-      // Upload photos
-      for (const file of photos) {
-        const path = `${lead.id}/${Date.now()}_${file.name}`;
-        const { error: uploadErr } = await supabase.storage.from("lead-photos").upload(path, file);
-        if (uploadErr) throw uploadErr;
-        await supabase.from("lead_photos").insert({ lead_id: lead.id, storage_path: path, file_name: file.name });
+        // Upload per-item photos
+        if (item.photos.length > 0 && insertedItem) {
+          for (const file of item.photos) {
+            const path = `${lead.id}/${Date.now()}_${file.name}`;
+            const { error: uploadErr } = await supabase.storage.from("lead-photos").upload(path, file);
+            if (uploadErr) throw uploadErr;
+            await supabase.from("lead_photos").insert({
+              lead_id: lead.id,
+              storage_path: path,
+              file_name: file.name,
+              lead_item_id: insertedItem.id,
+            });
+          }
+        }
       }
 
       // Quote record
@@ -213,10 +232,8 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
         quote_token: quoteToken,
         premium_price: premiumTotal,
         elite_price: eliteTotal,
-        premium_tat_min: 15,
-        premium_tat_max: 20,
-        elite_tat_min: 8,
-        elite_tat_max: 12,
+        premium_tat_min: 15, premium_tat_max: 20,
+        elite_tat_min: 8, elite_tat_max: 12,
       });
 
       const quoteUrl = `${window.location.origin}/quote/${quoteToken}`;
@@ -263,7 +280,6 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
             premiumTotal={premiumTotal}
             customerName={customer.name}
             customerPhone={customer.phone}
-            photos={photos}
             submitting={submitting}
             onConfirmCreate={() => handleSubmit("create")}
             onConfirmWhatsApp={() => handleSubmit("whatsapp")}
@@ -274,7 +290,7 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
           <div className="space-y-4">
             {/* Customer */}
             <Card className="p-4 border-primary/20">
-              <CustomerDetails data={customer} onChange={setCustomer} errors={customerErrors} />
+              <CustomerDetails data={customer} onChange={setCustomer} errors={customerErrors} campaigns={campaigns} />
             </Card>
 
             {/* Items */}
@@ -286,6 +302,8 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
                 categories={categories}
                 allIssues={allIssues}
                 allPackages={allPackages}
+                allBrands={allBrands}
+                brandTags={brandTags}
                 canRemove={items.length > 1}
                 onUpdate={(updates) => updateItem(idx, updates)}
                 onRemove={() => setItems((prev) => prev.filter((_, i) => i !== idx))}
@@ -300,21 +318,6 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
             >
               <Plus className="h-4 w-4" /> Add Another Item
             </Button>
-
-            {/* Photos */}
-            <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-              <CollapsibleTrigger asChild>
-                <Button variant="ghost" size="sm" className="w-full justify-between text-xs text-muted-foreground">
-                  Photos
-                  {advancedOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                </Button>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <Card className="p-4 border-primary/20 mt-2">
-                  <PhotoUpload files={photos} onFilesChange={setPhotos} required={false} error={photoError} />
-                </Card>
-              </CollapsibleContent>
-            </Collapsible>
 
             {/* Running Total */}
             <Card className="p-3 border-primary/20 bg-muted/30">
@@ -348,13 +351,22 @@ const NewLeadDialog = ({ open, onOpenChange, onCreated }: Props) => {
 
 /* ---- Item Card ---- */
 function ItemCard({
-  item, index, categories, allIssues, allPackages, canRemove, onUpdate, onRemove,
+  item, index, categories, allIssues, allPackages, allBrands, brandTags, canRemove, onUpdate, onRemove,
 }: {
   item: QuoteItem; index: number; categories: Category[]; allIssues: CatIssue[]; allPackages: CatPackage[];
+  allBrands: Brand[]; brandTags: BrandTag[];
   canRemove: boolean; onUpdate: (u: Partial<QuoteItem>) => void; onRemove: () => void;
 }) {
+  const [brandSearch, setBrandSearch] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const catIssues = allIssues.filter((i) => i.category_id === item.categoryId);
   const catPackages = allPackages.filter((p) => p.category_id === item.categoryId);
+
+  // Brands filtered by category
+  const filteredBrandIds = brandTags.filter((t) => t.category_id === item.categoryId).map((t) => t.brand_id);
+  const catBrands = allBrands.filter((b) => filteredBrandIds.includes(b.id));
+  const searchedBrands = catBrands.filter((b) => b.name.toLowerCase().includes(brandSearch.toLowerCase()));
 
   const handleCategoryChange = (catId: string) => {
     const cat = categories.find((c) => c.id === catId);
@@ -367,7 +379,16 @@ function ItemCard({
       suggestivePrice: 0,
       manualPrice: 0,
       description: "",
+      brandId: null,
+      brandName: "",
+      brandTier: "",
     });
+    setBrandSearch("");
+  };
+
+  const selectBrand = (brand: Brand) => {
+    onUpdate({ brandId: brand.id, brandName: brand.name, brandTier: brand.tier });
+    setBrandSearch("");
   };
 
   const toggleIssue = (issue: CatIssue) => {
@@ -391,6 +412,17 @@ function ItemCard({
       manualPrice: pkg.suggestive_price,
       description: `${pkg.name} (${pkg.includes.join(", ")})`,
     });
+  };
+
+  const handlePhotoAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    onUpdate({ photos: [...item.photos, ...files].slice(0, 5) });
+    e.target.value = "";
+  };
+
+  const removePhoto = (idx: number) => {
+    onUpdate({ photos: item.photos.filter((_, i) => i !== idx) });
   };
 
   return (
@@ -423,6 +455,60 @@ function ItemCard({
 
       {item.categoryId && (
         <>
+          {/* Brand Selection */}
+          <div className="space-y-1.5">
+            <Label className="text-[10px] text-muted-foreground">Brand</Label>
+            {item.brandId ? (
+              <div className="flex items-center gap-2">
+                <Badge className={`text-xs ${TIER_BADGE[item.brandTier] || ""}`}>{item.brandName}</Badge>
+                <Badge variant="outline" className="text-[10px]">{TIER_LABEL[item.brandTier] || item.brandTier}</Badge>
+                <button onClick={() => onUpdate({ brandId: null, brandName: "", brandTier: "" })} className="text-muted-foreground hover:text-destructive">
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ) : (
+              <div className="relative">
+                <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  value={brandSearch}
+                  onChange={(e) => setBrandSearch(e.target.value)}
+                  placeholder="Search brand…"
+                  className="h-8 text-xs pl-7"
+                />
+                {brandSearch && searchedBrands.length > 0 && (
+                  <div className="absolute z-10 mt-1 w-full rounded-lg border border-border bg-card shadow-lg max-h-40 overflow-y-auto">
+                    {searchedBrands.map((b) => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onClick={() => selectBrand(b)}
+                        className="flex items-center justify-between w-full px-3 py-2 text-xs hover:bg-muted transition-colors"
+                      >
+                        <span className="text-foreground">{b.name}</span>
+                        <Badge className={`text-[10px] ${TIER_BADGE[b.tier] || ""}`}>{TIER_LABEL[b.tier]}</Badge>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {!brandSearch && catBrands.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {catBrands.slice(0, 6).map((b) => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onClick={() => selectBrand(b)}
+                        className="rounded border border-border px-2 py-1 text-[10px] text-foreground hover:border-primary/50 transition-colors"
+                      >
+                        {b.name}
+                      </button>
+                    ))}
+                    {catBrands.length > 6 && <span className="text-[10px] text-muted-foreground self-center">+{catBrands.length - 6} more</span>}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Mode toggle */}
           <div className="flex items-center gap-2">
             <span className={cn("text-xs font-medium", item.mode === "alacarte" ? "text-primary" : "text-muted-foreground")}>Alacarte</span>
@@ -491,6 +577,36 @@ function ItemCard({
               {catPackages.length === 0 && <p className="text-xs text-muted-foreground">No packages defined for this category.</p>}
             </div>
           )}
+
+          {/* Per-item photos */}
+          <div className="space-y-1.5">
+            <Label className="text-[10px] text-muted-foreground">Photos</Label>
+            <div className="flex items-center gap-2">
+              {item.photos.map((f, i) => (
+                <div key={i} className="relative h-12 w-12 rounded-lg border border-border overflow-hidden group">
+                  <img src={URL.createObjectURL(f)} alt="" className="h-full w-full object-cover" />
+                  <button
+                    onClick={() => removePhoto(i)}
+                    className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <X className="h-3 w-3 text-white" />
+                  </button>
+                </div>
+              ))}
+              {item.photos.length < 5 && (
+                <>
+                  <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handlePhotoAdd} />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="h-12 w-12 rounded-lg border border-dashed border-border flex items-center justify-center text-muted-foreground hover:border-primary/50 transition-colors"
+                  >
+                    <ImagePlus className="h-4 w-4" />
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
 
           {/* Pricing row */}
           <div className="flex items-center gap-3">
