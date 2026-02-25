@@ -29,7 +29,7 @@ Give me exactly 3 bullet points for growth. Each bullet should be specific, acti
     const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
 
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
