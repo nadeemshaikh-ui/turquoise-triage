@@ -121,7 +121,7 @@ const LeadDetail = () => {
         )}
 
         {/* Lead Items */}
-        {leadItems && leadItems.length > 0 && (
+        {leadItems && leadItems.length > 0 ? (
           <section className="space-y-2">
             <h2 className="text-sm font-semibold text-foreground">Items</h2>
             {leadItems.map((item: any) => {
@@ -136,15 +136,15 @@ const LeadDetail = () => {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-medium text-foreground">{item.service_categories?.name || "Item"}</p>
-                      {item.brands && (
+                      {item.brands?.name && (
                         <>
                           <span className="text-[10px] text-muted-foreground">·</span>
                           <span className="text-xs font-medium text-foreground">{item.brands.name}</span>
-                          <Badge className={`text-[9px] ${tierBadge[item.brands.tier] || ""}`}>{tierLabel[item.brands.tier] || item.brands.tier}</Badge>
+                          <Badge className={`text-[9px] ${tierBadge[item.brands?.tier] || ""}`}>{tierLabel[item.brands?.tier] || item.brands?.tier}</Badge>
                         </>
                       )}
                     </div>
-                    <span className="text-sm font-semibold text-foreground">₹{Number(item.manual_price).toLocaleString()}</span>
+                    <span className="text-sm font-semibold text-foreground">₹{Number(item.manual_price || 0).toLocaleString()}</span>
                   </div>
                   {item.description && <p className="text-xs text-muted-foreground">{item.description}</p>}
                   <Badge variant="outline" className="text-[10px]">{item.mode}</Badge>
@@ -152,6 +152,10 @@ const LeadDetail = () => {
               );
             })}
           </section>
+        ) : (
+          <div className="rounded-[var(--radius)] border border-dashed border-border bg-muted/30 p-4 text-center">
+            <p className="text-sm text-muted-foreground">Legacy Lead — no itemized breakdown available.</p>
+          </div>
         )}
 
         {/* Status Stepper */}
