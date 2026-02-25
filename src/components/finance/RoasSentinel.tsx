@@ -131,6 +131,7 @@ const RoasSentinel = ({ turnsSales, adSpend, dateFilter }: Props) => {
           <CardTitle className="flex items-center gap-2 text-sm font-semibold">
             <Target className="h-4 w-4 text-primary" />
             ROAS Sentinel
+            <span className="ml-auto flex items-center gap-1 text-[9px] text-emerald-600 font-medium"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" /> Live</span>
           </CardTitle>
         </CardHeader>
         <CardContent className="flex h-40 items-center justify-center">
