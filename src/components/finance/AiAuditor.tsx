@@ -50,6 +50,7 @@ const AiAuditor = ({ turnsRevenue, totalAdSpend, materialCogs, realProfit, profi
         <div className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-amber-500" />
           <CardTitle className="text-sm font-semibold">Gemini AI Auditor</CardTitle>
+          <span className="ml-auto flex items-center gap-1 text-[9px] text-emerald-600 font-medium"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" /> Live API</span>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
