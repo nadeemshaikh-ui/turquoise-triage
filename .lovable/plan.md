@@ -1,93 +1,98 @@
 
 
-# Super-Admin Security and Role Management
+# 97% Sales Recovery Enhancement, System Toggles, and Workshop Upgrades
 
 ## Overview
-Expand the existing role system to support three tiers: `super_admin`, `admin`, and `staff`. Implement granular navigation visibility, route protection, and a Team management tab for super admins.
-
-## Current State
-- `user_roles` table exists with `app_role` enum (`admin`, `moderator`, `user`)
-- `has_role()` security definer function exists
-- `useUserRole` hook returns `roles` and `isAdmin`
-- `AdminRoute` component guards admin-only routes
-- `profiles` table already exists with `user_id`, `display_name`, `avatar_url`
+Enhance the existing Recovery page with AI-drafted messages, add master system toggles for Workshop and Inventory modes, and improve the Workshop with item-level photo views and single-tap status progression.
 
 ---
 
-## Phase 1: Database Migration
+## Pillar 1: AI-Powered Recovery Messages
 
-Add `super_admin` to the existing `app_role` enum and assign it to `nadeemshaikh@gmail.com`.
+### Current State
+The Recovery page (`src/pages/Recovery.tsx`) already identifies stale leads and sends discount-based offers. It needs an AI "Draft Recovery Message" button.
 
-```text
-Migration SQL:
-1. ALTER TYPE app_role ADD VALUE 'super_admin'
-2. Insert super_admin role for the user matching nadeemshaikh@gmail.com
-   (lookup user_id from auth.users by email, insert into user_roles)
-```
+### Changes
 
-No new tables needed -- the existing `user_roles` + `profiles` tables are sufficient.
+**New Edge Function: `supabase/functions/draft-recovery/index.ts`**
+- Accepts lead details (customer name, brand, service, quoted price, hours stale)
+- Calls Lovable AI Gateway (`google/gemini-3-flash-preview`) with a luxury follow-up prompt
+- Returns a personalized WhatsApp-style recovery message
+- Non-streaming (simple invoke pattern)
 
----
+**Update `src/pages/Recovery.tsx`**
+- Add a "Draft Message" button on each pending/expired RecoveryCard
+- On click, call the edge function via `supabase.functions.invoke("draft-recovery")`
+- Display the AI-generated message in a dialog with "Copy to Clipboard" and "Send via WhatsApp" actions
+- Also fetch brand info from `lead_items` joined with `brands` to enrich the AI prompt
 
-## Phase 2: Update `useUserRole` Hook
-
-Extend the hook to expose granular role checks:
-
-- `roles` -- array of role strings
-- `isStaff` -- true if user has only staff role
-- `isAdmin` -- true if user has admin or super_admin
-- `isSuperAdmin` -- true if user has super_admin
-- `isLoading`
-
-File: `src/hooks/useUserRole.ts`
+**Update `supabase/config.toml`**
+- Add `[functions.draft-recovery]` with `verify_jwt = false`
 
 ---
 
-## Phase 3: Navigation Lockdown
+## Pillar 2: Shadow Inventory (Already Exists -- Refinements Only)
 
-Update `src/components/AppLayout.tsx` sidebar logic:
+### Current State
+- `inventory_items` table exists with full CRUD
+- `service_recipes` table exists linking services to inventory items
+- `deduct_inventory_on_ready()` trigger already auto-deducts stock when a lead moves to "Ready for Pickup"
+- The Workshop already displays "Materials Needed" per card
 
-| Link | staff | admin | super_admin |
-|------|-------|-------|-------------|
-| Triage, Workshop, Customers | Yes | Yes | Yes |
-| Recovery | Yes | Yes | Yes |
-| Services | No | Yes | Yes |
-| Admin Hub | No | Yes | Yes |
-| Automations | No | Yes | Yes |
-| Finance | No | No | Yes |
-
-The `moreNav` array will conditionally include items based on `isAdmin` and `isSuperAdmin` from the updated hook.
+### Changes
+- No database changes needed -- the infrastructure is complete
+- The system toggle (Pillar 3) will control whether inventory deduction is active
 
 ---
 
-## Phase 4: Route Protection (RoleGuard)
+## Pillar 3: Master System Toggles
 
-Replace the existing `AdminRoute` component with a more flexible `RoleGuard` that accepts a `requiredRole` prop (`admin` or `super_admin`).
+### Database
+Use the existing `app_settings` table to store two toggle keys:
+- `workshop_tracking_enabled` (default: `"true"`)
+- `inventory_automation_enabled` (default: `"true"`)
 
-- If the user lacks the required role, redirect to `/` and show an "Access Denied" toast notification.
+No migration needed -- just insert rows via the app.
 
-Update `src/App.tsx` routes:
-- `/admin-hub`, `/automations`, `/services` -- require `admin` (which includes super_admin)
-- `/finance` -- require `super_admin` only
+### New Hook: `src/hooks/useSystemToggles.ts`
+- Fetches `workshop_tracking_enabled` and `inventory_automation_enabled` from `app_settings`
+- Returns `{ workshopEnabled, inventoryEnabled, isLoading }`
+- Cached via React Query
 
-File changes:
-- `src/components/AdminRoute.tsx` -- refactor to accept `requiredRole` prop
-- `src/App.tsx` -- update route wrapping
+### Update `src/components/AppLayout.tsx`
+- Import `useSystemToggles`
+- If `workshopEnabled` is OFF, hide "Workshop" from sidebar nav
+- If `workshopEnabled` is OFF, hide "Inventory" from sidebar (inventory depends on workshop)
+
+### Update `src/App.tsx`
+- Workshop and Inventory routes remain accessible (no redirect) but hidden from nav when toggled off
+
+### New: Admin Hub > System Controls Tab
+- Add a "System" tab in `src/pages/AdminHub.tsx` (visible to admins and super admins)
+- Two Switch toggles:
+  - **Workshop Tracking Mode** -- toggles `workshop_tracking_enabled`
+  - **Inventory Automation** -- toggles `inventory_automation_enabled`
+- Each toggle updates `app_settings` via upsert
+
+### Update Inventory Deduction Logic
+- Modify the `deduct_inventory_on_ready` trigger to check the `inventory_automation_enabled` setting before deducting
+- Alternative (simpler): Check the toggle client-side in Workshop before calling the status update -- if inventory automation is OFF, skip the deduction toast but the DB trigger still runs. For true control, update the DB trigger via migration to check `app_settings`.
+
+**Decision**: Update the DB trigger to check the setting, ensuring deductions are truly skipped when toggled off.
+
+**Migration**: Modify `deduct_inventory_on_ready()` to query `app_settings` for `inventory_automation_enabled` and skip deduction if `'false'`.
 
 ---
 
-## Phase 5: Team Management Tab
+## Pillar 4: Multi-Item Workshop Status Station
 
-Add a "Team" tab inside Admin Hub (visible only to super_admin).
+### Changes to `src/pages/Workshop.tsx`
 
-Features:
-- List all users from `profiles` joined with `user_roles`
-- Show each user's display name, email (from profile/auth), and current role
-- Super admin can change any user's role via a dropdown (staff / admin)
-- Super admin's own role is not editable (safety lock)
+**Fetch lead_items with photos**: Update the Workshop query to also fetch `lead_items` and their `lead_photos` for each lead, displaying item-level photos on each Kanban card.
 
-New file: `src/components/admin/TeamTab.tsx`
-Modified file: `src/pages/AdminHub.tsx` -- add the Team tab, conditionally shown for super_admin
+**Single-tap stage progression**: Add a prominent "Next Stage" button on each card that advances the lead through: New -> In Progress -> QC -> Ready for Pickup (already partially exists via drag-and-drop, this adds a tap target).
+
+**Item photo thumbnails**: For each lead card, show small thumbnail previews of uploaded photos from `lead_photos` (via signed URLs from the `lead-photos` storage bucket).
 
 ---
 
@@ -95,20 +100,21 @@ Modified file: `src/pages/AdminHub.tsx` -- add the Team tab, conditionally shown
 
 | File | Action |
 |------|--------|
-| Database migration | Add `super_admin` to `app_role` enum, assign role |
-| `src/hooks/useUserRole.ts` | Add `isSuperAdmin` check |
-| `src/components/AppLayout.tsx` | Granular nav visibility by role |
-| `src/components/AdminRoute.tsx` | Accept `requiredRole` prop, add toast on deny |
-| `src/App.tsx` | Finance wrapped with `super_admin` guard |
-| `src/components/admin/TeamTab.tsx` | New -- user list with role dropdown |
-| `src/pages/AdminHub.tsx` | Add Team tab for super_admin |
+| `supabase/functions/draft-recovery/index.ts` | New -- AI recovery message generator |
+| `supabase/config.toml` | Auto-updated for new function |
+| `src/pages/Recovery.tsx` | Add "Draft Message" button + AI dialog |
+| `src/hooks/useSystemToggles.ts` | New -- reads workshop/inventory toggles |
+| `src/pages/AdminHub.tsx` | Add "System" tab with master toggles |
+| `src/components/AppLayout.tsx` | Conditionally hide Workshop/Inventory nav |
+| `src/pages/Workshop.tsx` | Add item photos, single-tap stage button |
+| Migration SQL | Update `deduct_inventory_on_ready` to respect toggle |
 
 ---
 
 ## Technical Notes
 
-- The `app_role` enum is extended (not replaced) so existing `admin` and `staff` entries remain valid.
-- `isSuperAdmin` checks for the `super_admin` role in the `user_roles` table via the existing `has_role()` security definer function -- no RLS recursion risk.
-- The Team tab queries `profiles` (public schema) and `user_roles` to build the user list. Role updates go through `user_roles` which already has an admin-only RLS policy (`has_role(auth.uid(), 'admin')`). We will add a policy allowing `super_admin` to manage roles as well.
-- Email lookup for the super_admin seed uses `auth.users` only inside the migration (server-side), never from the client.
+- AI messages use Lovable AI (`google/gemini-3-flash-preview`) via the pre-configured `LOVABLE_API_KEY` -- no additional secrets needed.
+- The `app_settings` table already has RLS policies allowing authenticated reads and admin writes, so no new policies are required.
+- Photo thumbnails use `supabase.storage.from("lead-photos").createSignedUrl()` for secure, time-limited access.
+- The inventory deduction trigger update uses `current_setting` or a direct query to `app_settings` to check the toggle value within the SECURITY DEFINER function.
 
