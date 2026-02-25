@@ -7,6 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useUserRole } from "@/hooks/useUserRole";
 import { cn } from "@/lib/utils";
 import AlertBell from "@/components/AlertBell";
+import { useSystemToggles } from "@/hooks/useSystemToggles";
 
 const AppLayout = () => {
   const navigate = useNavigate();
@@ -15,10 +16,11 @@ const AppLayout = () => {
   const { isAdmin, isSuperAdmin } = useUserRole();
   const [moreOpen, setMoreOpen] = useState(false);
   const [navCollapsed, setNavCollapsed] = useState(false);
+  const { workshopEnabled } = useSystemToggles();
 
   const coreNav = [
     { path: "/", label: "Triage", icon: LayoutDashboard },
-    { path: "/workshop", label: "Workshop", icon: Hammer },
+    ...(workshopEnabled ? [{ path: "/workshop", label: "Workshop", icon: Hammer }] : []),
     { path: "/customers", label: "Customers", icon: Users },
   ];
 

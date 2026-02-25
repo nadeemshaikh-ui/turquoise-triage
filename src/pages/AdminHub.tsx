@@ -14,6 +14,7 @@ import { toast } from "@/hooks/use-toast";
 import BrandsTab from "@/components/admin/BrandsTab";
 import CampaignsTab from "@/components/admin/CampaignsTab";
 import TeamTab from "@/components/admin/TeamTab";
+import SystemTab from "@/components/admin/SystemTab";
 import { useUserRole } from "@/hooks/useUserRole";
 
 const ICON_OPTIONS = [
@@ -73,6 +74,7 @@ const AdminHub = () => {
           <TabsTrigger value="brands">Brands</TabsTrigger>
           <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
           {isSuperAdmin && <TabsTrigger value="team">Team</TabsTrigger>}
+          <TabsTrigger value="system">System</TabsTrigger>
         </TabsList>
 
         {/* CATEGORIES TAB */}
@@ -182,6 +184,11 @@ const AdminHub = () => {
             <TeamTab />
           </TabsContent>
         )}
+
+        {/* SYSTEM TAB */}
+        <TabsContent value="system">
+          <SystemTab />
+        </TabsContent>
       </Tabs>
 
       {/* Category Dialog */}
