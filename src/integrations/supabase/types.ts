@@ -210,9 +210,13 @@ export type Database = {
           city: string | null
           created_at: string
           email: string | null
+          historical_context: string | null
           id: string
+          legacy_ltv: number
+          legacy_source: string | null
           name: string
           phone: string
+          service_affinity: string[] | null
           updated_at: string
         }
         Insert: {
@@ -220,9 +224,13 @@ export type Database = {
           city?: string | null
           created_at?: string
           email?: string | null
+          historical_context?: string | null
           id?: string
+          legacy_ltv?: number
+          legacy_source?: string | null
           name: string
           phone: string
+          service_affinity?: string[] | null
           updated_at?: string
         }
         Update: {
@@ -230,9 +238,13 @@ export type Database = {
           city?: string | null
           created_at?: string
           email?: string | null
+          historical_context?: string | null
           id?: string
+          legacy_ltv?: number
+          legacy_source?: string | null
           name?: string
           phone?: string
+          service_affinity?: string[] | null
           updated_at?: string
         }
         Relationships: []
