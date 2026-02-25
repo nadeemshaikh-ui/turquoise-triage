@@ -11,8 +11,8 @@ serve(async (req) => {
 
   try {
     const { totalRevenue, totalAdSpend, materialCogs, realProfit, profitMargin } = await req.json();
-    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-    if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured");
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
     const systemPrompt = `You are a luxury business growth strategist specializing in premium restoration services (sneakers, handbags, leather goods). You analyze financial data and provide actionable, specific growth recommendations. Be concise, data-driven, and speak in a confident advisory tone. Format each bullet with an emoji prefix.`;
 
@@ -26,33 +26,40 @@ Profit Margin: ${profitMargin || "N/A"}
 
 Give me exactly 3 bullet points for growth. Each bullet should be specific, actionable, and tied to the numbers above. If revenue is 0, suggest strategies to get first revenue. If ad spend is 0, suggest marketing strategies.`;
 
-    const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
-
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: fullPrompt }] }],
-        }),
-      }
-    );
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      }),
+    });
 
     if (!response.ok) {
       const status = response.status;
       const text = await response.text();
-      console.error("Gemini API error:", status, text);
+      console.error("AI gateway error:", status, text);
       if (status === 429) {
         return new Response(JSON.stringify({ error: "Rate limited. Please try again in a moment." }), {
           status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      throw new Error(`Gemini API error: ${status} - ${text}`);
+      if (status === 402) {
+        return new Response(JSON.stringify({ error: "AI credits exhausted. Please add funds to your workspace." }), {
+          status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`AI gateway error: ${status} - ${text}`);
     }
 
     const data = await response.json();
-    const analysis = data.candidates?.[0]?.content?.parts?.[0]?.text || "Unable to generate analysis.";
+    const analysis = data.choices?.[0]?.message?.content || "Unable to generate analysis.";
 
     return new Response(JSON.stringify({ analysis }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
