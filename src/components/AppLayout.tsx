@@ -23,7 +23,7 @@ const AppLayout = () => {
   ];
 
   const moreNav = [
-    { path: "/finance", label: "Finance", icon: TrendingUp },
+    ...(isAdmin ? [{ path: "/finance", label: "Finance", icon: TrendingUp }] : []),
     { path: "/recovery", label: "Recovery", icon: RotateCcw },
     ...(isAdmin ? [
       { path: "/services", label: "Services", icon: Settings },

@@ -475,7 +475,7 @@ function ItemCard({
                   placeholder="Search brand…"
                   className="h-8 text-xs pl-7"
                 />
-                {brandSearch && searchedBrands.length > 0 && (
+                {brandSearch && (
                   <div className="absolute z-10 mt-1 w-full rounded-lg border border-border bg-card shadow-lg max-h-40 overflow-y-auto">
                     {searchedBrands.map((b) => (
                       <button
@@ -485,9 +485,30 @@ function ItemCard({
                         className="flex items-center justify-between w-full px-3 py-2 text-xs hover:bg-muted transition-colors"
                       >
                         <span className="text-foreground">{b.name}</span>
-                        <Badge className={`text-[10px] ${TIER_BADGE[b.tier] || ""}`}>{TIER_LABEL[b.tier]}</Badge>
+                        <Badge className={`text-[10px] ${TIER_BADGE[b.tier] || ""}`}>{TIER_LABEL[b.tier] || b.tier}</Badge>
                       </button>
                     ))}
+                    {searchedBrands.length === 0 || !searchedBrands.some(b => b.name.toLowerCase() === brandSearch.toLowerCase()) ? (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const trimmed = brandSearch.trim();
+                          if (!trimmed) return;
+                          const { data, error } = await supabase.from("brands").insert({ name: trimmed, tier: "standard", sort_order: 999 }).select().single();
+                          if (error) { toast({ title: "Failed to create brand", variant: "destructive" }); return; }
+                          // Also tag it to current category
+                          if (item.categoryId) {
+                            await supabase.from("brand_category_tags").insert({ brand_id: data.id, category_id: item.categoryId });
+                          }
+                          onUpdate({ brandId: data.id, brandName: data.name, brandTier: data.tier });
+                          setBrandSearch("");
+                          // Refresh brands in parent would require lifting state; for now just set locally
+                        }}
+                        className="flex items-center gap-1.5 w-full px-3 py-2 text-xs text-primary hover:bg-muted transition-colors border-t border-border"
+                      >
+                        <Plus className="h-3 w-3" /> Add "{brandSearch.trim()}"
+                      </button>
+                    ) : null}
                   </div>
                 )}
                 {!brandSearch && catBrands.length > 0 && (

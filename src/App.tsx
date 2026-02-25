@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import AdminRoute from "@/components/AdminRoute";
 import AppLayout from "@/components/AppLayout";
 import Index from "./pages/Index";
 import LeadDetail from "./pages/LeadDetail";
@@ -43,12 +44,12 @@ const App = () => (
               <Route path="/" element={<Index />} />
               <Route path="/customers" element={<Customers />} />
               <Route path="/services" element={<Services />} />
-              <Route path="/finance" element={<Finance />} />
-              <Route path="/automations" element={<Automations />} />
+              <Route path="/finance" element={<AdminRoute><Finance /></AdminRoute>} />
+              <Route path="/automations" element={<AdminRoute><Automations /></AdminRoute>} />
               <Route path="/recovery" element={<Recovery />} />
               <Route path="/workshop" element={<Workshop />} />
               <Route path="/inventory" element={<Inventory />} />
-              <Route path="/admin-hub" element={<AdminHub />} />
+              <Route path="/admin-hub" element={<AdminRoute><AdminHub /></AdminRoute>} />
             </Route>
             <Route path="/leads/:id" element={<ProtectedRoute><LeadDetail /></ProtectedRoute>} />
             <Route path="/customers/:id" element={<ProtectedRoute><CustomerDetail /></ProtectedRoute>} />

@@ -63,7 +63,7 @@ const QuotePreview = ({
                   <>
                     <span className="text-[10px] text-muted-foreground">·</span>
                     <span className="text-xs font-medium text-foreground">{item.brandName}</span>
-                    <Badge className={`text-[9px] ${TIER_BADGE[item.brandTier] || ""}`}>{TIER_LABEL[item.brandTier]}</Badge>
+                    <Badge className={`text-[9px] ${TIER_BADGE[item.brandTier] || ""}`}>{TIER_LABEL[item.brandTier] || item.brandTier}</Badge>
                   </>
                 )}
               </div>
