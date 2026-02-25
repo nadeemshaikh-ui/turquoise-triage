@@ -8,6 +8,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Loader2, Upload, DollarSign, TrendingUp, BarChart3, CalendarIcon, Trash2 } from "lucide-react";
 import RoasSentinel from "@/components/finance/RoasSentinel";
+import AiAuditor from "@/components/finance/AiAuditor";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -564,6 +565,15 @@ const Finance = () => {
         turnsSales={turnsSales as any[]}
         adSpend={adSpend as any[]}
         dateFilter={isInRange}
+      />
+
+      {/* AI Auditor */}
+      <AiAuditor
+        turnsRevenue={pnl.turnsRevenue}
+        totalAdSpend={pnl.totalAdSpend}
+        materialCogs={pnl.totalMaterialCost}
+        realProfit={pnl.realProfit}
+        profitMargin={pnl.turnsRevenue > 0 ? `${((pnl.realProfit / pnl.turnsRevenue) * 100).toFixed(1)}%` : "N/A"}
       />
 
 
