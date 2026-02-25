@@ -8,3 +8,9 @@ verify_jwt = false
 
 [functions.serve-quote]
 verify_jwt = false
+
+[functions.draft-recovery]
+verify_jwt = false
+
+[functions.ai-auditor]
+verify_jwt = false
