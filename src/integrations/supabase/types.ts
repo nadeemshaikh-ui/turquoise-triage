@@ -59,6 +59,66 @@ export type Database = {
         }
         Relationships: []
       }
+      brand_category_tags: {
+        Row: {
+          brand_id: string
+          category_id: string
+          id: string
+        }
+        Insert: {
+          brand_id: string
+          category_id: string
+          id?: string
+        }
+        Update: {
+          brand_id?: string
+          category_id?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "brand_category_tags_brand_id_fkey"
+            columns: ["brand_id"]
+            isOneToOne: false
+            referencedRelation: "brands"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "brand_category_tags_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "service_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      brands: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+          tier: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+          tier?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+          tier?: string
+        }
+        Relationships: []
+      }
       category_issues: {
         Row: {
           category_id: string
@@ -250,6 +310,7 @@ export type Database = {
       }
       lead_items: {
         Row: {
+          brand_id: string | null
           category_id: string
           created_at: string
           description: string | null
@@ -264,6 +325,7 @@ export type Database = {
           suggestive_price: number
         }
         Insert: {
+          brand_id?: string | null
           category_id: string
           created_at?: string
           description?: string | null
@@ -278,6 +340,7 @@ export type Database = {
           suggestive_price?: number
         }
         Update: {
+          brand_id?: string | null
           category_id?: string
           created_at?: string
           description?: string | null
@@ -292,6 +355,13 @@ export type Database = {
           suggestive_price?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "lead_items_brand_id_fkey"
+            columns: ["brand_id"]
+            isOneToOne: false
+            referencedRelation: "brands"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "lead_items_category_id_fkey"
             columns: ["category_id"]
@@ -320,6 +390,7 @@ export type Database = {
           file_name: string
           id: string
           lead_id: string
+          lead_item_id: string | null
           storage_path: string
           uploaded_at: string
         }
@@ -327,6 +398,7 @@ export type Database = {
           file_name: string
           id?: string
           lead_id: string
+          lead_item_id?: string | null
           storage_path: string
           uploaded_at?: string
         }
@@ -334,6 +406,7 @@ export type Database = {
           file_name?: string
           id?: string
           lead_id?: string
+          lead_item_id?: string | null
           storage_path?: string
           uploaded_at?: string
         }
@@ -343,6 +416,13 @@ export type Database = {
             columns: ["lead_id"]
             isOneToOne: false
             referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_photos_lead_item_id_fkey"
+            columns: ["lead_item_id"]
+            isOneToOne: false
+            referencedRelation: "lead_items"
             referencedColumns: ["id"]
           },
         ]
@@ -521,6 +601,30 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      marketing_campaigns: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+        }
+        Relationships: []
       }
       meta_ad_spend: {
         Row: {
