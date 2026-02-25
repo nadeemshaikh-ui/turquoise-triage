@@ -45,6 +45,7 @@ interface KanbanLead {
   createdAt: string;
   notes: string | null;
   qcChecklist: Record<string, boolean>;
+  photoUrls: string[];
 }
 
 interface RecipeMaterial {
@@ -84,26 +85,45 @@ const Workshop = () => {
           id, quoted_price, status, tat_days_max, is_gold_tier, created_at, notes, service_id,
           qc_checklist, custom_service_name, tier,
           customers ( name ),
-          services ( name )
+          services ( name ),
+          lead_photos ( storage_path )
         `)
         .in("status", ["New", "In Progress", "QC", "Ready for Pickup"])
         .order("created_at", { ascending: true });
 
       if (error) throw error;
-      return (data || []).map((r: any) => ({
-        id: r.id,
-        customerName: r.customers?.name ?? "Unknown",
-        serviceName: r.custom_service_name || r.services?.name || "Unknown",
-        serviceId: r.service_id,
-        quotedPrice: Number(r.quoted_price),
-        status: r.status,
-        tier: r.tier || "Premium",
-        isGoldTier: r.is_gold_tier,
-        tatDaysMax: r.tat_days_max,
-        createdAt: r.created_at,
-        notes: r.notes,
-        qcChecklist: (r.qc_checklist as Record<string, boolean>) || {},
+
+      // Generate signed URLs for photos
+      const leadsWithPhotos = await Promise.all((data || []).map(async (r: any) => {
+        let photoUrls: string[] = [];
+        const photos = r.lead_photos || [];
+        if (photos.length > 0) {
+          const paths = photos.slice(0, 3).map((p: any) => p.storage_path);
+          const results = await Promise.all(
+            paths.map((path: string) =>
+              supabase.storage.from("lead-photos").createSignedUrl(path, 3600)
+            )
+          );
+          photoUrls = results.map((r) => r.data?.signedUrl).filter(Boolean) as string[];
+        }
+        return {
+          id: r.id,
+          customerName: r.customers?.name ?? "Unknown",
+          serviceName: r.custom_service_name || r.services?.name || "Unknown",
+          serviceId: r.service_id,
+          quotedPrice: Number(r.quoted_price),
+          status: r.status,
+          tier: r.tier || "Premium",
+          isGoldTier: r.is_gold_tier,
+          tatDaysMax: r.tat_days_max,
+          createdAt: r.created_at,
+          notes: r.notes,
+          qcChecklist: (r.qc_checklist as Record<string, boolean>) || {},
+          photoUrls,
+        };
       }));
+
+      return leadsWithPhotos;
     },
   });
 
@@ -393,7 +413,20 @@ const KanbanCard = ({
           <p className="mt-0.5 text-xs text-muted-foreground truncate">{lead.serviceName}</p>
           <p className="mt-1 text-sm font-bold text-primary">₹{lead.quotedPrice.toLocaleString("en-IN")}</p>
 
-          {/* Materials Used */}
+          {/* Item Photos */}
+          {lead.photoUrls.length > 0 && (
+            <div className="mt-2 flex gap-1.5">
+              {lead.photoUrls.map((url, i) => (
+                <img
+                  key={i}
+                  src={url}
+                  alt={`Item ${i + 1}`}
+                  className="h-10 w-10 rounded-lg object-cover border border-border"
+                  loading="lazy"
+                />
+              ))}
+            </div>
+          )}
           {materials.length > 0 && (
             <div className="mt-2 space-y-0.5">
               <div className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground">

@@ -5,6 +5,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
   Crown,
   Loader2,
   Clock,
@@ -15,6 +22,9 @@ import {
   AlertTriangle,
   Zap,
   RotateCcw,
+  Sparkles,
+  Copy,
+  MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
@@ -25,6 +35,7 @@ interface StaleLead {
   customerName: string;
   customerPhone: string;
   serviceName: string;
+  brandName: string | null;
   quotedPrice: number;
   tier: string;
   isGoldTier: boolean;
@@ -39,21 +50,23 @@ const Recovery = () => {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [sendingId, setSendingId] = useState<string | null>(null);
+  const [draftDialog, setDraftDialog] = useState<{ open: boolean; lead: StaleLead | null; message: string; loading: boolean }>({
+    open: false, lead: null, message: "", loading: false,
+  });
 
-  // Fetch leads stuck at "New" for 48+ hours
   const { data: staleLeads = [], isLoading } = useQuery({
     queryKey: ["recovery-queue"],
     queryFn: async (): Promise<StaleLead[]> => {
       const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
 
-      // Get stale leads
       const { data: leads, error } = await supabase
         .from("leads")
         .select(`
           id, quoted_price, status, tier, is_gold_tier, created_at,
           custom_service_name,
           customers ( name, phone ),
-          services ( name )
+          services ( name ),
+          lead_items ( brand_id, brands ( name ) )
         `)
         .eq("status", "New")
         .lte("created_at", cutoff)
@@ -61,7 +74,6 @@ const Recovery = () => {
 
       if (error) throw error;
 
-      // Get existing recovery offers for these leads
       const leadIds = (leads || []).map((l: any) => l.id);
       let recoveryMap = new Map<string, any>();
       if (leadIds.length > 0) {
@@ -70,7 +82,6 @@ const Recovery = () => {
           .select("*")
           .in("lead_id", leadIds);
         (offers || []).forEach((o: any) => {
-          // Keep the latest offer per lead
           if (!recoveryMap.has(o.lead_id) || new Date(o.sent_at) > new Date(recoveryMap.get(o.lead_id).sent_at)) {
             recoveryMap.set(o.lead_id, o);
           }
@@ -86,11 +97,13 @@ const Recovery = () => {
           else if (new Date(offer.expires_at) < new Date()) recoveryStatus = "expired";
           else recoveryStatus = "sent";
         }
+        const brandName = r.lead_items?.[0]?.brands?.name || null;
         return {
           id: r.id,
           customerName: r.customers?.name ?? "Unknown",
           customerPhone: r.customers?.phone ?? "",
           serviceName: r.custom_service_name || r.services?.name || "Unknown",
+          brandName,
           quotedPrice: Number(r.quoted_price),
           tier: r.tier || "Premium",
           isGoldTier: r.is_gold_tier,
@@ -105,7 +118,6 @@ const Recovery = () => {
     refetchInterval: 60_000,
   });
 
-  // Send second-chance offer + WhatsApp notification
   const sendOffer = useMutation({
     mutationFn: async ({ leadId, discount }: { leadId: string; discount: number }) => {
       const { error } = await supabase.from("recovery_offers").insert({
@@ -115,10 +127,8 @@ const Recovery = () => {
       });
       if (error) throw error;
 
-      // Find the lead to get customer details
       const lead = staleLeads.find((l) => l.id === leadId);
       if (lead?.customerPhone) {
-        // Send WhatsApp via edge function (fire-and-forget)
         supabase.functions.invoke("send-whatsapp", {
           body: {
             lead_id: leadId,
@@ -129,9 +139,7 @@ const Recovery = () => {
             discount_percent: discount,
           },
         }).then(({ error: whatsappErr }) => {
-          if (!whatsappErr) {
-            toast({ title: "📱 WhatsApp recovery offer sent" });
-          }
+          if (!whatsappErr) toast({ title: "📱 WhatsApp recovery offer sent" });
         }).catch(() => {});
       }
     },
@@ -146,7 +154,6 @@ const Recovery = () => {
     },
   });
 
-  // Mark as converted
   const markConverted = useMutation({
     mutationFn: async ({ recoveryId, leadId }: { recoveryId: string; leadId: string }) => {
       const { error } = await supabase
@@ -154,10 +161,7 @@ const Recovery = () => {
         .update({ status: "converted", responded_at: new Date().toISOString() })
         .eq("id", recoveryId);
       if (error) throw error;
-
-      // Move lead to Assigned
       await supabase.from("leads").update({ status: "Assigned" }).eq("id", leadId);
-
       await supabase.from("lead_activity").insert({
         lead_id: leadId,
         action: "Recovery Converted",
@@ -171,6 +175,26 @@ const Recovery = () => {
       toast({ title: "✅ Lead recovered and moved to Assigned!" });
     },
   });
+
+  const draftRecoveryMessage = async (lead: StaleLead) => {
+    setDraftDialog({ open: true, lead, message: "", loading: true });
+    try {
+      const { data, error } = await supabase.functions.invoke("draft-recovery", {
+        body: {
+          customerName: lead.customerName,
+          brandName: lead.brandName,
+          serviceName: lead.serviceName,
+          quotedPrice: lead.quotedPrice,
+          hoursStale: lead.hoursStale,
+        },
+      });
+      if (error) throw error;
+      setDraftDialog((prev) => ({ ...prev, message: data.message || "Unable to generate message.", loading: false }));
+    } catch (e: any) {
+      setDraftDialog((prev) => ({ ...prev, message: "Failed to generate message. Please try again.", loading: false }));
+      toast({ title: "AI draft failed", description: e?.message, variant: "destructive" });
+    }
+  };
 
   const pending = staleLeads.filter((l) => l.recoveryStatus === "pending");
   const sent = staleLeads.filter((l) => l.recoveryStatus === "sent");
@@ -220,6 +244,7 @@ const Recovery = () => {
                 setSendingId(lead.id);
                 sendOffer.mutate({ leadId: lead.id, discount });
               }}
+              onDraftMessage={() => draftRecoveryMessage(lead)}
               isSending={sendingId === lead.id}
               onNavigate={() => navigate(`/leads/${lead.id}`)}
             />
@@ -254,6 +279,7 @@ const Recovery = () => {
                 setSendingId(lead.id);
                 sendOffer.mutate({ leadId: lead.id, discount });
               }}
+              onDraftMessage={() => draftRecoveryMessage(lead)}
               isSending={sendingId === lead.id}
               onNavigate={() => navigate(`/leads/${lead.id}`)}
               isRetry
@@ -282,6 +308,56 @@ const Recovery = () => {
           <p className="text-sm">All quotes have been actioned within 48 hours.</p>
         </div>
       )}
+
+      {/* AI Draft Message Dialog */}
+      <Dialog open={draftDialog.open} onOpenChange={(open) => !open && setDraftDialog({ open: false, lead: null, message: "", loading: false })}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" />
+              AI Recovery Message
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-3">
+            {draftDialog.loading ? (
+              <div className="flex flex-col items-center gap-3 py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                <p className="text-sm text-muted-foreground">Crafting a personalized message…</p>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-border bg-muted/50 p-4">
+                <p className="text-sm whitespace-pre-wrap text-foreground leading-relaxed">{draftDialog.message}</p>
+              </div>
+            )}
+          </div>
+          {!draftDialog.loading && draftDialog.message && (
+            <DialogFooter className="flex-col sm:flex-row gap-2">
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => {
+                  navigator.clipboard.writeText(draftDialog.message);
+                  toast({ title: "Message copied!" });
+                }}
+              >
+                <Copy className="h-4 w-4" /> Copy
+              </Button>
+              {draftDialog.lead?.customerPhone && (
+                <Button
+                  className="gap-2"
+                  onClick={() => {
+                    const encoded = encodeURIComponent(draftDialog.message);
+                    const phone = draftDialog.lead!.customerPhone.replace(/\D/g, "");
+                    window.open(`https://wa.me/${phone}?text=${encoded}`, "_blank");
+                  }}
+                >
+                  <MessageSquare className="h-4 w-4" /> Send via WhatsApp
+                </Button>
+              )}
+            </DialogFooter>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
@@ -326,6 +402,7 @@ const RecoveryCard = ({
   lead,
   onSendOffer,
   onMarkConverted,
+  onDraftMessage,
   onNavigate,
   isSending,
   isRetry,
@@ -333,6 +410,7 @@ const RecoveryCard = ({
   lead: StaleLead;
   onSendOffer?: (discount: number) => void;
   onMarkConverted?: () => void;
+  onDraftMessage?: () => void;
   onNavigate: () => void;
   isSending?: boolean;
   isRetry?: boolean;
@@ -352,6 +430,9 @@ const RecoveryCard = ({
           <div>
             <p className="text-sm font-semibold text-card-foreground">{lead.customerName}</p>
             <p className="text-xs text-muted-foreground">{lead.serviceName}</p>
+            {lead.brandName && (
+              <p className="text-[10px] text-muted-foreground/70">{lead.brandName}</p>
+            )}
           </div>
           <div className="flex items-center gap-1">
             {lead.isGoldTier && <Crown className="h-3.5 w-3.5 text-amber-500" />}
@@ -391,26 +472,38 @@ const RecoveryCard = ({
 
         {/* Actions */}
         {(lead.recoveryStatus === "pending" || isRetry) && onSendOffer && (
-          <div className="flex items-center gap-2 pt-1" onClick={(e) => e.stopPropagation()}>
-            <select
-              value={discount}
-              onChange={(e) => setDiscount(Number(e.target.value))}
-              className="h-7 rounded-xl border border-border bg-background px-2 text-[11px]"
-            >
-              <option value={5}>5% off</option>
-              <option value={10}>10% off</option>
-              <option value={15}>15% off</option>
-              <option value={20}>20% off</option>
-            </select>
-            <Button
-              size="sm"
-              className="h-7 text-[10px] rounded-xl gap-1 flex-1"
-              onClick={() => onSendOffer(discount)}
-              disabled={isSending}
-            >
-              {isSending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
-              {isRetry ? "Resend Offer" : "Send Offer"}
-            </Button>
+          <div className="space-y-2 pt-1" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2">
+              <select
+                value={discount}
+                onChange={(e) => setDiscount(Number(e.target.value))}
+                className="h-7 rounded-xl border border-border bg-background px-2 text-[11px]"
+              >
+                <option value={5}>5% off</option>
+                <option value={10}>10% off</option>
+                <option value={15}>15% off</option>
+                <option value={20}>20% off</option>
+              </select>
+              <Button
+                size="sm"
+                className="h-7 text-[10px] rounded-xl gap-1 flex-1"
+                onClick={() => onSendOffer(discount)}
+                disabled={isSending}
+              >
+                {isSending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+                {isRetry ? "Resend Offer" : "Send Offer"}
+              </Button>
+            </div>
+            {onDraftMessage && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-[10px] rounded-xl gap-1 w-full"
+                onClick={onDraftMessage}
+              >
+                <Sparkles className="h-3 w-3" /> Draft AI Message
+              </Button>
+            )}
           </div>
         )}
 
