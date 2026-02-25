@@ -18,9 +18,13 @@ export const useUserRole = () => {
     enabled: !!user?.id,
   });
 
+  const roles = query.data ?? [];
+
   return {
-    roles: query.data ?? [],
-    isAdmin: (query.data ?? []).includes("admin"),
+    roles,
+    isSuperAdmin: roles.includes("super_admin" as any),
+    isAdmin: roles.includes("admin") || roles.includes("super_admin" as any),
+    isStaff: roles.length > 0 && !roles.includes("admin") && !roles.includes("super_admin" as any),
     isLoading: query.isLoading,
   };
 };

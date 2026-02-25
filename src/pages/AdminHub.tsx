@@ -13,6 +13,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import BrandsTab from "@/components/admin/BrandsTab";
 import CampaignsTab from "@/components/admin/CampaignsTab";
+import TeamTab from "@/components/admin/TeamTab";
+import { useUserRole } from "@/hooks/useUserRole";
 
 const ICON_OPTIONS = [
   "Footprints", "ShoppingBag", "Shirt", "Sparkles", "Wrench", "Palette",
@@ -24,6 +26,7 @@ type Issue = { id: string; category_id: string; name: string; suggestive_price: 
 type Package = { id: string; category_id: string; name: string; suggestive_price: number; includes: string[]; description: string | null; sort_order: number; is_active: boolean };
 
 const AdminHub = () => {
+  const { isSuperAdmin } = useUserRole();
   const [categories, setCategories] = useState<Category[]>([]);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
@@ -69,6 +72,7 @@ const AdminHub = () => {
           <TabsTrigger value="packages">Packages</TabsTrigger>
           <TabsTrigger value="brands">Brands</TabsTrigger>
           <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
+          {isSuperAdmin && <TabsTrigger value="team">Team</TabsTrigger>}
         </TabsList>
 
         {/* CATEGORIES TAB */}
@@ -171,6 +175,13 @@ const AdminHub = () => {
         <TabsContent value="campaigns">
           <CampaignsTab />
         </TabsContent>
+
+        {/* TEAM TAB (super_admin only) */}
+        {isSuperAdmin && (
+          <TabsContent value="team">
+            <TeamTab />
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* Category Dialog */}
