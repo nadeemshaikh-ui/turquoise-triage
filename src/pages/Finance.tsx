@@ -515,8 +515,9 @@ const Finance = () => {
         <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground">
-              <DollarSign className="h-4 w-4" />
+            <DollarSign className="h-4 w-4" />
               <span className="text-xs font-medium">Turns Revenue</span>
+              <span className="ml-auto flex items-center gap-1 text-[9px] text-emerald-600 font-medium"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" /> Live</span>
             </div>
             <p className="mt-1 text-xl font-bold text-primary">₹{pnl.turnsRevenue.toLocaleString("en-IN")}</p>
           </CardContent>
