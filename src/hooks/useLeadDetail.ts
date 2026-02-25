@@ -5,6 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 
 export interface LeadDetail {
   id: string;
+  customerId: string;
   customerName: string;
   customerPhone: string;
   customerEmail: string | null;
@@ -65,7 +66,7 @@ export const useLeadDetail = (leadId: string) => {
         .from("leads")
         .select(`
           id, quoted_price, status, tat_days_min, tat_days_max,
-          is_gold_tier, created_at, custom_service_name, notes,
+          is_gold_tier, created_at, custom_service_name, notes, customer_id,
           customers ( name, phone, email ),
           services ( name, category )
         `)
@@ -76,6 +77,7 @@ export const useLeadDetail = (leadId: string) => {
       const row = data as any;
       return {
         id: row.id,
+        customerId: row.customer_id,
         customerName: row.customers?.name ?? "Unknown",
         customerPhone: row.customers?.phone ?? "",
         customerEmail: row.customers?.email ?? null,

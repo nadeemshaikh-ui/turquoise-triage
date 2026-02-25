@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Crown, Clock, Phone, Mail, Camera, MessageSquare, CheckCircle2, Loader2, Upload, ImagePlus, Trash2, X } from "lucide-react";
+import { ArrowLeft, Crown, Clock, Phone, Mail, Camera, MessageSquare, CheckCircle2, Loader2, Upload, ImagePlus, Trash2, X, Award } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -44,6 +44,21 @@ const LeadDetail = () => {
       return (data as any[]) || [];
     },
     enabled: !!id,
+  });
+
+  // Fetch customer legacy data for VIP badge
+  const { data: customerLegacy } = useQuery({
+    queryKey: ["customer-legacy", lead?.customerId],
+    queryFn: async () => {
+      if (!lead?.customerId) return null;
+      const { data } = await supabase
+        .from("customers")
+        .select("legacy_ltv, legacy_source, service_affinity, historical_context")
+        .eq("id", lead.customerId)
+        .single();
+      return data;
+    },
+    enabled: !!lead?.customerId,
   });
 
   if (isLoading || !lead) {
@@ -96,6 +111,11 @@ const LeadDetail = () => {
             <div className="flex items-center gap-2">
               <h1 className="truncate text-lg font-bold text-foreground">{lead.customerName}</h1>
               {lead.isGoldTier && <Crown className="h-4 w-4 shrink-0 text-gold" />}
+              {customerLegacy && Number(customerLegacy.legacy_ltv) > 25000 && (
+                <Badge className="text-[8px] bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 gap-0.5">
+                  <Award className="h-2.5 w-2.5" />Legacy VIP
+                </Badge>
+              )}
             </div>
             <p className="truncate text-sm text-muted-foreground">{lead.serviceName}</p>
           </div>
@@ -117,6 +137,27 @@ const LeadDetail = () => {
         {lead.notes && (
           <div className="rounded-[var(--radius)] border border-border bg-muted/30 p-4">
             <p className="text-sm text-muted-foreground">{lead.notes}</p>
+          </div>
+        )}
+
+        {/* Legacy Context */}
+        {customerLegacy?.historical_context && (
+          <div className="rounded-[var(--radius)] border border-amber-200 dark:border-amber-800/40 bg-amber-50/50 dark:bg-amber-900/10 p-4 space-y-1">
+            <div className="flex items-center gap-2">
+              <Award className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+              <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">Historical Context</p>
+              {customerLegacy.legacy_source && (
+                <Badge variant="outline" className="text-[9px]">{customerLegacy.legacy_source}</Badge>
+              )}
+            </div>
+            <p className="text-sm text-amber-700 dark:text-amber-300/80">{customerLegacy.historical_context}</p>
+            {customerLegacy.service_affinity && (customerLegacy.service_affinity as string[]).length > 0 && (
+              <div className="flex gap-1 pt-1">
+                {(customerLegacy.service_affinity as string[]).map((a: string) => (
+                  <Badge key={a} variant="secondary" className="text-[10px]">{a}</Badge>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

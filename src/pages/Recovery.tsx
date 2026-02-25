@@ -25,6 +25,7 @@ import {
   Sparkles,
   Copy,
   MessageSquare,
+  Award,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
@@ -44,6 +45,8 @@ interface StaleLead {
   recoveryStatus: "pending" | "sent" | "converted" | "expired";
   recoveryId: string | null;
   discountPercent: number | null;
+  isLegacyWarmLead: boolean;
+  legacyLtv: number;
 }
 
 const Recovery = () => {
@@ -53,6 +56,7 @@ const Recovery = () => {
   const [draftDialog, setDraftDialog] = useState<{ open: boolean; lead: StaleLead | null; message: string; loading: boolean }>({
     open: false, lead: null, message: "", loading: false,
   });
+  const [filterWarmLeads, setFilterWarmLeads] = useState(false);
 
   const { data: staleLeads = [], isLoading } = useQuery({
     queryKey: ["recovery-queue"],
@@ -64,7 +68,7 @@ const Recovery = () => {
         .select(`
           id, quoted_price, status, tier, is_gold_tier, created_at,
           custom_service_name,
-          customers ( name, phone ),
+          customers ( name, phone, legacy_ltv, service_affinity ),
           services ( name ),
           lead_items ( brand_id, brands ( name ) )
         `)
@@ -98,6 +102,9 @@ const Recovery = () => {
           else recoveryStatus = "sent";
         }
         const brandName = r.lead_items?.[0]?.brands?.name || null;
+        const serviceAffinity = (r.customers?.service_affinity as string[]) || [];
+        const isLegacyWarmLead = serviceAffinity.length > 0;
+        const legacyLtv = Number(r.customers?.legacy_ltv) || 0;
         return {
           id: r.id,
           customerName: r.customers?.name ?? "Unknown",
@@ -112,6 +119,8 @@ const Recovery = () => {
           recoveryStatus,
           recoveryId: offer?.id || null,
           discountPercent: offer?.discount_percent || null,
+          isLegacyWarmLead,
+          legacyLtv,
         };
       });
     },
@@ -196,13 +205,17 @@ const Recovery = () => {
     }
   };
 
-  const pending = staleLeads.filter((l) => l.recoveryStatus === "pending");
-  const sent = staleLeads.filter((l) => l.recoveryStatus === "sent");
-  const converted = staleLeads.filter((l) => l.recoveryStatus === "converted");
-  const expired = staleLeads.filter((l) => l.recoveryStatus === "expired");
+  const filteredLeads = filterWarmLeads ? staleLeads.filter((l) => l.isLegacyWarmLead) : staleLeads;
 
-  const conversionRate = staleLeads.length > 0
-    ? Math.round((converted.length / staleLeads.length) * 100)
+  const pending = filteredLeads.filter((l) => l.recoveryStatus === "pending");
+  const sent = filteredLeads.filter((l) => l.recoveryStatus === "sent");
+  const converted = filteredLeads.filter((l) => l.recoveryStatus === "converted");
+  const expired = filteredLeads.filter((l) => l.recoveryStatus === "expired");
+
+  const warmLeadCount = staleLeads.filter((l) => l.isLegacyWarmLead).length;
+
+  const conversionRate = filteredLeads.length > 0
+    ? Math.round((converted.length / filteredLeads.length) * 100)
     : 0;
 
   if (isLoading) {
@@ -225,7 +238,23 @@ const Recovery = () => {
         </p>
       </div>
 
-      {/* Stats */}
+      {/* Filter + Stats */}
+      {warmLeadCount > 0 && (
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant={filterWarmLeads ? "default" : "outline"}
+            className="h-7 text-[10px] rounded-xl gap-1"
+            onClick={() => setFilterWarmLeads(!filterWarmLeads)}
+          >
+            <Award className="h-3 w-3" />
+            Legacy Warm Leads ({warmLeadCount})
+          </Button>
+          {filterWarmLeads && (
+            <p className="text-xs text-muted-foreground">Showing customers with sneaker/bag history — ideal for "Intro to Restoree" offers</p>
+          )}
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard label="Awaiting Offer" value={pending.length} icon={Clock} color="text-amber-500" />
         <StatCard label="Offers Sent" value={sent.length} icon={Send} color="text-blue-500" />
@@ -435,6 +464,14 @@ const RecoveryCard = ({
             )}
           </div>
           <div className="flex items-center gap-1">
+            {lead.legacyLtv > 25000 && (
+              <Badge className="h-4 text-[8px] px-1.5 bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 gap-0.5">
+                <Award className="h-2.5 w-2.5" />VIP
+              </Badge>
+            )}
+            {lead.isLegacyWarmLead && (
+              <Badge variant="outline" className="h-4 text-[8px] px-1.5 gap-0.5">Warm</Badge>
+            )}
             {lead.isGoldTier && <Crown className="h-3.5 w-3.5 text-amber-500" />}
             {lead.tier === "Elite" && (
               <Badge className="h-4 text-[8px] px-1.5 bg-primary text-primary-foreground gap-0.5">
