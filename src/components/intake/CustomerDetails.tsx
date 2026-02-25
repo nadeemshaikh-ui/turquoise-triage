@@ -15,25 +15,25 @@ type CustomerData = {
   address: string;
 };
 
-const CAMPAIGNS = [
-  "Feb_Dior_Ad",
-  "Jan_Sneaker_Sale",
-  "Mar_Handbag_Promo",
-  "Organic",
-  "Referral",
-  "Walk-in",
-];
-
 type Props = {
   data: CustomerData;
   onChange: (data: CustomerData) => void;
   errors: Partial<Record<keyof CustomerData, string>>;
+  campaigns?: { id: string; name: string }[];
 };
 
-const CustomerDetails = ({ data, onChange, errors }: Props) => {
+const CustomerDetails = ({ data, onChange, errors, campaigns }: Props) => {
   const [showMore, setShowMore] = useState(false);
   const set = (key: keyof CustomerData, value: string) =>
     onChange({ ...data, [key]: value });
+
+  const campaignList = campaigns && campaigns.length > 0
+    ? campaigns
+    : [
+        { id: "Organic", name: "Organic" },
+        { id: "Referral", name: "Referral" },
+        { id: "Walk-in", name: "Walk-in" },
+      ];
 
   return (
     <div className="space-y-2">
@@ -59,7 +59,7 @@ const CustomerDetails = ({ data, onChange, errors }: Props) => {
           <Label htmlFor="campaign" className="text-[11px]">Campaign *</Label>
           <Select value={data.campaign} onValueChange={(v) => set("campaign", v)}>
             <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select…" /></SelectTrigger>
-            <SelectContent>{CAMPAIGNS.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+            <SelectContent>{campaignList.map((c) => <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>)}</SelectContent>
           </Select>
           {errors.campaign && <p className="text-[10px] text-destructive">{errors.campaign}</p>}
         </div>

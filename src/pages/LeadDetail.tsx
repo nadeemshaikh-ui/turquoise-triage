@@ -38,7 +38,7 @@ const LeadDetail = () => {
     queryFn: async () => {
       const { data } = await supabase
         .from("lead_items")
-        .select("*, service_categories(name)")
+        .select("*, service_categories(name), brands(name, tier)")
         .eq("lead_id", id!)
         .order("sort_order");
       return (data as any[]) || [];
@@ -124,16 +124,33 @@ const LeadDetail = () => {
         {leadItems && leadItems.length > 0 && (
           <section className="space-y-2">
             <h2 className="text-sm font-semibold text-foreground">Items</h2>
-            {leadItems.map((item: any) => (
-              <div key={item.id} className="flex items-center justify-between rounded-[var(--radius)] border border-border bg-card p-3">
-                <div>
-                  <p className="text-sm font-medium text-foreground">{item.service_categories?.name || "Item"}</p>
+            {leadItems.map((item: any) => {
+              const tierBadge: Record<string, string> = {
+                standard: "bg-muted text-muted-foreground",
+                luxury: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
+                ultra_luxury: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
+              };
+              const tierLabel: Record<string, string> = { standard: "Standard", luxury: "Luxury", ultra_luxury: "Ultra-Luxury" };
+              return (
+                <div key={item.id} className="rounded-[var(--radius)] border border-border bg-card p-3 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-foreground">{item.service_categories?.name || "Item"}</p>
+                      {item.brands && (
+                        <>
+                          <span className="text-[10px] text-muted-foreground">·</span>
+                          <span className="text-xs font-medium text-foreground">{item.brands.name}</span>
+                          <Badge className={`text-[9px] ${tierBadge[item.brands.tier] || ""}`}>{tierLabel[item.brands.tier] || item.brands.tier}</Badge>
+                        </>
+                      )}
+                    </div>
+                    <span className="text-sm font-semibold text-foreground">₹{Number(item.manual_price).toLocaleString()}</span>
+                  </div>
                   {item.description && <p className="text-xs text-muted-foreground">{item.description}</p>}
-                  <Badge variant="outline" className="text-[10px] mt-1">{item.mode}</Badge>
+                  <Badge variant="outline" className="text-[10px]">{item.mode}</Badge>
                 </div>
-                <span className="text-sm font-semibold text-foreground">₹{Number(item.manual_price).toLocaleString()}</span>
-              </div>
-            ))}
+              );
+            })}
           </section>
         )}
 

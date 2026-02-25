@@ -22,7 +22,7 @@ import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import NotFound from "./pages/NotFound";
 import Quote from "./pages/Quote";
-import ServiceMaster from "./pages/ServiceMaster";
+import AdminHub from "./pages/AdminHub";
 
 const queryClient = new QueryClient();
 
@@ -48,7 +48,7 @@ const App = () => (
               <Route path="/recovery" element={<Recovery />} />
               <Route path="/workshop" element={<Workshop />} />
               <Route path="/inventory" element={<Inventory />} />
-              <Route path="/service-master" element={<ServiceMaster />} />
+              <Route path="/admin-hub" element={<AdminHub />} />
             </Route>
             <Route path="/leads/:id" element={<ProtectedRoute><LeadDetail /></ProtectedRoute>} />
             <Route path="/customers/:id" element={<ProtectedRoute><CustomerDetail /></ProtectedRoute>} />
