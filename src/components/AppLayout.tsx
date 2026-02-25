@@ -12,7 +12,7 @@ const AppLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { signOut } = useAuth();
-  const { isAdmin } = useUserRole();
+  const { isAdmin, isSuperAdmin } = useUserRole();
   const [moreOpen, setMoreOpen] = useState(false);
   const [navCollapsed, setNavCollapsed] = useState(false);
 
@@ -23,7 +23,7 @@ const AppLayout = () => {
   ];
 
   const moreNav = [
-    ...(isAdmin ? [{ path: "/finance", label: "Finance", icon: TrendingUp }] : []),
+    ...(isSuperAdmin ? [{ path: "/finance", label: "Finance", icon: TrendingUp }] : []),
     { path: "/recovery", label: "Recovery", icon: RotateCcw },
     ...(isAdmin ? [
       { path: "/services", label: "Services", icon: Settings },
