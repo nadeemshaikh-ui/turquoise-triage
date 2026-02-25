@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 type TeamMember = {
   user_id: string;
   display_name: string;
+  email: string;
   role: string;
 };
 
@@ -30,7 +31,7 @@ const TeamTab = () => {
     setLoading(true);
     // Get profiles and roles separately, then merge
     const [profilesRes, rolesRes] = await Promise.all([
-      supabase.from("profiles").select("user_id, display_name"),
+      supabase.from("profiles").select("user_id, display_name, email"),
       supabase.from("user_roles").select("user_id, role"),
     ]);
 
@@ -42,6 +43,7 @@ const TeamTab = () => {
       return {
         user_id: p.user_id,
         display_name: p.display_name,
+        email: (p as any).email || "",
         role: userRole?.role || "staff",
       };
     });
@@ -86,6 +88,7 @@ const TeamTab = () => {
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
+              <TableHead>Email</TableHead>
               <TableHead>Current Role</TableHead>
               <TableHead className="text-right">Change Role</TableHead>
             </TableRow>
@@ -102,6 +105,7 @@ const TeamTab = () => {
                     {m.display_name}
                     {isSelf && <Badge variant="outline" className="ml-2 text-[10px]">You</Badge>}
                   </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{m.email}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1.5">
                       <Icon className="h-4 w-4 text-muted-foreground" />
