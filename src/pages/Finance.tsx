@@ -442,18 +442,26 @@ const Finance = () => {
       });
 
       const customerIds = Array.from(new Set(Array.from(customerByPhone.values())));
-      const { data: leads, error: leadsError } = await supabase
-        .from("leads")
-        .select("id, customer_id, created_at")
-        .in("customer_id", customerIds.length ? customerIds : ["00000000-0000-0000-0000-000000000000"]);
-      if (leadsError) throw leadsError;
-
       const leadsByCustomer = new Map<string, { id: string; created_at: string }[]>();
-      (leads || []).forEach((l) => {
-        const arr = leadsByCustomer.get(l.customer_id) || [];
-        arr.push({ id: l.id, created_at: l.created_at });
-        leadsByCustomer.set(l.customer_id, arr);
-      });
+      const chunkSize = 50;
+
+      if (customerIds.length > 0) {
+        for (let i = 0; i < customerIds.length; i += chunkSize) {
+          const chunk = customerIds.slice(i, i + chunkSize);
+          const { data: leadsChunk, error: leadsError } = await supabase
+            .from("leads")
+            .select("id, customer_id, created_at")
+            .in("customer_id", chunk);
+
+          if (leadsError) throw new Error(`Lead fetch error: ${leadsError.message}`);
+
+          (leadsChunk || []).forEach((l) => {
+            const arr = leadsByCustomer.get(l.customer_id) || [];
+            arr.push({ id: l.id, created_at: l.created_at });
+            leadsByCustomer.set(l.customer_id, arr);
+          });
+        }
+      }
 
       const upsertRows = parsedRows.map((r) => {
         const normalizedPhone = r.sanitized_phone.length > 10 ? r.sanitized_phone.slice(-10) : r.sanitized_phone;
