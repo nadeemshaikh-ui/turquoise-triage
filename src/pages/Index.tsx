@@ -40,29 +40,29 @@ const Index = () => {
 
   return (
     <div className="space-y-6">
-      {/* Simplified stats: only New Leads and Pending Quotes */}
+      {/* Hero KPI cards */}
       <div className="grid grid-cols-2 gap-4">
-        <div className="flex items-center gap-4 rounded-[28px] border border-border bg-card p-5 shadow-sm">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
+        <div className="flex items-center gap-4 rounded-lg glass-card-glow p-5">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
             <Inbox className="h-6 w-6 text-primary" />
           </div>
           <div>
-            <p className="text-sm font-medium text-muted-foreground">New Leads</p>
+            <p className="text-xs font-tech uppercase tracking-widest text-muted-foreground">New Leads</p>
             <div className="flex items-center gap-2">
-              <p className="text-2xl font-bold text-card-foreground">{newLeads.length}</p>
+              <p className="text-3xl font-bold font-display text-foreground">{newLeads.length}</p>
               {newLeads.length > 0 && (
-                <Badge className="bg-primary/15 text-primary border-primary/30 text-[10px]">Action needed</Badge>
+                <Badge className="bg-primary/15 text-primary border-primary/30 text-[10px] font-tech">Action needed</Badge>
               )}
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-4 rounded-[28px] border border-border bg-card p-5 shadow-sm">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
+        <div className="flex items-center gap-4 rounded-lg glass-card p-5">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
             <Clock className="h-6 w-6 text-primary" />
           </div>
           <div>
-            <p className="text-sm font-medium text-muted-foreground">Pending Quotes</p>
-            <p className="text-2xl font-bold text-card-foreground">{pendingQuotes.length}</p>
+            <p className="text-xs font-tech uppercase tracking-widest text-muted-foreground">Pending Quotes</p>
+            <p className="text-3xl font-bold font-display text-foreground">{pendingQuotes.length}</p>
           </div>
         </div>
       </div>

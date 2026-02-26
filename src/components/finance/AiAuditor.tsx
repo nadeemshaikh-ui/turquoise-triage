@@ -45,19 +45,21 @@ const AiAuditor = ({ turnsRevenue, totalAdSpend, materialCogs, realProfit, profi
   };
 
   return (
-    <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(40_80%_50%/0.15)] border-amber-200/40 overflow-hidden">
+    <Card className="glass-card-glow overflow-hidden">
       <CardHeader className="pb-3">
         <div className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-amber-500" />
-          <CardTitle className="text-sm font-semibold">Gemini AI Auditor</CardTitle>
-          <span className="ml-auto flex items-center gap-1 text-[9px] text-emerald-600 font-medium"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" /> Live API</span>
+          <Sparkles className="h-5 w-5 text-primary" />
+          <CardTitle className="text-sm font-semibold font-display">Gemini AI Auditor</CardTitle>
+          <span className="ml-auto flex items-center gap-1 text-[9px] font-tech uppercase tracking-widest text-electric-teal font-medium">
+            <span className="h-1.5 w-1.5 rounded-full bg-electric-teal animate-pulse" /> Live API
+          </span>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <Button
           onClick={handleAnalyze}
           disabled={loading}
-          className="w-full h-12 rounded-2xl text-sm font-semibold bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white shadow-[0_0_20px_-4px_hsl(40_100%_50%/0.5)] hover:shadow-[0_0_28px_-4px_hsl(40_100%_50%/0.7)] transition-all duration-300"
+          className="w-full h-12 rounded-lg text-sm"
         >
           {loading ? (
             <span className="flex items-center gap-2">
@@ -73,11 +75,11 @@ const AiAuditor = ({ turnsRevenue, totalAdSpend, materialCogs, realProfit, profi
         </Button>
 
         {analysis && (
-          <div className="rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200/50 dark:border-amber-800/30 p-5">
-            <p className="text-xs font-medium text-amber-600 dark:text-amber-400 mb-3 tracking-wide uppercase">
+          <div className="rounded-lg glass-card p-5">
+            <p className="text-xs font-tech uppercase tracking-widest text-primary mb-3">
               Growth Insights
             </p>
-            <div className="text-sm leading-relaxed text-foreground/90 whitespace-pre-line font-serif">
+            <div className="text-sm leading-relaxed text-foreground/90 whitespace-pre-line font-display">
               {analysis}
             </div>
           </div>

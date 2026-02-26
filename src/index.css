@@ -1,104 +1,100 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:wght@400;500;600;700;800;900&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
-
 @layer base {
   :root {
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
 
-    --background: 0 0% 100%;
-    --foreground: 0 0% 10%;
+    --background: 0 0% 2%;
+    --foreground: 0 0% 92%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 10%;
+    --card: 0 0% 6%;
+    --card-foreground: 0 0% 92%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 10%;
+    --popover: 0 0% 6%;
+    --popover-foreground: 0 0% 92%;
 
-    --primary: 16 100% 50%;
+    --primary: 43 76% 52%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 16 30% 95%;
-    --secondary-foreground: 0 0% 10%;
+    --secondary: 0 0% 10%;
+    --secondary-foreground: 0 0% 85%;
 
-    --muted: 16 10% 95%;
-    --muted-foreground: 0 0% 45%;
+    --muted: 0 0% 12%;
+    --muted-foreground: 0 0% 55%;
 
-    --accent: 16 30% 92%;
-    --accent-foreground: 0 0% 10%;
+    --accent: 0 0% 10%;
+    --accent-foreground: 0 0% 92%;
 
-    --destructive: 0 84% 60%;
+    --destructive: 0 72% 50%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 0 0% 88%;
-    --input: 0 0% 88%;
-    --ring: 16 100% 50%;
+    --border: 43 30% 18%;
+    --input: 0 0% 14%;
+    --ring: 43 76% 52%;
 
-    --radius: 1.75rem;
+    --radius: 1rem;
 
-    --gold: 43 96% 56%;
+    --gold: 43 76% 52%;
     --gold-foreground: 43 90% 15%;
-    --deep-teal: 16 80% 25%;
-    --deep-teal-foreground: 0 0% 100%;
+    --electric-teal: 186 100% 50%;
+    --electric-teal-foreground: 186 100% 10%;
 
-    --sidebar-background: 0 0% 6%;
-    --sidebar-foreground: 0 0% 90%;
-    --sidebar-primary: 16 100% 50%;
+    --sidebar-background: 0 0% 3%;
+    --sidebar-foreground: 0 0% 70%;
+    --sidebar-primary: 43 76% 52%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 0 0% 12%;
-    --sidebar-accent-foreground: 0 0% 90%;
-    --sidebar-border: 0 0% 18%;
-    --sidebar-ring: 16 100% 50%;
+    --sidebar-accent: 0 0% 8%;
+    --sidebar-accent-foreground: 0 0% 92%;
+    --sidebar-border: 43 20% 12%;
+    --sidebar-ring: 43 76% 52%;
   }
 
   .dark {
-    --background: 0 0% 6%;
-    --foreground: 0 0% 95%;
+    --background: 0 0% 2%;
+    --foreground: 0 0% 92%;
 
-    --card: 0 0% 10%;
-    --card-foreground: 0 0% 95%;
+    --card: 0 0% 6%;
+    --card-foreground: 0 0% 92%;
 
-    --popover: 0 0% 10%;
-    --popover-foreground: 0 0% 95%;
+    --popover: 0 0% 6%;
+    --popover-foreground: 0 0% 92%;
 
-    --primary: 16 100% 50%;
+    --primary: 43 76% 52%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 0 0% 15%;
-    --secondary-foreground: 0 0% 95%;
+    --secondary: 0 0% 10%;
+    --secondary-foreground: 0 0% 85%;
 
-    --muted: 0 0% 15%;
-    --muted-foreground: 0 0% 60%;
+    --muted: 0 0% 12%;
+    --muted-foreground: 0 0% 55%;
 
-    --accent: 0 0% 15%;
-    --accent-foreground: 0 0% 95%;
+    --accent: 0 0% 10%;
+    --accent-foreground: 0 0% 92%;
 
-    --destructive: 0 62% 30%;
+    --destructive: 0 72% 50%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 0 0% 18%;
-    --input: 0 0% 18%;
-    --ring: 16 100% 50%;
+    --border: 43 30% 18%;
+    --input: 0 0% 14%;
+    --ring: 43 76% 52%;
 
-    --gold: 43 96% 56%;
+    --gold: 43 76% 52%;
     --gold-foreground: 43 90% 15%;
-    --deep-teal: 16 80% 25%;
-    --deep-teal-foreground: 0 0% 100%;
+    --electric-teal: 186 100% 50%;
+    --electric-teal-foreground: 186 100% 10%;
 
-    --sidebar-background: 0 0% 4%;
-    --sidebar-foreground: 0 0% 90%;
-    --sidebar-primary: 16 100% 50%;
+    --sidebar-background: 0 0% 3%;
+    --sidebar-foreground: 0 0% 70%;
+    --sidebar-primary: 43 76% 52%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 0 0% 10%;
-    --sidebar-accent-foreground: 0 0% 90%;
-    --sidebar-border: 0 0% 12%;
-    --sidebar-ring: 16 100% 50%;
+    --sidebar-accent: 0 0% 8%;
+    --sidebar-accent-foreground: 0 0% 92%;
+    --sidebar-border: 43 20% 12%;
+    --sidebar-ring: 43 76% 52%;
   }
 }
 
@@ -109,5 +105,58 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground;
+    background: radial-gradient(ellipse at 15% 5%, hsl(43 30% 6%) 0%, hsl(0 0% 2%) 50%);
+    min-height: 100vh;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Playfair Display', serif;
+  }
+}
+
+@layer utilities {
+  .glass-card {
+    @apply backdrop-blur-xl bg-black/10 border border-primary/20;
+    border-width: 0.5px;
+  }
+
+  .glass-card-glow {
+    @apply backdrop-blur-xl bg-black/10 border border-primary/20;
+    border-width: 0.5px;
+    box-shadow: 0 0 30px -8px hsl(43 76% 52% / 0.15), 0 0 60px -15px hsl(43 76% 52% / 0.08);
+  }
+
+  .btn-gold {
+    background: linear-gradient(135deg, hsl(43 76% 52%) 0%, hsl(43 60% 40%) 100%);
+    @apply text-white font-semibold;
+  }
+
+  .btn-gold:hover {
+    background: linear-gradient(135deg, hsl(43 76% 58%) 0%, hsl(43 60% 46%) 100%);
+  }
+
+  .text-gold-gradient {
+    background: linear-gradient(135deg, hsl(43 76% 52%), hsl(43 90% 70%));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .neon-teal {
+    color: hsl(186 100% 50%);
+    text-shadow: 0 0 8px hsl(186 100% 50% / 0.4);
+  }
+
+  .sidebar-icon-glow {
+    filter: drop-shadow(0 0 6px hsl(43 76% 52% / 0.6));
+  }
+
+  .font-display {
+    font-family: 'Playfair Display', serif;
+  }
+
+  .font-tech {
+    font-family: 'Inter', system-ui, sans-serif;
+    letter-spacing: 0.04em;
   }
 }

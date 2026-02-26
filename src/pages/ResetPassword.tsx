@@ -15,7 +15,6 @@ const ResetPassword = () => {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    // Check for recovery token in URL hash
     const hash = window.location.hash;
     if (hash.includes("type=recovery")) {
       setReady(true);
@@ -43,11 +42,11 @@ const ResetPassword = () => {
 
   if (!ready) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background p-4">
-        <Card className="w-full max-w-sm">
+      <div className="flex min-h-screen items-center justify-center p-4">
+        <Card className="w-full max-w-sm glass-card-glow">
           <CardHeader className="text-center">
-            <CardTitle>Invalid Link</CardTitle>
-            <CardDescription>This password reset link is invalid or expired.</CardDescription>
+            <CardTitle className="font-display">Invalid Link</CardTitle>
+            <CardDescription className="font-tech">This password reset link is invalid or expired.</CardDescription>
           </CardHeader>
         </Card>
       </div>
@@ -55,17 +54,17 @@ const ResetPassword = () => {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-sm">
+    <div className="flex min-h-screen items-center justify-center p-4">
+      <Card className="w-full max-w-sm glass-card-glow">
         <CardHeader className="text-center">
-          <CardTitle>Set New Password</CardTitle>
-          <CardDescription>Enter your new password below</CardDescription>
+          <CardTitle className="font-display">Set New Password</CardTitle>
+          <CardDescription className="font-tech">Enter your new password below</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-3">
             <div className="space-y-1.5">
-              <Label htmlFor="password">New Password</Label>
-              <Input id="password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Min 6 characters" />
+              <Label htmlFor="password" className="font-tech text-xs uppercase tracking-widest text-muted-foreground">New Password</Label>
+              <Input id="password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Min 6 characters" className="bg-input/50 border-primary/20 focus:border-primary/50" />
             </div>
           </CardContent>
           <CardFooter>
