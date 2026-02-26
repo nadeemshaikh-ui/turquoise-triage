@@ -640,6 +640,7 @@ export type Database = {
       }
       meta_ad_spend: {
         Row: {
+          ad_id: string | null
           ad_name: string | null
           amount_spent: number
           campaign_name: string | null
@@ -652,6 +653,7 @@ export type Database = {
           reach: number | null
         }
         Insert: {
+          ad_id?: string | null
           ad_name?: string | null
           amount_spent?: number
           campaign_name?: string | null
@@ -664,6 +666,7 @@ export type Database = {
           reach?: number | null
         }
         Update: {
+          ad_id?: string | null
           ad_name?: string | null
           amount_spent?: number
           campaign_name?: string | null

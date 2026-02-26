@@ -24,6 +24,7 @@ type AdSpendRow = {
   amount_spent: number;
   campaign_name: string | null;
   ad_name?: string | null;
+  ad_id?: string | null;
   impressions: number | null;
   clicks: number | null;
   reach?: number | null;
@@ -32,6 +33,7 @@ type AdSpendRow = {
 
 export type AdStat = {
   ad_name: string;
+  ad_id: string;
   campaign_name: string;
   spend: number;
   impressions: number;
@@ -62,15 +64,17 @@ const tooltipStyle = {
 };
 
 const AdsIntelligence = ({ adSpend, dateFilter, turnsRevenue }: Props) => {
-  const [viewMode, setViewMode] = useState<"ad" | "day">("ad");
   const [timelineMode, setTimelineMode] = useState<"daily" | "monthly">("monthly");
+  const [sortCol, setSortCol] = useState<"spend" | "cpc" | "ctr" | "clicks">("spend");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   const filtered = useMemo(() => adSpend.filter((a) => dateFilter(a.date)), [adSpend, dateFilter]);
 
-  // Aggregated ad-level stats
+  // Aggregated ad-level stats (always by ad)
   const adStats: AdStat[] = useMemo(() => {
     const map = new Map<string, {
       ad_name: string;
+      ad_id: string;
       campaign_name: string;
       spend: number;
       impressions: number;
@@ -83,8 +87,8 @@ const AdsIntelligence = ({ adSpend, dateFilter, turnsRevenue }: Props) => {
     }>();
 
     filtered.forEach((a) => {
-      const key = viewMode === "ad" ? (a.ad_name || a.campaign_name || "Unknown") : a.date;
-      const label = viewMode === "ad" ? (a.ad_name || a.campaign_name || "Unknown") : a.date;
+      const key = a.ad_id || a.ad_name || a.campaign_name || "Unknown";
+      const label = a.ad_name || a.campaign_name || "Unknown";
       const existing = map.get(key);
       if (existing) {
         existing.spend += Number(a.amount_spent);
@@ -98,6 +102,7 @@ const AdsIntelligence = ({ adSpend, dateFilter, turnsRevenue }: Props) => {
       } else {
         map.set(key, {
           ad_name: label,
+          ad_id: a.ad_id || key,
           campaign_name: a.campaign_name || "",
           spend: Number(a.amount_spent),
           impressions: Number(a.impressions || 0),
@@ -111,16 +116,21 @@ const AdsIntelligence = ({ adSpend, dateFilter, turnsRevenue }: Props) => {
       }
     });
 
-    return Array.from(map.values())
-      .map((a) => ({
-        ...a,
-        ctr: a.impressions > 0 ? (a.clicks / a.impressions) * 100 : 0,
-        cpc: a.clicks > 0 ? a.spend / a.clicks : 0,
-        frequency: a.reach > 0 ? a.impressions / a.reach : 0,
-        isHighBurn: a.spend > 100 && a.clicks === 0,
-      }))
-      .sort((a, b) => b.spend - a.spend);
-  }, [filtered, viewMode]);
+    const stats = Array.from(map.values()).map((a) => ({
+      ...a,
+      ctr: a.impressions > 0 ? (a.clicks / a.impressions) * 100 : 0,
+      cpc: a.clicks > 0 ? a.spend / a.clicks : 0,
+      frequency: a.reach > 0 ? a.impressions / a.reach : 0,
+      isHighBurn: a.spend > 100 && a.clicks === 0,
+    }));
+
+    // Sort by selected column
+    return stats.sort((a, b) => {
+      const aVal = a[sortCol];
+      const bVal = b[sortCol];
+      return sortDir === "desc" ? bVal - aVal : aVal - bVal;
+    });
+  }, [filtered, sortCol, sortDir]);
 
   // Winning ad: lowest CPC with meaningful clicks + highest engagement
   const winningAd = useMemo(() => {
@@ -174,23 +184,24 @@ const AdsIntelligence = ({ adSpend, dateFilter, turnsRevenue }: Props) => {
     ];
   }, [filtered, turnsRevenue]);
 
-  const scatterData = useMemo(() => {
-    return adStats
-      .filter((a) => a.spend > 0)
-      .map((a) => ({
-        name: a.ad_name.length > 25 ? a.ad_name.slice(0, 25) + "…" : a.ad_name,
-        spend: Math.round(a.spend),
-        engagement: a.engagement,
-        clicks: a.clicks,
-        ctr: a.ctr,
-        isHighBurn: a.isHighBurn,
-      }));
-  }, [adStats]);
-
   // Calculate ad duration in days
   const getAdDuration = (firstDate: string, lastDate: string) => {
     const diff = Math.ceil((new Date(lastDate).getTime() - new Date(firstDate).getTime()) / (1000 * 60 * 60 * 24));
     return Math.max(diff + 1, 1);
+  };
+
+  const handleSort = (col: "spend" | "cpc" | "ctr" | "clicks") => {
+    if (sortCol === col) {
+      setSortDir(sortDir === "desc" ? "asc" : "desc");
+    } else {
+      setSortCol(col);
+      setSortDir("desc");
+    }
+  };
+
+  const SortIndicator = ({ col }: { col: string }) => {
+    if (sortCol !== col) return null;
+    return <span className="ml-0.5">{sortDir === "desc" ? "↓" : "↑"}</span>;
   };
 
   if (filtered.length === 0) {
@@ -217,7 +228,7 @@ const AdsIntelligence = ({ adSpend, dateFilter, turnsRevenue }: Props) => {
                   <Badge className="text-[10px] bg-mint text-mint-foreground">🏆 Winning Ad</Badge>
                 </div>
                 <p className="text-sm font-bold text-foreground truncate">{winningAd.ad_name}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{winningAd.campaign_name}</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">{winningAd.ad_id}</p>
                 <div className="flex gap-4 mt-3">
                   <div>
                     <p className="text-[10px] uppercase tracking-wider text-muted-foreground">CPC</p>
@@ -251,22 +262,8 @@ const AdsIntelligence = ({ adSpend, dateFilter, turnsRevenue }: Props) => {
               Spend Timeline
             </CardTitle>
             <div className="flex gap-1">
-              <Button
-                variant={timelineMode === "monthly" ? "default" : "ghost"}
-                size="sm"
-                className="h-7 text-[11px] rounded-full"
-                onClick={() => setTimelineMode("monthly")}
-              >
-                Monthly
-              </Button>
-              <Button
-                variant={timelineMode === "daily" ? "default" : "ghost"}
-                size="sm"
-                className="h-7 text-[11px] rounded-full"
-                onClick={() => setTimelineMode("daily")}
-              >
-                Daily
-              </Button>
+              <Button variant={timelineMode === "monthly" ? "default" : "ghost"} size="sm" className="h-7 text-[11px] rounded-full" onClick={() => setTimelineMode("monthly")}>Monthly</Button>
+              <Button variant={timelineMode === "daily" ? "default" : "ghost"} size="sm" className="h-7 text-[11px] rounded-full" onClick={() => setTimelineMode("daily")}>Daily</Button>
             </div>
           </div>
         </CardHeader>
@@ -329,80 +326,39 @@ const AdsIntelligence = ({ adSpend, dateFilter, turnsRevenue }: Props) => {
         </CardContent>
       </Card>
 
-      {/* Scatter Plot */}
-      {scatterData.length > 1 && (
-        <Card className="neu-raised-neon">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">Spend vs. Engagement</CardTitle>
-          </CardHeader>
-          <CardContent className="h-56 px-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <ScatterChart>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 14%, 88%)" />
-                <XAxis type="number" dataKey="spend" name="Spend" tick={{ fontSize: 11 }} stroke="hsl(215, 15%, 55%)" tickFormatter={(v) => `₹${v}`} />
-                <YAxis type="number" dataKey="engagement" name="Engagement" tick={{ fontSize: 11 }} stroke="hsl(215, 15%, 55%)" />
-                <Tooltip
-                  contentStyle={tooltipStyle}
-                  formatter={(value: number, name: string) => {
-                    if (name === "Spend") return [`₹${value.toLocaleString("en-IN")}`, name];
-                    return [value.toLocaleString("en-IN"), name];
-                  }}
-                  labelFormatter={(_, payload) => payload?.[0]?.payload?.name || ""}
-                />
-                <Scatter data={scatterData} fill="hsl(186, 60%, 55%)">
-                  {scatterData.map((entry, i) => (
-                    <Cell
-                      key={i}
-                      fill={entry.isHighBurn ? "hsl(0, 72%, 60%)" : entry.ctr > 2 ? "hsl(170, 50%, 55%)" : "hsl(186, 60%, 55%)"}
-                      strokeWidth={entry.isHighBurn ? 2 : 0}
-                      stroke={entry.isHighBurn ? "hsl(0, 72%, 45%)" : "none"}
-                    />
-                  ))}
-                </Scatter>
-              </ScatterChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Ad Breakdown Table */}
+      {/* Ad Breakdown Table with Ad ID & Sorting */}
       <Card className="neu-raised-neon">
         <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-semibold">Ad Breakdown</CardTitle>
-            <div className="flex gap-1">
-              <Button variant={viewMode === "ad" ? "default" : "ghost"} size="sm" className="h-7 text-[11px] rounded-full" onClick={() => setViewMode("ad")}>
-                Ad-wise
-              </Button>
-              <Button variant={viewMode === "day" ? "default" : "ghost"} size="sm" className="h-7 text-[11px] rounded-full" onClick={() => setViewMode("day")}>
-                Day-wise
-              </Button>
-            </div>
-          </div>
+          <CardTitle className="text-sm font-semibold">Ad Performance Table</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-neon-border/20">
-                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wider text-xs">
-                    {viewMode === "ad" ? "Ad Name" : "Date"}
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wider text-xs">Ad ID</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wider text-xs">Ad Name</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs cursor-pointer hover:text-foreground" onClick={() => handleSort("spend")}>
+                    Spend<SortIndicator col="spend" />
                   </th>
-                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Spend</th>
-                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Clicks</th>
-                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">CTR</th>
-                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">CPC</th>
-                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Engage.</th>
-                  {viewMode === "ad" && (
-                    <th className="px-3 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Duration</th>
-                  )}
+                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs cursor-pointer hover:text-foreground" onClick={() => handleSort("clicks")}>
+                    Clicks<SortIndicator col="clicks" />
+                  </th>
+                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs cursor-pointer hover:text-foreground" onClick={() => handleSort("ctr")}>
+                    CTR<SortIndicator col="ctr" />
+                  </th>
+                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs cursor-pointer hover:text-foreground" onClick={() => handleSort("cpc")}>
+                    CPC<SortIndicator col="cpc" />
+                  </th>
+                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Duration</th>
                   <th className="px-3 py-2.5 text-center font-medium text-muted-foreground uppercase tracking-wider text-xs">Status</th>
                 </tr>
               </thead>
               <tbody>
-                {adStats.slice(0, 25).map((a, i) => (
+                {adStats.slice(0, 30).map((a, i) => (
                   <tr key={i} className={`border-b border-neon-border/10 last:border-0 ${a.isHighBurn ? "bg-destructive/5" : ""}`}>
-                    <td className="px-4 py-2.5 font-medium text-foreground max-w-[200px] truncate">{a.ad_name}</td>
+                    <td className="px-3 py-2.5 font-mono text-[10px] text-muted-foreground max-w-[100px] truncate">{a.ad_id}</td>
+                    <td className="px-3 py-2.5 font-medium text-foreground max-w-[180px] truncate">{a.ad_name}</td>
                     <td className="px-3 py-2.5 text-right text-destructive font-semibold">₹{Math.round(a.spend).toLocaleString("en-IN")}</td>
                     <td className="px-3 py-2.5 text-right text-foreground">{a.clicks.toLocaleString("en-IN")}</td>
                     <td className="px-3 py-2.5 text-right">
@@ -410,24 +366,25 @@ const AdsIntelligence = ({ adSpend, dateFilter, turnsRevenue }: Props) => {
                         {a.ctr.toFixed(2)}%
                       </span>
                     </td>
-                    <td className="px-3 py-2.5 text-right text-muted-foreground">{a.cpc > 0 ? `₹${a.cpc.toFixed(0)}` : "—"}</td>
-                    <td className="px-3 py-2.5 text-right text-foreground">{a.engagement.toLocaleString("en-IN")}</td>
-                    {viewMode === "ad" && (
-                      <td className="px-3 py-2.5 text-right text-muted-foreground">{getAdDuration(a.firstDate, a.lastDate)}d</td>
-                    )}
+                    <td className="px-3 py-2.5 text-right">
+                      <span className={a.cpc > 0 && a.cpc < 20 ? "text-mint font-semibold" : "text-foreground"}>
+                        {a.cpc > 0 ? `₹${a.cpc.toFixed(0)}` : "—"}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-muted-foreground text-xs">
+                      {getAdDuration(a.firstDate, a.lastDate)}d
+                    </td>
                     <td className="px-3 py-2.5 text-center">
                       {a.isHighBurn ? (
-                        <Badge variant="destructive" className="text-[10px] gap-0.5">
-                          <AlertTriangle className="h-2.5 w-2.5" />
-                          Burn
+                        <Badge variant="destructive" className="text-[9px] gap-0.5">
+                          <AlertTriangle className="h-2.5 w-2.5" /> Burn
                         </Badge>
                       ) : a.ctr >= 2 ? (
-                        <Badge className="text-[10px] gap-0.5 bg-primary text-primary-foreground">
-                          <Zap className="h-2.5 w-2.5" />
-                          Top
+                        <Badge className="text-[9px] gap-0.5 bg-mint text-mint-foreground">
+                          <Zap className="h-2.5 w-2.5" /> Hot
                         </Badge>
                       ) : (
-                        <span className="text-[10px] text-muted-foreground">—</span>
+                        <span className="text-[9px] text-muted-foreground">—</span>
                       )}
                     </td>
                   </tr>
