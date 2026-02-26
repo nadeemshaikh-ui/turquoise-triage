@@ -90,18 +90,31 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Delete existing data in the date range to avoid duplicates, then insert fresh
-    await supabase
+    // Deduplicate rows by date+ad_name (keep last occurrence)
+    const deduped = new Map<string, typeof allRows[0]>();
+    for (const row of allRows) {
+      deduped.set(`${row.date}||${row.ad_name}`, row);
+    }
+    const uniqueRows = Array.from(deduped.values());
+    console.log(`Fetched ${allRows.length} rows, deduplicated to ${uniqueRows.length}`);
+
+    // Delete ALL existing data in the date range first
+    const { error: deleteError } = await supabase
       .from("meta_ad_spend")
       .delete()
       .gte("date", since)
       .lte("date", until);
 
+    if (deleteError) {
+      console.error("Delete error:", deleteError);
+      throw deleteError;
+    }
+
     // Insert in batches of 100
     const batchSize = 100;
     let inserted = 0;
-    for (let i = 0; i < allRows.length; i += batchSize) {
-      const batch = allRows.slice(i, i + batchSize);
+    for (let i = 0; i < uniqueRows.length; i += batchSize) {
+      const batch = uniqueRows.slice(i, i + batchSize);
       const { error } = await supabase.from("meta_ad_spend").insert(batch);
       if (error) {
         console.error("Insert error:", error);
