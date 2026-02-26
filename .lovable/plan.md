@@ -1,120 +1,58 @@
 
 
-# 97% Sales Recovery Enhancement, System Toggles, and Workshop Upgrades
+## Duplicate Protection for All Uploads
 
-## Overview
-Enhance the existing Recovery page with AI-drafted messages, add master system toggles for Workshop and Inventory modes, and improve the Workshop with item-level photo views and single-tap status progression.
+### Problem
+Repeated CSV uploads create duplicate rows in `turns_sales` and `meta_ad_spend` tables because there are no unique constraints, and the insert/upsert calls don't specify conflict resolution keys.
 
----
+### Upload Points Analyzed
 
-## Pillar 1: AI-Powered Recovery Messages
+| Upload | Table | Current Dedup | Status |
+|--------|-------|--------------|--------|
+| Turns CSV | `turns_sales` | `.upsert()` without `onConflict` — no effect | Broken |
+| Meta Ad CSV | `meta_ad_spend` | `.insert()` — no dedup at all | Broken |
+| Meta Live Sync | `meta_ad_spend` | Deletes date range first, then inserts | Already works |
+| Data Migration | `customers` | Manual phone lookup before insert/update | Already works |
 
-### Current State
-The Recovery page (`src/pages/Recovery.tsx`) already identifies stale leads and sends discount-based offers. It needs an AI "Draft Recovery Message" button.
+### Plan
 
-### Changes
+**1. Database Migration — Add Unique Constraints**
 
-**New Edge Function: `supabase/functions/draft-recovery/index.ts`**
-- Accepts lead details (customer name, brand, service, quoted price, hours stale)
-- Calls Lovable AI Gateway (`google/gemini-3-flash-preview`) with a luxury follow-up prompt
-- Returns a personalized WhatsApp-style recovery message
-- Non-streaming (simple invoke pattern)
+Add two unique indexes:
 
-**Update `src/pages/Recovery.tsx`**
-- Add a "Draft Message" button on each pending/expired RecoveryCard
-- On click, call the edge function via `supabase.functions.invoke("draft-recovery")`
-- Display the AI-generated message in a dialog with "Copy to Clipboard" and "Send via WhatsApp" actions
-- Also fetch brand info from `lead_items` joined with `brands` to enrich the AI prompt
+```text
+turns_sales:     UNIQUE(date, order_ref, amount)
+meta_ad_spend:   UNIQUE(date, campaign_name, ad_name, amount_spent)
+```
 
-**Update `supabase/config.toml`**
-- Add `[functions.draft-recovery]` with `verify_jwt = false`
+These use `COALESCE` to handle nullable `order_ref`/`ad_name`/`campaign_name` columns so NULLs don't bypass the constraint.
 
----
+**2. Turns CSV Upload (`Finance.tsx` — `handleTurnsCsvUpload`)**
 
-## Pillar 2: Shadow Inventory (Already Exists -- Refinements Only)
+Change the existing `.upsert(upsertRows)` call to:
 
-### Current State
-- `inventory_items` table exists with full CRUD
-- `service_recipes` table exists linking services to inventory items
-- `deduct_inventory_on_ready()` trigger already auto-deducts stock when a lead moves to "Ready for Pickup"
-- The Workshop already displays "Materials Needed" per card
+```text
+.upsert(upsertRows, { onConflict: "date,order_ref,amount" })
+```
 
-### Changes
-- No database changes needed -- the infrastructure is complete
-- The system toggle (Pillar 3) will control whether inventory deduction is active
+This ensures re-uploading the same CSV updates existing rows instead of creating duplicates. Rows with the same date + order ref + amount are treated as the same transaction.
 
----
+**3. Meta Ad CSV Upload (`Finance.tsx` — `handleAdCsvUpload`)**
 
-## Pillar 3: Master System Toggles
+Change `.insert(insertRows)` to:
 
-### Database
-Use the existing `app_settings` table to store two toggle keys:
-- `workshop_tracking_enabled` (default: `"true"`)
-- `inventory_automation_enabled` (default: `"true"`)
+```text
+.upsert(insertRows, { onConflict: "date,campaign_name,ad_name,amount_spent" })
+```
 
-No migration needed -- just insert rows via the app.
+Same logic — re-uploading the same Meta CSV will overwrite instead of duplicate.
 
-### New Hook: `src/hooks/useSystemToggles.ts`
-- Fetches `workshop_tracking_enabled` and `inventory_automation_enabled` from `app_settings`
-- Returns `{ workshopEnabled, inventoryEnabled, isLoading }`
-- Cached via React Query
+**4. Set default values for nullable columns used in constraints**
 
-### Update `src/components/AppLayout.tsx`
-- Import `useSystemToggles`
-- If `workshopEnabled` is OFF, hide "Workshop" from sidebar nav
-- If `workshopEnabled` is OFF, hide "Inventory" from sidebar (inventory depends on workshop)
+Update `order_ref` default to empty string in the upsert row construction so the unique index works consistently (NULLs are never equal in SQL unique constraints, so the index uses `COALESCE`).
 
-### Update `src/App.tsx`
-- Workshop and Inventory routes remain accessible (no redirect) but hidden from nav when toggled off
+### Files Changed
 
-### New: Admin Hub > System Controls Tab
-- Add a "System" tab in `src/pages/AdminHub.tsx` (visible to admins and super admins)
-- Two Switch toggles:
-  - **Workshop Tracking Mode** -- toggles `workshop_tracking_enabled`
-  - **Inventory Automation** -- toggles `inventory_automation_enabled`
-- Each toggle updates `app_settings` via upsert
-
-### Update Inventory Deduction Logic
-- Modify the `deduct_inventory_on_ready` trigger to check the `inventory_automation_enabled` setting before deducting
-- Alternative (simpler): Check the toggle client-side in Workshop before calling the status update -- if inventory automation is OFF, skip the deduction toast but the DB trigger still runs. For true control, update the DB trigger via migration to check `app_settings`.
-
-**Decision**: Update the DB trigger to check the setting, ensuring deductions are truly skipped when toggled off.
-
-**Migration**: Modify `deduct_inventory_on_ready()` to query `app_settings` for `inventory_automation_enabled` and skip deduction if `'false'`.
-
----
-
-## Pillar 4: Multi-Item Workshop Status Station
-
-### Changes to `src/pages/Workshop.tsx`
-
-**Fetch lead_items with photos**: Update the Workshop query to also fetch `lead_items` and their `lead_photos` for each lead, displaying item-level photos on each Kanban card.
-
-**Single-tap stage progression**: Add a prominent "Next Stage" button on each card that advances the lead through: New -> In Progress -> QC -> Ready for Pickup (already partially exists via drag-and-drop, this adds a tap target).
-
-**Item photo thumbnails**: For each lead card, show small thumbnail previews of uploaded photos from `lead_photos` (via signed URLs from the `lead-photos` storage bucket).
-
----
-
-## Files Changed Summary
-
-| File | Action |
-|------|--------|
-| `supabase/functions/draft-recovery/index.ts` | New -- AI recovery message generator |
-| `supabase/config.toml` | Auto-updated for new function |
-| `src/pages/Recovery.tsx` | Add "Draft Message" button + AI dialog |
-| `src/hooks/useSystemToggles.ts` | New -- reads workshop/inventory toggles |
-| `src/pages/AdminHub.tsx` | Add "System" tab with master toggles |
-| `src/components/AppLayout.tsx` | Conditionally hide Workshop/Inventory nav |
-| `src/pages/Workshop.tsx` | Add item photos, single-tap stage button |
-| Migration SQL | Update `deduct_inventory_on_ready` to respect toggle |
-
----
-
-## Technical Notes
-
-- AI messages use Lovable AI (`google/gemini-3-flash-preview`) via the pre-configured `LOVABLE_API_KEY` -- no additional secrets needed.
-- The `app_settings` table already has RLS policies allowing authenticated reads and admin writes, so no new policies are required.
-- Photo thumbnails use `supabase.storage.from("lead-photos").createSignedUrl()` for secure, time-limited access.
-- The inventory deduction trigger update uses `current_setting` or a direct query to `app_settings` to check the toggle value within the SECURITY DEFINER function.
+- `supabase/migrations/` — new migration with two unique indexes
+- `src/pages/Finance.tsx` — two lines changed (upsert with onConflict in both handlers)
 
