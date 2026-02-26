@@ -40,18 +40,17 @@ const AppLayout = () => {
   };
 
   return (
-    <div className="min-h-screen pb-20 md:pb-0 md:flex">
-      {/* Desktop sidebar — obsidian glass dock */}
+    <div className="min-h-screen bg-background pb-20 md:pb-0 md:flex">
+      {/* Desktop sidebar — neumorphic */}
       <aside className={cn(
-        "hidden md:flex flex-col border-r border-sidebar-border bg-sidebar/80 backdrop-blur-xl transition-all duration-300 shrink-0",
+        "hidden md:flex flex-col bg-background transition-all duration-200 shrink-0",
         navCollapsed ? "w-16" : "w-52"
       )}>
-        <div className="flex items-center justify-between p-4 border-b border-sidebar-border">
+        <div className="flex items-center justify-between p-4">
           {!navCollapsed && (
             <button onClick={() => navigate("/")} className="text-left">
-              <h1 className="text-base font-extrabold tracking-tight font-display">
-                <span className="text-gold-gradient">Restoree</span>{" "}
-                <span className="text-primary">360</span>
+              <h1 className="text-base font-bold tracking-tight text-foreground">
+                Restoree <span className="text-primary">360</span>
               </h1>
             </button>
           )}
@@ -59,78 +58,73 @@ const AppLayout = () => {
             variant="ghost"
             size="icon"
             onClick={() => setNavCollapsed(!navCollapsed)}
-            className="h-8 w-8 shrink-0 text-sidebar-foreground hover:text-primary"
+            className="h-8 w-8 shrink-0"
           >
-            {navCollapsed ? <PanelLeft className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+            {navCollapsed ? <PanelLeft className="h-4 w-4 icon-recessed" /> : <PanelLeftClose className="h-4 w-4 icon-recessed" />}
           </Button>
         </div>
 
-        <nav className="flex-1 p-2 space-y-1">
+        <nav className="flex-1 p-2 space-y-2">
           {coreNav.map(({ path, label, icon: Icon }) => (
             <button
               key={path}
               onClick={() => navigate(path)}
               className={cn(
-                "flex items-center gap-3 w-full rounded-lg px-3 py-2.5 text-sm font-medium font-tech transition-all duration-200",
-                isActive(path)
-                  ? "bg-primary/10 text-primary sidebar-icon-glow"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground",
+                "flex items-center gap-3 w-full rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200",
+                isActive(path) ? "neu-pressed text-primary" : "text-muted-foreground hover:text-foreground",
                 navCollapsed && "justify-center px-0"
               )}
             >
-              <Icon className={cn("h-5 w-5 shrink-0", isActive(path) && "sidebar-icon-glow")} />
+              <Icon className={cn("h-5 w-5 shrink-0", isActive(path) ? "text-primary" : "icon-recessed")} />
               {!navCollapsed && label}
             </button>
           ))}
 
-          <div className="border-t border-sidebar-border my-2" />
+          <div className="my-3" />
 
           {moreNav.map(({ path, label, icon: Icon }) => (
             <button
               key={path}
               onClick={() => navigate(path)}
               className={cn(
-                "flex items-center gap-3 w-full rounded-lg px-3 py-2 text-xs font-medium font-tech transition-all duration-200",
-                isActive(path)
-                  ? "bg-primary/10 text-primary sidebar-icon-glow"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground",
+                "flex items-center gap-3 w-full rounded-xl px-3 py-2 text-xs font-medium transition-all duration-200",
+                isActive(path) ? "neu-pressed text-primary" : "text-muted-foreground hover:text-foreground",
                 navCollapsed && "justify-center px-0"
               )}
             >
-              <Icon className={cn("h-4 w-4 shrink-0", isActive(path) && "sidebar-icon-glow")} />
+              <Icon className={cn("h-4 w-4 shrink-0", isActive(path) ? "text-primary" : "icon-recessed")} />
               {!navCollapsed && label}
             </button>
           ))}
         </nav>
 
-        <div className="p-2 border-t border-sidebar-border">
+        <div className="p-2">
           <button
             onClick={signOut}
             className={cn(
-              "flex items-center gap-3 w-full rounded-lg px-3 py-2 text-xs font-medium font-tech text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground transition-colors",
+              "flex items-center gap-3 w-full rounded-xl px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors",
               navCollapsed && "justify-center px-0"
             )}
           >
-            <LogOut className="h-4 w-4 shrink-0" />
+            <LogOut className="h-4 w-4 shrink-0 icon-recessed" />
             {!navCollapsed && "Sign out"}
           </button>
         </div>
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header — frosted glass */}
-        <header className="sticky top-0 z-30 border-b border-border bg-background/60 backdrop-blur-xl">
+        {/* Header */}
+        <header className="sticky top-0 z-30 bg-background">
           <div className="flex items-center justify-between px-4 py-3 sm:px-6">
             <button onClick={() => navigate("/")} className="text-left md:hidden">
-              <h1 className="text-xl font-extrabold tracking-tight font-display">
-                <span className="text-gold-gradient">Restoree</span>{" "}
-                <span className="text-primary">360</span>
+              <h1 className="text-xl font-bold tracking-tight text-foreground">
+                Restoree <span className="text-primary">360</span>
               </h1>
             </button>
             <div className="hidden md:block" />
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               <Button
-                className="rounded-lg gap-2 px-5 shadow-md hover:shadow-lg transition-shadow min-h-[48px]"
+                className="gap-2 px-5 min-h-[48px]"
                 onClick={() => navigate("/?newLead=1")}
               >
                 <Plus className="h-4 w-4" />
@@ -150,45 +144,45 @@ const AppLayout = () => {
         </main>
       </div>
 
-      {/* Mobile bottom nav — frosted glass */}
-      <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-border bg-background/80 backdrop-blur-xl md:hidden">
+      {/* Mobile bottom nav */}
+      <nav className="fixed bottom-0 left-0 right-0 z-30 bg-background md:hidden">
         <div className="mx-auto flex max-w-md items-center justify-around py-2">
           {coreNav.map(({ path, label, icon: Icon }) => (
             <button
               key={path}
               onClick={() => navigate(path)}
               className={cn(
-                "flex flex-col items-center gap-0.5 px-6 py-1.5 text-[11px] font-medium font-tech transition-all min-h-[48px] justify-center",
-                isActive(path) ? "text-primary sidebar-icon-glow" : "text-muted-foreground hover:text-foreground"
+                "flex flex-col items-center gap-0.5 px-6 py-1.5 text-[11px] font-medium transition-all min-h-[48px] justify-center rounded-xl",
+                isActive(path) ? "neu-pressed text-primary" : "text-muted-foreground hover:text-foreground"
               )}
             >
-              <Icon className="h-5 w-5" />
+              <Icon className={cn("h-5 w-5", !isActive(path) && "icon-recessed")} />
               {label}
             </button>
           ))}
 
           <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
             <SheetTrigger asChild>
-              <button className="flex flex-col items-center gap-0.5 px-6 py-1.5 text-[11px] font-medium font-tech text-muted-foreground hover:text-foreground min-h-[48px] justify-center">
-                <MoreHorizontal className="h-5 w-5" />
+              <button className="flex flex-col items-center gap-0.5 px-6 py-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground min-h-[48px] justify-center">
+                <MoreHorizontal className="h-5 w-5 icon-recessed" />
                 More
               </button>
             </SheetTrigger>
-            <SheetContent side="bottom" className="rounded-t-2xl glass-card border-t border-primary/20">
+            <SheetContent side="bottom" className="rounded-t-[2rem] bg-background border-none shadow-neu">
               <SheetHeader>
-                <SheetTitle className="font-display">More</SheetTitle>
+                <SheetTitle className="text-foreground">More</SheetTitle>
               </SheetHeader>
-              <div className="grid grid-cols-3 gap-3 py-4">
+              <div className="grid grid-cols-3 gap-4 py-4">
                 {moreNav.map(({ path, label, icon: Icon }) => (
                   <button
                     key={path}
                     onClick={() => { navigate(path); setMoreOpen(false); }}
                     className={cn(
-                      "flex flex-col items-center gap-1.5 rounded-xl p-4 min-h-[64px] transition-all font-tech",
-                      isActive(path) ? "bg-primary/10 text-primary sidebar-icon-glow" : "text-muted-foreground hover:bg-accent"
+                      "flex flex-col items-center gap-1.5 rounded-xl p-4 min-h-[64px] transition-all",
+                      isActive(path) ? "neu-pressed text-primary" : "text-muted-foreground hover:text-foreground"
                     )}
                   >
-                    <Icon className="h-6 w-6" />
+                    <Icon className={cn("h-6 w-6", !isActive(path) && "icon-recessed")} />
                     <span className="text-xs font-medium">{label}</span>
                   </button>
                 ))}

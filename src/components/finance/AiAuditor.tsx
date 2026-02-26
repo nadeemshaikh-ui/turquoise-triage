@@ -45,13 +45,13 @@ const AiAuditor = ({ turnsRevenue, totalAdSpend, materialCogs, realProfit, profi
   };
 
   return (
-    <Card className="glass-card-glow overflow-hidden">
+    <Card className="overflow-hidden">
       <CardHeader className="pb-3">
         <div className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-primary" />
-          <CardTitle className="text-sm font-semibold font-display">Gemini AI Auditor</CardTitle>
-          <span className="ml-auto flex items-center gap-1 text-[9px] font-tech uppercase tracking-widest text-electric-teal font-medium">
-            <span className="h-1.5 w-1.5 rounded-full bg-electric-teal animate-pulse" /> Live API
+          <Sparkles className="h-5 w-5 text-primary icon-recessed" />
+          <CardTitle className="text-sm font-semibold">Gemini AI Auditor</CardTitle>
+          <span className="ml-auto flex items-center gap-1 text-[9px] text-mint font-medium uppercase tracking-wider">
+            <span className="h-1.5 w-1.5 rounded-full bg-mint animate-pulse" /> Live
           </span>
         </div>
       </CardHeader>
@@ -59,7 +59,7 @@ const AiAuditor = ({ turnsRevenue, totalAdSpend, materialCogs, realProfit, profi
         <Button
           onClick={handleAnalyze}
           disabled={loading}
-          className="w-full h-12 rounded-lg text-sm"
+          className="w-full h-12 text-sm"
         >
           {loading ? (
             <span className="flex items-center gap-2">
@@ -75,11 +75,11 @@ const AiAuditor = ({ turnsRevenue, totalAdSpend, materialCogs, realProfit, profi
         </Button>
 
         {analysis && (
-          <div className="rounded-lg glass-card p-5">
-            <p className="text-xs font-tech uppercase tracking-widest text-primary mb-3">
+          <div className="neu-pressed rounded-xl p-5">
+            <p className="text-xs font-medium text-primary mb-3 uppercase tracking-wider">
               Growth Insights
             </p>
-            <div className="text-sm leading-relaxed text-foreground/90 whitespace-pre-line font-display">
+            <div className="text-sm leading-relaxed text-foreground whitespace-pre-line">
               {analysis}
             </div>
           </div>
