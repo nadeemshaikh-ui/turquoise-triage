@@ -69,6 +69,11 @@ export default {
           DEFAULT: "hsl(var(--mint))",
           foreground: "hsl(var(--mint-foreground))",
         },
+        "soft-yellow": {
+          DEFAULT: "hsl(var(--soft-yellow))",
+          foreground: "hsl(var(--soft-yellow-foreground))",
+        },
+        "neon-border": "hsl(var(--neon-border))",
       },
       borderRadius: {
         lg: "var(--radius)",

@@ -481,7 +481,7 @@ const Finance = () => {
         <div className="flex flex-wrap items-center gap-2">
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className={cn("rounded-[28px] gap-2 text-xs", !dateFrom && "text-muted-foreground")}>
+              <Button variant="outline" size="sm" className={cn("gap-2 text-xs", !dateFrom && "text-muted-foreground")}>
                 <CalendarIcon className="h-3.5 w-3.5" />
                 {dateFrom ? fnsFormat(dateFrom, "dd MMM yyyy") : "From"}
               </Button>
@@ -493,7 +493,7 @@ const Finance = () => {
           <span className="text-xs text-muted-foreground">–</span>
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className={cn("rounded-[28px] gap-2 text-xs", !dateTo && "text-muted-foreground")}>
+              <Button variant="outline" size="sm" className={cn("gap-2 text-xs", !dateTo && "text-muted-foreground")}>
                 <CalendarIcon className="h-3.5 w-3.5" />
                 {dateTo ? fnsFormat(dateTo, "dd MMM yyyy") : "To"}
               </Button>
@@ -503,7 +503,7 @@ const Finance = () => {
             </PopoverContent>
           </Popover>
           {(dateFrom || dateTo) && (
-            <Button variant="ghost" size="sm" className="rounded-[28px] text-xs h-8" onClick={() => { setDateFrom(undefined); setDateTo(undefined); }}>
+            <Button variant="ghost" size="sm" className="text-xs h-8" onClick={() => { setDateFrom(undefined); setDateTo(undefined); }}>
               Clear
             </Button>
           )}
@@ -511,53 +511,45 @@ const Finance = () => {
       </div>
 
       {/* P&L Summary Cards */}
-      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-        <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-muted-foreground">
-            <DollarSign className="h-4 w-4" />
-              <span className="text-xs font-medium">Turns Revenue</span>
-              <span className="ml-auto flex items-center gap-1 text-[9px] text-emerald-600 font-medium"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" /> Live</span>
-            </div>
-            <p className="mt-1 text-xl font-bold text-primary">₹{pnl.turnsRevenue.toLocaleString("en-IN")}</p>
-          </CardContent>
-        </Card>
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+        <div className="neu-raised-neon p-4">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <DollarSign className="h-4 w-4 icon-recessed" />
+            <span className="text-xs font-medium uppercase tracking-wider">Turns Revenue</span>
+            <span className="ml-auto flex items-center gap-1 text-[9px] text-mint font-medium"><span className="h-1.5 w-1.5 rounded-full bg-mint animate-pulse" /> Live</span>
+          </div>
+          <p className="mt-2 text-2xl font-semibold text-foreground">₹{pnl.turnsRevenue.toLocaleString("en-IN")}</p>
+        </div>
 
-        <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <BarChart3 className="h-4 w-4" />
-              <span className="text-xs font-medium">Meta Ad Spend</span>
-            </div>
-            <p className="mt-1 text-xl font-bold text-destructive">₹{pnl.totalAdSpend.toLocaleString("en-IN")}</p>
-          </CardContent>
-        </Card>
+        <div className="neu-raised-neon p-4">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <BarChart3 className="h-4 w-4 icon-recessed" />
+            <span className="text-xs font-medium uppercase tracking-wider">Meta Ad Spend</span>
+          </div>
+          <p className="mt-2 text-2xl font-semibold text-destructive">₹{pnl.totalAdSpend.toLocaleString("en-IN")}</p>
+        </div>
 
-        <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <BarChart3 className="h-4 w-4" />
-              <span className="text-xs font-medium">Material COGS</span>
-            </div>
-            <p className="mt-1 text-xl font-bold text-destructive">₹{pnl.totalMaterialCost.toLocaleString("en-IN")}</p>
-          </CardContent>
-        </Card>
+        <div className="neu-raised-yellow p-4">
+          <div className="flex items-center gap-2 text-soft-yellow-foreground">
+            <BarChart3 className="h-4 w-4 icon-recessed" />
+            <span className="text-xs font-medium uppercase tracking-wider">Material COGS</span>
+          </div>
+          <p className="mt-2 text-2xl font-semibold text-soft-yellow-foreground">₹{pnl.totalMaterialCost.toLocaleString("en-IN")}</p>
+        </div>
 
-        <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <TrendingUp className="h-4 w-4" />
-              <span className="text-xs font-medium">Real Profit</span>
-            </div>
-            <p className={`mt-1 text-xl font-bold ${pnl.realProfit >= 0 ? "text-primary" : "text-destructive"}`}>
-              ₹{pnl.realProfit.toLocaleString("en-IN")}
-            </p>
-            <p className={`text-[10px] font-medium ${pnl.realProfit >= 0 ? "text-primary/70" : "text-destructive/70"}`}>
-              {pnl.turnsRevenue > 0 ? `${((pnl.realProfit / pnl.turnsRevenue) * 100).toFixed(1)}% margin` : "—"}
-            </p>
-            <p className="text-[9px] text-muted-foreground mt-1">Turns Revenue − Ad Spend − Material COGS</p>
-          </CardContent>
-        </Card>
+        <div className="neu-raised-neon p-4">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <TrendingUp className="h-4 w-4 icon-recessed" />
+            <span className="text-xs font-medium uppercase tracking-wider">Real Profit</span>
+          </div>
+          <p className={`mt-2 text-2xl font-semibold ${pnl.realProfit >= 0 ? "text-mint" : "text-destructive"}`}>
+            ₹{pnl.realProfit.toLocaleString("en-IN")}
+          </p>
+          <p className={`text-[10px] font-medium ${pnl.realProfit >= 0 ? "text-mint/70" : "text-destructive/70"}`}>
+            {pnl.turnsRevenue > 0 ? `${((pnl.realProfit / pnl.turnsRevenue) * 100).toFixed(1)}% margin` : "—"}
+          </p>
+          <p className="text-[9px] text-muted-foreground mt-1">Revenue − Ad Spend − COGS</p>
+        </div>
       </div>
 
 
@@ -581,7 +573,7 @@ const Finance = () => {
       {/* Reset Finance Data */}
       <AlertDialog>
         <AlertDialogTrigger asChild>
-          <Button variant="outline" size="sm" className="rounded-[28px] gap-2 text-xs text-destructive border-destructive/30 hover:bg-destructive/10">
+          <Button variant="outline" size="sm" className="gap-2 text-xs text-destructive border-destructive/30 hover:bg-destructive/10">
             <Trash2 className="h-3.5 w-3.5" />
             Reset All Finance Data
           </Button>
@@ -602,14 +594,14 @@ const Finance = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
+      <Card className="neu-raised-neon">
         <CardHeader className="pb-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle className="text-sm font-semibold">Revenue vs Ad Spend (ROAS)</CardTitle>
             <div className="flex flex-wrap gap-2">
               <label className="cursor-pointer">
                 <input type="file" accept=".csv" className="hidden" onChange={handleTurnsCsvUpload} disabled={uploadingTurns} />
-                <Button variant="outline" size="sm" className="rounded-[28px] gap-2 pointer-events-none" asChild>
+                <Button variant="outline" size="sm" className="gap-2 pointer-events-none" asChild>
                   <span>
                     {uploadingTurns ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
                     Upload Turns CSV
@@ -618,7 +610,7 @@ const Finance = () => {
               </label>
               <label className="cursor-pointer">
                 <input type="file" accept=".csv" className="hidden" onChange={handleAdCsvUpload} disabled={uploadingAds} />
-                <Button variant="outline" size="sm" className="rounded-[28px] gap-2 pointer-events-none" asChild>
+                <Button variant="outline" size="sm" className="gap-2 pointer-events-none" asChild>
                   <span>
                     {uploadingAds ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
                     Upload Meta CSV
@@ -636,23 +628,24 @@ const Finance = () => {
           ) : (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={roasChartData} barGap={4}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 14%, 88%)" />
+                <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="hsl(215, 15%, 55%)" />
+                <YAxis tick={{ fontSize: 11 }} stroke="hsl(215, 15%, 55%)" />
                 <Tooltip
                   contentStyle={{
                     borderRadius: 16,
-                    border: "1px solid hsl(var(--border))",
-                    background: "hsl(var(--card))",
+                    border: "1px solid hsl(186, 60%, 75%, 0.35)",
+                    background: "hsl(220, 16%, 95%)",
                     fontSize: 12,
+                    boxShadow: "4px 4px 10px hsl(220, 20%, 84%), -4px -4px 10px hsl(0, 0%, 100%)",
                   }}
                   formatter={(value: number, name: string) => [
                     `₹${value.toLocaleString("en-IN")}`,
                     name === "revenue" ? "Revenue" : "Ad Spend",
                   ]}
                 />
-                <Bar dataKey="revenue" fill="hsl(16, 100%, 50%)" radius={[8, 8, 0, 0]} name="revenue" />
-                <Bar dataKey="spend" fill="hsl(16, 100%, 35%)" radius={[8, 8, 0, 0]} name="spend" />
+                <Bar dataKey="revenue" fill="hsl(170, 50%, 55%)" radius={[10, 10, 0, 0]} name="revenue" />
+                <Bar dataKey="spend" fill="hsl(48, 80%, 78%)" radius={[10, 10, 0, 0]} name="spend" />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -660,7 +653,7 @@ const Finance = () => {
       </Card>
 
       {/* Monthly Breakdown Table */}
-      <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
+      <Card className="neu-raised-neon">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-semibold">Monthly Breakdown</CardTitle>
         </CardHeader>
@@ -668,20 +661,20 @@ const Finance = () => {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border">
-                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Month</th>
-                  <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">Revenue</th>
-                  <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">Ad Spend</th>
-                  <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">ROAS</th>
+                <tr className="border-b border-neon-border/20">
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wider text-xs">Month</th>
+                  <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Revenue</th>
+                  <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Ad Spend</th>
+                  <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">ROAS</th>
                 </tr>
               </thead>
               <tbody>
                 {roasChartData.filter((m) => m.revenue > 0 || m.spend > 0).map((m) => {
                   const roas = m.spend > 0 ? m.revenue / m.spend : 0;
                   return (
-                    <tr key={m.month} className="border-b border-border last:border-0">
+                    <tr key={m.month} className="border-b border-neon-border/10 last:border-0">
                       <td className="px-4 py-2.5 font-medium text-foreground">{m.month}</td>
-                      <td className="px-4 py-2.5 text-right text-primary font-semibold">₹{m.revenue.toLocaleString("en-IN")}</td>
+                      <td className="px-4 py-2.5 text-right text-mint font-semibold">₹{m.revenue.toLocaleString("en-IN")}</td>
                       <td className="px-4 py-2.5 text-right text-destructive font-semibold">₹{m.spend.toLocaleString("en-IN")}</td>
                       <td className="px-4 py-2.5 text-right">
                         {m.spend > 0 ? (
@@ -705,19 +698,19 @@ const Finance = () => {
           </div>
         </CardContent>
       </Card>
-      <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
+      <Card className="neu-raised-yellow">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold">Top Customers by Lifetime Spend</CardTitle>
+          <CardTitle className="text-sm font-semibold text-soft-yellow-foreground">Top Customers by Lifetime Spend</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           {topCustomers.length === 0 ? (
             <p className="px-4 pb-4 text-sm text-muted-foreground">No completed orders yet</p>
           ) : (
-            <div className="divide-y divide-border">
+            <div className="divide-y divide-neon-border/15">
               {topCustomers.map((c, i) => (
                 <div key={i} className="flex items-center justify-between px-4 py-3">
                   <div className="flex items-center gap-3">
-                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                    <span className="neu-pressed flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold text-primary">
                       {i + 1}
                     </span>
                     <div>
@@ -725,7 +718,7 @@ const Finance = () => {
                       <p className="text-xs text-muted-foreground">{c.count} orders</p>
                     </div>
                   </div>
-                  <p className="text-sm font-bold text-primary">₹{c.total.toLocaleString("en-IN")}</p>
+                  <p className="text-sm font-bold text-mint">₹{c.total.toLocaleString("en-IN")}</p>
                 </div>
               ))}
             </div>
