@@ -287,6 +287,10 @@ const Finance = () => {
         amount_spent: number;
         ad_name: string;
         campaign_name: string;
+        reach: number;
+        impressions: number;
+        clicks: number;
+        engagement: number;
       }[] = [];
 
       for (const line of lines.slice(11)) {
@@ -311,6 +315,10 @@ const Finance = () => {
           amount_spent: amount,
           ad_name: "Manual Meta CSV",
           campaign_name: "Manual Meta CSV",
+          reach: 0,
+          impressions: 0,
+          clicks: 0,
+          engagement: 0,
         });
       }
 
@@ -318,8 +326,16 @@ const Finance = () => {
         throw new Error("No valid data rows found in Meta CSV");
       }
 
+      const dates = rows.map((r) => r.date);
+      const minDate = dates.reduce((a, b) => (a < b ? a : b));
+      const maxDate = dates.reduce((a, b) => (a > b ? a : b));
+
+      // Delete overlapping days first
+      await supabase.from("meta_ad_spend").delete().gte("date", minDate).lte("date", maxDate);
+
+      // Insert fresh
       const totalSpend = rows.reduce((s, r) => s + r.amount_spent, 0);
-      const { error } = await supabase.from("meta_ad_spend").upsert(rows, { onConflict: "date,ad_name" });
+      const { error } = await supabase.from("meta_ad_spend").insert(rows);
       if (error) throw error;
 
       toast({
@@ -473,8 +489,14 @@ const Finance = () => {
         };
       });
 
-      // Upsert cleaned data
-      const { error } = await supabase.from("turns_sales").upsert(upsertRows, { onConflict: "order_ref" });
+      // Delete existing orders to prevent conflicts
+      const orderRefs = upsertRows.map((r) => r.order_ref).filter(Boolean);
+      if (orderRefs.length > 0) {
+        await supabase.from("turns_sales").delete().in("order_ref", orderRefs);
+      }
+
+      // Insert fresh
+      const { error } = await supabase.from("turns_sales").insert(upsertRows);
       if (error) throw error;
 
       const totalAmount = parsedRows.reduce((s, r) => s + r.amount, 0);
