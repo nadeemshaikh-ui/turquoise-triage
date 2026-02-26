@@ -5,9 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Upload, DollarSign, TrendingUp, BarChart3, Trash2, RefreshCw, Wifi, Target, Brain, CalendarDays } from "lucide-react";
-import RoasSentinel from "@/components/finance/RoasSentinel";
 import AdsIntelligence from "@/components/finance/AdsIntelligence";
 import AiAuditor from "@/components/finance/AiAuditor";
 import {
@@ -31,9 +29,8 @@ import {
   Tooltip,
   CartesianGrid,
 } from "recharts";
-import { format as fnsFormat, endOfMonth, eachMonthOfInterval } from "date-fns";
+import { format as fnsFormat, endOfMonth, eachMonthOfInterval, subDays, subMonths, startOfMonth } from "date-fns";
 
-// Sanitize phone: remove +91, spaces, dashes, parens, dots
 const sanitizePhone = (raw: string): string => {
   let p = raw.replace(/[\s\-().+]/g, "");
   if (p.startsWith("91") && p.length > 10) p = p.slice(p.length - 10);
@@ -48,20 +45,7 @@ const tooltipStyle = {
   boxShadow: "4px 4px 10px hsl(220, 20%, 84%), -4px -4px 10px hsl(0, 0%, 100%)",
 };
 
-// Generate month options from Sep 2025 to current month
-const generateMonthOptions = () => {
-  const options: { label: string; value: string }[] = [{ label: "All Time", value: "all" }];
-  const start = new Date(2025, 8, 1); // Sep 2025
-  const now = new Date();
-  const months = eachMonthOfInterval({ start, end: now });
-  months.forEach((m) => {
-    options.push({
-      label: fnsFormat(m, "MMMM yyyy"),
-      value: fnsFormat(m, "yyyy-MM"),
-    });
-  });
-  return options;
-};
+type DatePreset = "all" | "last_month" | "last_14" | "custom";
 
 const Finance = () => {
   const queryClient = useQueryClient();
@@ -69,9 +53,28 @@ const Finance = () => {
   const [uploadingTurns, setUploadingTurns] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
-  const [selectedMonth, setSelectedMonth] = useState("all");
+  const [datePreset, setDatePreset] = useState<DatePreset>("all");
 
-  const monthOptions = useMemo(() => generateMonthOptions(), []);
+  // Compute date range from preset
+  const dateRange = useMemo(() => {
+    const now = new Date();
+    switch (datePreset) {
+      case "last_month": {
+        const lm = subMonths(now, 1);
+        return { start: fnsFormat(startOfMonth(lm), "yyyy-MM-dd"), end: fnsFormat(endOfMonth(lm), "yyyy-MM-dd") };
+      }
+      case "last_14":
+        return { start: fnsFormat(subDays(now, 14), "yyyy-MM-dd"), end: fnsFormat(now, "yyyy-MM-dd") };
+      case "all":
+      default:
+        return { start: "2025-09-01", end: fnsFormat(now, "yyyy-MM-dd") };
+    }
+  }, [datePreset]);
+
+  const isInRange = (dateStr: string) => {
+    const d = dateStr.substring(0, 10);
+    return d >= dateRange.start && d <= dateRange.end;
+  };
 
   // Queries
   const { data: leads = [], isLoading: leadsLoading } = useQuery({
@@ -113,16 +116,10 @@ const Finance = () => {
     },
   });
 
-  // Date filter based on month selector
-  const isInRange = (dateStr: string) => {
-    if (selectedMonth === "all") return true;
-    return dateStr.startsWith(selectedMonth);
-  };
-
-  // Filtered data
-  const filteredLeads = useMemo(() => leads.filter((l: any) => isInRange(l.created_at)), [leads, selectedMonth]);
-  const filteredAdSpend = useMemo(() => (adSpend as any[]).filter((a) => isInRange(a.date)), [adSpend, selectedMonth]);
-  const filteredTurnsSales = useMemo(() => (turnsSales as any[]).filter((t) => isInRange(t.date)), [turnsSales, selectedMonth]);
+  // Filtered data — NO current month filter, uses global date range
+  const filteredLeads = useMemo(() => leads.filter((l: any) => isInRange(l.created_at)), [leads, dateRange]);
+  const filteredAdSpend = useMemo(() => (adSpend as any[]).filter((a) => isInRange(a.date)), [adSpend, dateRange]);
+  const filteredTurnsSales = useMemo(() => (turnsSales as any[]).filter((t) => isInRange(t.date)), [turnsSales, dateRange]);
 
   // P&L calculations
   const pnl = useMemo(() => {
@@ -144,7 +141,7 @@ const Finance = () => {
   const profitMargin = pnl.turnsRevenue > 0 ? `${((pnl.realProfit / pnl.turnsRevenue) * 100).toFixed(1)}%` : "N/A";
   const grossRoas = pnl.totalAdSpend > 0 ? pnl.turnsRevenue / pnl.totalAdSpend : 0;
 
-  // MoM chart data - uses ALL data, not filtered
+  // MoM chart data — uses ALL data for full historical view
   const momChartData = useMemo(() => {
     const allDates = [
       ...(turnsSales as any[]).map((t) => t.date),
@@ -154,20 +151,17 @@ const Finance = () => {
 
     const minDate = allDates.reduce((a, b) => (a < b ? a : b));
     const maxDate = allDates.reduce((a, b) => (a > b ? a : b));
-    const months = eachMonthOfInterval({
-      start: new Date(minDate),
-      end: new Date(maxDate),
-    });
+    const months = eachMonthOfInterval({ start: new Date(minDate), end: new Date(maxDate) });
 
     return months.map((month) => {
       const monthKey = fnsFormat(month, "yyyy-MM");
       const monthLabel = fnsFormat(month, "MMM yy");
-      const monthEnd = endOfMonth(month);
+      const monthEndDate = endOfMonth(month);
       const revenue = (turnsSales as any[])
-        .filter((t) => { const d = new Date(t.date); return d >= month && d <= monthEnd; })
+        .filter((t) => { const d = new Date(t.date); return d >= month && d <= monthEndDate; })
         .reduce((s, t: any) => s + Number(t.amount), 0);
       const spend = (adSpend as any[])
-        .filter((a) => { const d = new Date(a.date); return d >= month && d <= monthEnd; })
+        .filter((a) => { const d = new Date(a.date); return d >= month && d <= monthEndDate; })
         .reduce((s, a: any) => s + Number(a.amount_spent), 0);
       const profit = revenue - spend;
       const roas = spend > 0 ? revenue / spend : 0;
@@ -178,13 +172,11 @@ const Finance = () => {
   // Daily timeline data (grouped by date)
   const dailyTimelineData = useMemo(() => {
     const dayMap = new Map<string, { revenue: number; spend: number; ads: string[] }>();
-
     filteredTurnsSales.forEach((t: any) => {
       const existing = dayMap.get(t.date) || { revenue: 0, spend: 0, ads: [] };
       existing.revenue += Number(t.amount);
       dayMap.set(t.date, existing);
     });
-
     filteredAdSpend.forEach((a: any) => {
       const existing = dayMap.get(a.date) || { revenue: 0, spend: 0, ads: [] };
       existing.spend += Number(a.amount_spent);
@@ -192,9 +184,8 @@ const Finance = () => {
       if (!existing.ads.includes(adName)) existing.ads.push(adName);
       dayMap.set(a.date, existing);
     });
-
     return Array.from(dayMap.entries())
-      .sort(([a], [b]) => b.localeCompare(a)) // newest first
+      .sort(([a], [b]) => b.localeCompare(a))
       .map(([date, data]) => ({
         date,
         dateLabel: new Date(date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
@@ -255,9 +246,7 @@ const Finance = () => {
     await Promise.all(keys.map((queryKey) => queryClient.refetchQueries({ queryKey })));
   };
 
-  // ═══════════════════════════════════════════════════
   // LIVE META SYNC
-  // ═══════════════════════════════════════════════════
   const handleLiveSync = async () => {
     setSyncing(true);
     try {
@@ -274,9 +263,7 @@ const Finance = () => {
     }
   };
 
-  // ═══════════════════════════════════════════════════
-  // META AD CSV UPLOAD (Historical)
-  // ═══════════════════════════════════════════════════
+  // META AD CSV UPLOAD — with stable ad_id generation
   const handleAdCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -286,7 +273,7 @@ const Finance = () => {
       const lines = text.split(/\r?\n/).filter((l) => l.trim());
       if (lines.length <= 11) throw new Error("Invalid Format: expected tab-delimited file with preamble");
 
-      const rows: { date: string; amount_spent: number; ad_name: string; ad_id: string; campaign_name: string; reach: number; impressions: number; clicks: number; engagement: number; }[] = [];
+      const rows: { date: string; amount_spent: number; ad_name: string; ad_id: string; campaign_name: string; reach: number; impressions: number; clicks: number; engagement: number }[] = [];
 
       for (const line of lines.slice(11)) {
         const cells = line.split("\t").map((c) => c.replace(/"/g, "").trim());
@@ -301,12 +288,16 @@ const Finance = () => {
         const date = `${year}-${month}-${day}`;
         const amount = parseFloat((cells[2] || "").replace(/[^0-9.]/g, ""));
         if (!Number.isFinite(amount) || amount <= 0) continue;
+
+        // Stable unique ID: MANUAL-{date}-{spend_stripped}
+        const generatedId = `MANUAL-${cells[0]}-${(cells[2] || "").replace(/[^0-9]/g, "")}`;
+
         rows.push({
           date,
           amount_spent: amount,
-          ad_name: "Manual Meta CSV",
-          ad_id: `CSV-MANUAL-${date}`,
-          campaign_name: "Manual Meta CSV",
+          ad_name: cells[1] || "Manual Ad",
+          ad_id: generatedId,
+          campaign_name: cells[1] || "Manual Meta CSV",
           reach: 0,
           impressions: 0,
           clicks: 0,
@@ -316,13 +307,28 @@ const Finance = () => {
 
       if (rows.length === 0) throw new Error("No valid data rows found in Meta CSV");
 
+      // Delete-then-Insert strategy for the CSV's date range
       const dates = rows.map((r) => r.date);
       const minDate = dates.reduce((a, b) => (a < b ? a : b));
       const maxDate = dates.reduce((a, b) => (a > b ? a : b));
-      await supabase.from("meta_ad_spend").delete().gte("date", minDate).lte("date", maxDate);
+
+      // Delete only MANUAL entries in the date range to preserve live-synced data
+      const { error: deleteError } = await supabase
+        .from("meta_ad_spend")
+        .delete()
+        .gte("date", minDate)
+        .lte("date", maxDate)
+        .like("ad_id", "MANUAL-%");
+      if (deleteError) console.warn("Delete warning:", deleteError.message);
+
+      // Insert in batches of 100
+      for (let i = 0; i < rows.length; i += 100) {
+        const batch = rows.slice(i, i + 100);
+        const { error } = await supabase.from("meta_ad_spend").insert(batch);
+        if (error) throw error;
+      }
+
       const totalSpend = rows.reduce((s, r) => s + r.amount_spent, 0);
-      const { error } = await supabase.from("meta_ad_spend").insert(rows);
-      if (error) throw error;
       toast({ title: `✅ Synced ₹${totalSpend.toLocaleString("en-IN", { minimumFractionDigits: 2 })} across ${rows.length} entries` });
       await refreshFinanceDashboard();
     } catch (err: any) {
@@ -333,9 +339,7 @@ const Finance = () => {
     }
   };
 
-  // ═══════════════════════════════════════════════════
   // TURNS SALES CSV UPLOAD
-  // ═══════════════════════════════════════════════════
   const handleTurnsCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -347,9 +351,9 @@ const Finance = () => {
 
       const parseBruteforceCells = (line: string) => line.split('","').map((c) => c.replace(/"/g, "").trim());
       const ORDER_REF_INDEX = 0, CUSTOMER_NAME_INDEX = 1, MOBILE_INDEX = 2, ORDER_DATE_INDEX = 6, AMOUNT_INDEX = 25;
-      const months: Record<string, string> = { Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06", Jul: "07", Aug: "08", Sep: "09", Oct: "10", Nov: "11", Dec: "12" };
+      const monthsMap: Record<string, string> = { Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06", Jul: "07", Aug: "08", Sep: "09", Oct: "10", Nov: "11", Dec: "12" };
 
-      const parsedRows: { date: string; amount: number; phone: string; sanitized_phone: string; customer_name: string; order_ref: string; }[] = [];
+      const parsedRows: { date: string; amount: number; phone: string; sanitized_phone: string; customer_name: string; order_ref: string }[] = [];
 
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
@@ -360,11 +364,11 @@ const Finance = () => {
         const parts = rawDate.split("-");
         let date: string | null = null;
         if (parts.length === 3) {
-          const day = parts[0].padStart(2, "0");
+          const dayStr = parts[0].padStart(2, "0");
           const monthKey = parts[1].slice(0, 1).toUpperCase() + parts[1].slice(1).toLowerCase();
-          const monthNum = months[monthKey];
-          const year = parts[2];
-          if (monthNum && /^\d{4}$/.test(year)) date = `${year}-${monthNum}-${day}`;
+          const monthNum = monthsMap[monthKey];
+          const yearStr = parts[2];
+          if (monthNum && /^\d{4}$/.test(yearStr)) date = `${yearStr}-${monthNum}-${dayStr}`;
         }
         const amount = parseFloat((cells[AMOUNT_INDEX] || "").replace(/[^0-9.]/g, ""));
         if (!date || !Number.isFinite(amount) || amount <= 0) continue;
@@ -420,14 +424,12 @@ const Finance = () => {
 
       const orderRefs = upsertRows.map((r) => r.order_ref).filter(Boolean);
       if (orderRefs.length > 0) {
-        // Chunk order ref deletes to avoid URL length limits
         for (let i = 0; i < orderRefs.length; i += chunkSize) {
           const chunk = orderRefs.slice(i, i + chunkSize);
           await supabase.from("turns_sales").delete().in("order_ref", chunk);
         }
       }
 
-      // Insert in batches
       for (let i = 0; i < upsertRows.length; i += 100) {
         const batch = upsertRows.slice(i, i + 100);
         const { error } = await supabase.from("turns_sales").insert(batch);
@@ -480,19 +482,24 @@ const Finance = () => {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {/* Month/Year Selector */}
-          <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-            <SelectTrigger className="w-[180px] h-9 text-xs rounded-xl">
-              <SelectValue placeholder="Select month" />
-            </SelectTrigger>
-            <SelectContent>
-              {monthOptions.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {/* Global Date Range Presets */}
+          <div className="flex items-center gap-1 bg-secondary/50 rounded-xl p-0.5">
+            {([
+              { key: "all" as DatePreset, label: "Sep 25 – Now" },
+              { key: "last_month" as DatePreset, label: "Last Month" },
+              { key: "last_14" as DatePreset, label: "Last 14d" },
+            ]).map((preset) => (
+              <Button
+                key={preset.key}
+                variant={datePreset === preset.key ? "default" : "ghost"}
+                size="sm"
+                className="h-7 text-[11px] rounded-lg px-3"
+                onClick={() => setDatePreset(preset.key)}
+              >
+                {preset.label}
+              </Button>
+            ))}
+          </div>
 
           <Button variant="outline" size="sm" className="gap-2 text-xs border-mint/30 text-mint hover:bg-mint/10" onClick={handleLiveSync} disabled={syncing}>
             {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
@@ -515,6 +522,14 @@ const Finance = () => {
         </div>
       </div>
 
+      {/* Date Range Indicator */}
+      <div className="flex items-center gap-2">
+        <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="text-[11px] text-muted-foreground">
+          Showing: {new Date(dateRange.start).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })} — {new Date(dateRange.end).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+        </span>
+      </div>
+
       {/* 4-Tab Layout */}
       <Tabs defaultValue="executive" className="space-y-6">
         <TabsList className="grid w-full grid-cols-4 h-11 rounded-2xl bg-secondary/50">
@@ -524,11 +539,11 @@ const Finance = () => {
           </TabsTrigger>
           <TabsTrigger value="ads" className="rounded-xl text-xs font-semibold gap-1.5 data-[state=active]:shadow-md">
             <BarChart3 className="h-3.5 w-3.5" />
-            Ad Performance
+            360° Ad Intel
           </TabsTrigger>
           <TabsTrigger value="timeline" className="rounded-xl text-xs font-semibold gap-1.5 data-[state=active]:shadow-md">
             <CalendarDays className="h-3.5 w-3.5" />
-            Daily Timeline
+            Daily Cashflow
           </TabsTrigger>
           <TabsTrigger value="ai" className="rounded-xl text-xs font-semibold gap-1.5 data-[state=active]:shadow-md">
             <Brain className="h-3.5 w-3.5" />
@@ -548,7 +563,6 @@ const Finance = () => {
               </div>
               <p className="text-2xl font-bold text-foreground">₹{pnl.turnsRevenue.toLocaleString("en-IN")}</p>
             </div>
-
             <div className="neu-raised-neon p-5">
               <div className="flex items-center gap-2 text-muted-foreground mb-2">
                 <BarChart3 className="h-4 w-4 icon-recessed" />
@@ -556,7 +570,6 @@ const Finance = () => {
               </div>
               <p className="text-2xl font-bold text-destructive">₹{pnl.totalAdSpend.toLocaleString("en-IN")}</p>
             </div>
-
             <div className="neu-raised-yellow p-5">
               <div className="flex items-center gap-2 text-soft-yellow-foreground mb-2">
                 <BarChart3 className="h-4 w-4 icon-recessed" />
@@ -564,7 +577,6 @@ const Finance = () => {
               </div>
               <p className="text-2xl font-bold text-soft-yellow-foreground">₹{pnl.totalMaterialCost.toLocaleString("en-IN")}</p>
             </div>
-
             <div className="neu-raised-neon p-5">
               <div className="flex items-center gap-2 text-muted-foreground mb-2">
                 <TrendingUp className="h-4 w-4 icon-recessed" />
@@ -577,7 +589,7 @@ const Finance = () => {
             </div>
           </div>
 
-          {/* Gross ROAS Card */}
+          {/* Gross ROAS */}
           <Card className="neu-raised-neon">
             <CardContent className="p-6 flex items-center justify-between">
               <div>
@@ -595,7 +607,7 @@ const Finance = () => {
             </CardContent>
           </Card>
 
-          {/* MoM Bar Chart */}
+          {/* MoM Chart */}
           <Card className="neu-raised-neon">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold">Month-over-Month Performance</CardTitle>
@@ -615,7 +627,7 @@ const Finance = () => {
                       contentStyle={tooltipStyle}
                       formatter={(value: number, name: string) => [
                         `₹${value.toLocaleString("en-IN")}`,
-                        name === "revenue" ? "Revenue" : "Ad Spend",
+                        name === "revenue" ? "Revenue" : name === "spend" ? "Ad Spend" : "Profit",
                       ]}
                     />
                     <Bar dataKey="revenue" fill="hsl(170, 50%, 55%)" radius={[10, 10, 0, 0]} name="revenue" />
@@ -626,14 +638,7 @@ const Finance = () => {
             </CardContent>
           </Card>
 
-          {/* ROAS Sentinel */}
-          <RoasSentinel
-            turnsSales={turnsSales as any[]}
-            adSpend={adSpend as any[]}
-            dateFilter={isInRange}
-          />
-
-          {/* Monthly Breakdown Table with Profit */}
+          {/* Monthly Breakdown Table */}
           <Card className="neu-raised-neon">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold">Monthly Breakdown</CardTitle>
@@ -675,7 +680,7 @@ const Finance = () => {
           </Card>
         </TabsContent>
 
-        {/* TAB 2: AD PERFORMANCE */}
+        {/* TAB 2: 360° AD INTELLIGENCE */}
         <TabsContent value="ads" className="space-y-6">
           <AdsIntelligence
             adSpend={adSpend as any[]}
@@ -684,11 +689,11 @@ const Finance = () => {
           />
         </TabsContent>
 
-        {/* TAB 3: DAILY TIMELINE */}
+        {/* TAB 3: DAILY CASHFLOW */}
         <TabsContent value="timeline" className="space-y-6">
           <div className="text-center space-y-1 mb-4">
-            <h2 className="text-lg font-bold text-foreground">Daily Spend & Revenue Timeline</h2>
-            <p className="text-xs text-muted-foreground">Grouped by date — newest first</p>
+            <h2 className="text-lg font-bold text-foreground">Daily Cashflow</h2>
+            <p className="text-xs text-muted-foreground">Revenue vs Spend — newest first</p>
           </div>
 
           {dailyTimelineData.length === 0 ? (
