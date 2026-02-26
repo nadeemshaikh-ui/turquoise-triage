@@ -8,7 +8,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
-import { Loader2, Upload, DollarSign, TrendingUp, BarChart3, Trash2, RefreshCw, Wifi, Target, Brain, CalendarDays, Settings, ShoppingCart, Users, Repeat, ArrowLeft, AlertTriangle, UserX } from "lucide-react";
+import { Loader2, Upload, DollarSign, TrendingUp, BarChart3, Trash2, RefreshCw, Wifi, Target, Brain, CalendarDays, Settings, ShoppingCart, Users, Repeat, ArrowLeft, AlertTriangle, UserX, CalendarIcon, Download, MessageSquare } from "lucide-react";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import type { DateRange } from "react-day-picker";
 import AdsIntelligence, { AdStat } from "@/components/finance/AdsIntelligence";
 import AiAuditor from "@/components/finance/AiAuditor";
 import {
@@ -45,7 +48,7 @@ const monthMap: Record<string, string> = {
 
 const CHUNK_SIZE = 50;
 
-type DatePreset = "all" | "last_month" | "last_14" | "last_7" | "last_30" | "custom";
+// DatePreset type removed — replaced by calendar range picker
 
 // Keyword mining categories
 const CATEGORY_KEYWORDS: Record<string, string[]> = {
@@ -69,7 +72,10 @@ const Finance = () => {
   const [uploadingTurns, setUploadingTurns] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
-  const [datePreset, setDatePreset] = useState<DatePreset>("all");
+  const [calendarRange, setCalendarRange] = useState<DateRange | undefined>({
+    from: new Date("2025-09-01"),
+    to: new Date(),
+  });
   const [selectedAds, setSelectedAds] = useState<AdStat[]>([]);
   const [drilldownMonth, setDrilldownMonth] = useState<string | null>(null);
 
@@ -79,25 +85,37 @@ const Finance = () => {
   const [metaAdAccountId, setMetaAdAccountId] = useState("");
   const [savingSettings, setSavingSettings] = useState(false);
 
-  // Compute date range from preset
+  // Crash-safe date range from calendar
   const dateRange = useMemo(() => {
-    const now = new Date();
-    switch (datePreset) {
-      case "last_7":
-        return { start: fnsFormat(subDays(now, 7), "yyyy-MM-dd"), end: fnsFormat(now, "yyyy-MM-dd") };
-      case "last_14":
-        return { start: fnsFormat(subDays(now, 14), "yyyy-MM-dd"), end: fnsFormat(now, "yyyy-MM-dd") };
-      case "last_30":
-        return { start: fnsFormat(subDays(now, 30), "yyyy-MM-dd"), end: fnsFormat(now, "yyyy-MM-dd") };
-      case "last_month": {
-        const lm = subMonths(now, 1);
-        return { start: fnsFormat(startOfMonth(lm), "yyyy-MM-dd"), end: fnsFormat(endOfMonth(lm), "yyyy-MM-dd") };
-      }
-      case "all":
-      default:
-        return { start: "2025-09-01", end: fnsFormat(now, "yyyy-MM-dd") };
-    }
-  }, [datePreset]);
+    const from = calendarRange?.from;
+    const to = calendarRange?.to;
+    return {
+      start: from ? fnsFormat(from, "yyyy-MM-dd") : "2025-09-01",
+      end: to ? fnsFormat(to, "yyyy-MM-dd") : fnsFormat(new Date(), "yyyy-MM-dd"),
+    };
+  }, [calendarRange]);
+
+  // CSV export helper
+  const downloadCSV = (data: Record<string, any>[], filename: string) => {
+    if (!data.length) return;
+    const headers = Object.keys(data[0]);
+    const csv = [
+      headers.join(","),
+      ...data.map(row => headers.map(h => `"${String(row[h] ?? '').replace(/"/g, '""')}"`).join(","))
+    ].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // WhatsApp CRM helper
+  const getWhatsAppUrl = (name: string, phone: string) => {
+    const tenDigits = phone.replace(/\D/g, "").slice(-10);
+    const message = `Hi ${name}, we missed you at Restoree! Here is a special 15% discount for your next sneaker or bag restoration.`;
+    return `https://wa.me/91${tenDigits}?text=${encodeURIComponent(message)}`;
+  };
 
   const isInRange = (dateStr: string) => {
     const d = dateStr.substring(0, 10);
@@ -687,25 +705,36 @@ const Finance = () => {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {/* Global Date Range Presets */}
-          <div className="flex items-center gap-1 bg-secondary/50 rounded-xl p-0.5">
-            {([
-              { key: "last_7" as DatePreset, label: "7d" },
-              { key: "last_14" as DatePreset, label: "14d" },
-              { key: "last_30" as DatePreset, label: "30d" },
-              { key: "all" as DatePreset, label: "Sep 25–Now" },
-              { key: "last_month" as DatePreset, label: "Last Month" },
-            ]).map((preset) => (
-              <Button
-                key={preset.key}
-                variant={datePreset === preset.key ? "default" : "ghost"}
-                size="sm"
-                className="h-7 text-[11px] rounded-lg px-3"
-                onClick={() => setDatePreset(preset.key)}
-              >
-                {preset.label}
-              </Button>
-            ))}
+          {/* Date Range Picker */}
+          <div className="flex items-center gap-1">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 gap-2 text-[11px] px-3">
+                  <CalendarIcon className="h-3.5 w-3.5" />
+                  {calendarRange?.from ? (
+                    calendarRange.to ? (
+                      <>{fnsFormat(calendarRange.from, "dd MMM yy")} – {fnsFormat(calendarRange.to, "dd MMM yy")}</>
+                    ) : (
+                      fnsFormat(calendarRange.from, "dd MMM yy")
+                    )
+                  ) : (
+                    "Pick dates"
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="range"
+                  selected={calendarRange}
+                  onSelect={setCalendarRange}
+                  numberOfMonths={2}
+                  className="p-3 pointer-events-auto"
+                />
+              </PopoverContent>
+            </Popover>
+            <Button variant="ghost" size="sm" className="h-7 text-[10px] px-2" onClick={() => setCalendarRange({ from: subDays(new Date(), 7), to: new Date() })}>7d</Button>
+            <Button variant="ghost" size="sm" className="h-7 text-[10px] px-2" onClick={() => setCalendarRange({ from: subDays(new Date(), 30), to: new Date() })}>30d</Button>
+            <Button variant="ghost" size="sm" className="h-7 text-[10px] px-2" onClick={() => setCalendarRange({ from: new Date("2025-09-01"), to: new Date() })}>All</Button>
           </div>
 
           {/* Settings Gear */}
@@ -887,25 +916,33 @@ const Finance = () => {
                 <CardTitle className="text-sm font-semibold">
                   {drilldownMonth ? `Daily Deep Dive — ${drilldownMonth}` : "Monthly Breakdown"}
                 </CardTitle>
-                {drilldownMonth && (
-                  <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => setDrilldownMonth(null)}>
-                    <ArrowLeft className="h-3.5 w-3.5" /> Back
-                  </Button>
-                )}
+                <div className="flex items-center gap-2">
+                  {!drilldownMonth && (
+                    <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => downloadCSV(momChartData.filter(m => m.revenue > 0 || m.spend > 0).map(m => ({ Month: m.month, Revenue: m.revenue, Spend: m.spend, ROAS: m.roas.toFixed(2), Profit: m.profit })), "pnl-monthly.csv")}>
+                      <Download className="h-3.5 w-3.5" /> CSV
+                    </Button>
+                  )}
+                  {drilldownMonth && (
+                    <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => setDrilldownMonth(null)}>
+                      <ArrowLeft className="h-3.5 w-3.5" /> Back
+                    </Button>
+                  )}
+                </div>
               </div>
             </CardHeader>
             <CardContent>
               {drilldownMonth ? (
                 <div className="h-72">
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={drilldownDailyData}>
+                    <ComposedChart data={drilldownDailyData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 14%, 88%)" />
                       <XAxis dataKey="date" tick={{ fontSize: 9 }} stroke="hsl(215, 15%, 55%)" interval="preserveStartEnd" />
-                      <YAxis tick={{ fontSize: 10 }} stroke="hsl(215, 15%, 55%)" />
+                      <YAxis yAxisId="left" orientation="left" tick={{ fontSize: 10 }} stroke="hsl(215, 15%, 55%)" />
+                      <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} stroke="hsl(215, 15%, 55%)" />
                       <Tooltip contentStyle={tooltipStyle} formatter={(value: number, name: string) => [`₹${value.toLocaleString("en-IN")}`, name === "revenue" ? "Revenue" : "Ad Spend"]} />
-                      <Line type="monotone" dataKey="revenue" stroke="hsl(170, 50%, 55%)" strokeWidth={2} dot={false} name="revenue" />
-                      <Line type="monotone" dataKey="spend" stroke="hsl(0, 70%, 60%)" strokeWidth={2} dot={false} name="spend" />
-                    </LineChart>
+                      <Bar yAxisId="left" dataKey="revenue" fill="hsl(170, 50%, 55%)" radius={[8, 8, 0, 0]} name="revenue" />
+                      <Line yAxisId="right" type="monotone" dataKey="spend" stroke="hsl(0, 70%, 60%)" strokeWidth={2} dot={false} name="spend" />
+                    </ComposedChart>
                   </ResponsiveContainer>
                 </div>
               ) : (
@@ -950,6 +987,11 @@ const Finance = () => {
 
         {/* TAB 2: CREATIVE INTEL */}
         <TabsContent value="ads" className="space-y-6">
+          <div className="flex justify-end">
+            <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => downloadCSV(adStatsForAi.map(a => ({ "Ad Name": a.ad_name, Spend: Math.round(a.spend), Clicks: a.clicks, CTR: a.ctr.toFixed(2), CPC: a.cpc.toFixed(2) })), "creative-performance.csv")}>
+              <Download className="h-3.5 w-3.5" /> Export CSV
+            </Button>
+          </div>
           <AdsIntelligence
             adSpend={adSpend as any[]}
             dateFilter={isInRange}
@@ -1076,10 +1118,15 @@ const Finance = () => {
           {/* Churn List */}
           <Card className="neu-raised-neon">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <UserX className="h-4 w-4 text-destructive" />
-                Churn List — WhatsApp Remarketing Targets
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <UserX className="h-4 w-4 text-destructive" />
+                  Churn List — WhatsApp Remarketing Targets
+                </CardTitle>
+                <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => downloadCSV(churnData.map(c => ({ Name: c.name, Phone: c.phone, "Last Order": c.lastDate, LTV: Math.round(c.ltv) })), "churn-list.csv")}>
+                  <Download className="h-3.5 w-3.5" /> CSV
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="p-0">
               <div className="overflow-x-auto max-h-80 overflow-y-auto">
@@ -1090,6 +1137,7 @@ const Finance = () => {
                       <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wider text-xs">Phone</th>
                       <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Last Order</th>
                       <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">LTV</th>
+                      <th className="px-4 py-2.5 text-center font-medium text-muted-foreground uppercase tracking-wider text-xs">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1099,10 +1147,17 @@ const Finance = () => {
                         <td className="px-4 py-2.5 text-muted-foreground font-mono text-xs">{c.phone}</td>
                         <td className="px-4 py-2.5 text-right text-muted-foreground">{new Date(c.lastDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</td>
                         <td className="px-4 py-2.5 text-right text-mint font-semibold">₹{Math.round(c.ltv).toLocaleString("en-IN")}</td>
+                        <td className="px-4 py-2.5 text-center">
+                          <a href={getWhatsAppUrl(c.name, c.phone)} target="_blank" rel="noopener noreferrer">
+                            <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 text-primary">
+                              <MessageSquare className="h-3.5 w-3.5" /> Message Now
+                            </Button>
+                          </a>
+                        </td>
                       </tr>
                     ))}
                     {churnData.length === 0 && (
-                      <tr><td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">No churned customers</td></tr>
+                      <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">No churned customers</td></tr>
                     )}
                   </tbody>
                 </table>
