@@ -5,29 +5,21 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Upload, DollarSign, TrendingUp, BarChart3, Trash2, RefreshCw, Wifi, Target, Brain, CalendarDays } from "lucide-react";
-import AdsIntelligence from "@/components/finance/AdsIntelligence";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Loader2, Upload, DollarSign, TrendingUp, BarChart3, Trash2, RefreshCw, Wifi, Target, Brain, CalendarDays, Settings, ShoppingCart, Users, Repeat } from "lucide-react";
+import AdsIntelligence, { AdStat } from "@/components/finance/AdsIntelligence";
 import AiAuditor from "@/components/finance/AiAuditor";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose,
+} from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
 } from "recharts";
 import { format as fnsFormat, endOfMonth, eachMonthOfInterval, subDays, subMonths, startOfMonth } from "date-fns";
 
@@ -45,7 +37,14 @@ const tooltipStyle = {
   boxShadow: "4px 4px 10px hsl(220, 20%, 84%), -4px -4px 10px hsl(0, 0%, 100%)",
 };
 
-type DatePreset = "all" | "last_month" | "last_14" | "custom";
+const monthMap: Record<string, string> = {
+  Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06",
+  Jul: "07", Aug: "08", Sep: "09", Oct: "10", Nov: "11", Dec: "12",
+};
+
+const CHUNK_SIZE = 50;
+
+type DatePreset = "all" | "last_month" | "last_14" | "last_7" | "last_30" | "custom";
 
 const Finance = () => {
   const queryClient = useQueryClient();
@@ -54,17 +53,28 @@ const Finance = () => {
   const [syncing, setSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [datePreset, setDatePreset] = useState<DatePreset>("all");
+  const [selectedAds, setSelectedAds] = useState<AdStat[]>([]);
+
+  // Settings dialog state
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [metaToken, setMetaToken] = useState("");
+  const [metaAdAccountId, setMetaAdAccountId] = useState("");
+  const [savingSettings, setSavingSettings] = useState(false);
 
   // Compute date range from preset
   const dateRange = useMemo(() => {
     const now = new Date();
     switch (datePreset) {
+      case "last_7":
+        return { start: fnsFormat(subDays(now, 7), "yyyy-MM-dd"), end: fnsFormat(now, "yyyy-MM-dd") };
+      case "last_14":
+        return { start: fnsFormat(subDays(now, 14), "yyyy-MM-dd"), end: fnsFormat(now, "yyyy-MM-dd") };
+      case "last_30":
+        return { start: fnsFormat(subDays(now, 30), "yyyy-MM-dd"), end: fnsFormat(now, "yyyy-MM-dd") };
       case "last_month": {
         const lm = subMonths(now, 1);
         return { start: fnsFormat(startOfMonth(lm), "yyyy-MM-dd"), end: fnsFormat(endOfMonth(lm), "yyyy-MM-dd") };
       }
-      case "last_14":
-        return { start: fnsFormat(subDays(now, 14), "yyyy-MM-dd"), end: fnsFormat(now, "yyyy-MM-dd") };
       case "all":
       default:
         return { start: "2025-09-01", end: fnsFormat(now, "yyyy-MM-dd") };
@@ -116,7 +126,7 @@ const Finance = () => {
     },
   });
 
-  // Filtered data — NO current month filter, uses global date range
+  // Filtered data
   const filteredLeads = useMemo(() => leads.filter((l: any) => isInRange(l.created_at)), [leads, dateRange]);
   const filteredAdSpend = useMemo(() => (adSpend as any[]).filter((a) => isInRange(a.date)), [adSpend, dateRange]);
   const filteredTurnsSales = useMemo(() => (turnsSales as any[]).filter((t) => isInRange(t.date)), [turnsSales, dateRange]);
@@ -130,9 +140,7 @@ const Finance = () => {
       recipeCostByService.set(r.service_id, (recipeCostByService.get(r.service_id) || 0) + cost);
     });
     let totalMaterialCost = 0;
-    filteredLeads.forEach((l: any) => {
-      totalMaterialCost += recipeCostByService.get(l.service_id) || 0;
-    });
+    filteredLeads.forEach((l: any) => { totalMaterialCost += recipeCostByService.get(l.service_id) || 0; });
     const totalAdSpend = filteredAdSpend.reduce((s, a: any) => s + Number(a.amount_spent), 0);
     const realProfit = turnsRevenue - totalAdSpend - totalMaterialCost;
     return { turnsRevenue, totalMaterialCost, totalAdSpend, realProfit };
@@ -141,21 +149,48 @@ const Finance = () => {
   const profitMargin = pnl.turnsRevenue > 0 ? `${((pnl.realProfit / pnl.turnsRevenue) * 100).toFixed(1)}%` : "N/A";
   const grossRoas = pnl.totalAdSpend > 0 ? pnl.turnsRevenue / pnl.totalAdSpend : 0;
 
-  // MoM chart data — uses ALL data for full historical view
+  // Operations metrics
+  const opsMetrics = useMemo(() => {
+    const totalRevenue = filteredTurnsSales.reduce((s, t: any) => s + Number(t.amount), 0);
+    const totalOrders = filteredTurnsSales.length;
+    const aov = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+    const totalQty = filteredTurnsSales.reduce((s, t: any) => s + Number((t as any).qty || 1), 0);
+
+    // Repeat customer rate
+    const phoneMap = new Map<string, number>();
+    filteredTurnsSales.forEach((t: any) => {
+      const phone = t.sanitized_phone || t.phone || "";
+      if (phone) phoneMap.set(phone, (phoneMap.get(phone) || 0) + 1);
+    });
+    const uniquePhones = phoneMap.size;
+    const repeatPhones = Array.from(phoneMap.values()).filter((c) => c > 1).length;
+    const repeatRate = uniquePhones > 0 ? (repeatPhones / uniquePhones) * 100 : 0;
+
+    // Top customers
+    const customerMap = new Map<string, number>();
+    filteredTurnsSales.forEach((t: any) => {
+      const name = t.customer_name || "Unknown";
+      customerMap.set(name, (customerMap.get(name) || 0) + Number(t.amount));
+    });
+    const topCustomers = Array.from(customerMap.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([name, amount]) => ({ name, amount }));
+
+    return { aov, totalQty, totalOrders, repeatRate, uniquePhones, repeatPhones, topCustomers };
+  }, [filteredTurnsSales]);
+
+  // MoM chart data
   const momChartData = useMemo(() => {
     const allDates = [
       ...(turnsSales as any[]).map((t) => t.date),
       ...(adSpend as any[]).map((a) => a.date),
     ].filter(Boolean);
     if (allDates.length === 0) return [];
-
     const minDate = allDates.reduce((a, b) => (a < b ? a : b));
     const maxDate = allDates.reduce((a, b) => (a > b ? a : b));
     const months = eachMonthOfInterval({ start: new Date(minDate), end: new Date(maxDate) });
-
     return months.map((month) => {
-      const monthKey = fnsFormat(month, "yyyy-MM");
-      const monthLabel = fnsFormat(month, "MMM yy");
       const monthEndDate = endOfMonth(month);
       const revenue = (turnsSales as any[])
         .filter((t) => { const d = new Date(t.date); return d >= month && d <= monthEndDate; })
@@ -165,11 +200,11 @@ const Finance = () => {
         .reduce((s, a: any) => s + Number(a.amount_spent), 0);
       const profit = revenue - spend;
       const roas = spend > 0 ? revenue / spend : 0;
-      return { month: monthLabel, monthKey, revenue: Math.round(revenue), spend: Math.round(spend), profit: Math.round(profit), roas };
+      return { month: fnsFormat(month, "MMM yy"), monthKey: fnsFormat(month, "yyyy-MM"), revenue: Math.round(revenue), spend: Math.round(spend), profit: Math.round(profit), roas };
     });
   }, [turnsSales, adSpend]);
 
-  // Daily timeline data (grouped by date)
+  // Daily timeline data
   const dailyTimelineData = useMemo(() => {
     const dayMap = new Map<string, { revenue: number; spend: number; ads: string[] }>();
     filteredTurnsSales.forEach((t: any) => {
@@ -208,13 +243,7 @@ const Finance = () => {
         existing.impressions += Number(a.impressions || 0);
         existing.engagement += Number(a.engagement || 0);
       } else {
-        map.set(key, {
-          ad_name: key,
-          spend: Number(a.amount_spent),
-          clicks: Number(a.clicks || 0),
-          impressions: Number(a.impressions || 0),
-          engagement: Number(a.engagement || 0),
-        });
+        map.set(key, { ad_name: key, spend: Number(a.amount_spent), clicks: Number(a.clicks || 0), impressions: Number(a.impressions || 0), engagement: Number(a.engagement || 0) });
       }
     });
     return Array.from(map.values()).map((a) => ({
@@ -226,14 +255,12 @@ const Finance = () => {
 
   const topAd = useMemo(() => {
     const withClicks = adStatsForAi.filter((a) => a.clicks >= 5 && a.cpc > 0);
-    if (withClicks.length === 0) return null;
-    return withClicks.sort((a, b) => a.cpc - b.cpc)[0];
+    return withClicks.length === 0 ? null : withClicks.sort((a, b) => a.cpc - b.cpc)[0];
   }, [adStatsForAi]);
 
   const worstAd = useMemo(() => {
     const highSpend = adStatsForAi.filter((a) => a.spend > 50);
-    if (highSpend.length === 0) return null;
-    return highSpend.sort((a, b) => {
+    return highSpend.length === 0 ? null : highSpend.sort((a, b) => {
       const effA = a.clicks > 0 ? a.spend / a.clicks : a.spend * 100;
       const effB = b.clicks > 0 ? b.spend / b.clicks : b.spend * 100;
       return effB - effA;
@@ -244,6 +271,22 @@ const Finance = () => {
     const keys = [["finance-turns-sales"], ["finance-ad-spend"], ["finance-leads"], ["finance-recipes"]] as const;
     await Promise.all(keys.map((queryKey) => queryClient.invalidateQueries({ queryKey })));
     await Promise.all(keys.map((queryKey) => queryClient.refetchQueries({ queryKey })));
+  };
+
+  // Save settings
+  const handleSaveSettings = async () => {
+    setSavingSettings(true);
+    try {
+      const value = JSON.stringify({ meta_access_token: metaToken, meta_ad_account_id: metaAdAccountId });
+      const { error } = await supabase.from("app_settings").upsert({ key: "meta_config", value }, { onConflict: "key" });
+      if (error) throw error;
+      toast({ title: "✅ Settings saved" });
+      setSettingsOpen(false);
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setSavingSettings(false);
+    }
   };
 
   // LIVE META SYNC
@@ -263,73 +306,71 @@ const Finance = () => {
     }
   };
 
-  // META AD CSV UPLOAD — with stable ad_id generation
+  // META AD CSV UPLOAD — multi-file, strict parser, chunked
   const handleAdCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
     setUploadingAds(true);
     try {
-      const text = await file.text();
-      const lines = text.split(/\r?\n/).filter((l) => l.trim());
-      if (lines.length <= 11) throw new Error("Invalid Format: expected tab-delimited file with preamble");
+      for (const file of Array.from(files)) {
+        const text = await file.text();
+        const lines = text.split(/\r?\n/).filter((l) => l.trim());
+        const rows: { date: string; amount_spent: number; ad_name: string; ad_id: string; campaign_name: string; reach: number; impressions: number; clicks: number; engagement: number }[] = [];
 
-      const rows: { date: string; amount_spent: number; ad_name: string; ad_id: string; campaign_name: string; reach: number; impressions: number; clicks: number; engagement: number }[] = [];
+        for (const line of lines.slice(1)) {
+          const cells = line.split(/[\t,]/).map((c) => c.replace(/"/g, "").trim());
+          if (cells.length < 3) continue;
+          const rawDate = cells[0] || "";
+          const dateParts = rawDate.split("-");
+          let formattedDate: string | null = null;
 
-      for (const line of lines.slice(11)) {
-        const cells = line.split("\t").map((c) => c.replace(/"/g, "").trim());
-        if (cells.length < 3) continue;
-        const rawDate = cells[0] || "";
-        const dateParts = rawDate.split("-");
-        if (dateParts.length !== 3) continue;
-        const day = dateParts[0].padStart(2, "0");
-        const month = dateParts[1].padStart(2, "0");
-        const year = dateParts[2];
-        if (!/^\d{4}$/.test(year)) continue;
-        const date = `${year}-${month}-${day}`;
-        const amount = parseFloat((cells[2] || "").replace(/[^0-9.]/g, ""));
-        if (!Number.isFinite(amount) || amount <= 0) continue;
+          if (dateParts.length === 3) {
+            // Handle DD-Mon-YY or YYYY-MM-DD
+            const monthKey = dateParts[1].slice(0, 1).toUpperCase() + dateParts[1].slice(1).toLowerCase();
+            if (monthMap[monthKey]) {
+              // DD-Mon-YY format
+              formattedDate = `20${dateParts[2]}-${monthMap[monthKey]}-${dateParts[0].padStart(2, "0")}`;
+            } else if (/^\d{4}$/.test(dateParts[0])) {
+              // YYYY-MM-DD format
+              formattedDate = rawDate;
+            }
+          }
+          if (!formattedDate) continue;
 
-        // Stable unique ID: MANUAL-{date}-{spend_stripped}
-        const generatedId = `MANUAL-${cells[0]}-${(cells[2] || "").replace(/[^0-9]/g, "")}`;
+          const amount = parseFloat((cells[2] || "").replace(/[^0-9.]/g, "")) || 0;
+          if (amount <= 0) continue;
 
-        rows.push({
-          date,
-          amount_spent: amount,
-          ad_name: cells[1] || "Manual Ad",
-          ad_id: generatedId,
-          campaign_name: cells[1] || "Manual Meta CSV",
-          reach: 0,
-          impressions: 0,
-          clicks: 0,
-          engagement: 0,
-        });
+          const generatedId = `CSV-${formattedDate}-${amount}`;
+
+          rows.push({
+            date: formattedDate,
+            amount_spent: amount,
+            ad_name: cells[1] || "Manual Meta CSV",
+            ad_id: generatedId,
+            campaign_name: cells[1] || "Manual Meta CSV",
+            reach: 0, impressions: 0, clicks: 0, engagement: 0,
+          });
+        }
+
+        if (rows.length === 0) { toast({ title: `No valid rows in ${file.name}`, variant: "destructive" }); continue; }
+
+        // Chunked idempotency: delete by unique dates
+        const uniqueDates = [...new Set(rows.map((r) => r.date))];
+        for (let i = 0; i < uniqueDates.length; i += CHUNK_SIZE) {
+          const chunk = uniqueDates.slice(i, i + CHUNK_SIZE);
+          await supabase.from("meta_ad_spend").delete().in("date", chunk).eq("ad_name", "Manual Meta CSV");
+        }
+
+        // Insert in chunks of 50
+        for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+          const batch = rows.slice(i, i + CHUNK_SIZE);
+          const { error } = await supabase.from("meta_ad_spend").insert(batch);
+          if (error) throw error;
+        }
+
+        const totalSpend = rows.reduce((s, r) => s + r.amount_spent, 0);
+        toast({ title: `✅ ${file.name}: ₹${totalSpend.toLocaleString("en-IN")} across ${rows.length} entries` });
       }
-
-      if (rows.length === 0) throw new Error("No valid data rows found in Meta CSV");
-
-      // Delete-then-Insert strategy for the CSV's date range
-      const dates = rows.map((r) => r.date);
-      const minDate = dates.reduce((a, b) => (a < b ? a : b));
-      const maxDate = dates.reduce((a, b) => (a > b ? a : b));
-
-      // Delete only MANUAL entries in the date range to preserve live-synced data
-      const { error: deleteError } = await supabase
-        .from("meta_ad_spend")
-        .delete()
-        .gte("date", minDate)
-        .lte("date", maxDate)
-        .like("ad_id", "MANUAL-%");
-      if (deleteError) console.warn("Delete warning:", deleteError.message);
-
-      // Insert in batches of 100
-      for (let i = 0; i < rows.length; i += 100) {
-        const batch = rows.slice(i, i + 100);
-        const { error } = await supabase.from("meta_ad_spend").insert(batch);
-        if (error) throw error;
-      }
-
-      const totalSpend = rows.reduce((s, r) => s + r.amount_spent, 0);
-      toast({ title: `✅ Synced ₹${totalSpend.toLocaleString("en-IN", { minimumFractionDigits: 2 })} across ${rows.length} entries` });
       await refreshFinanceDashboard();
     } catch (err: any) {
       toast({ title: "Upload Error", description: err.message, variant: "destructive" });
@@ -339,105 +380,138 @@ const Finance = () => {
     }
   };
 
-  // TURNS SALES CSV UPLOAD
+  // TURNS SALES CSV UPLOAD — multi-file, strict parser, chunked
   const handleTurnsCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
     setUploadingTurns(true);
     try {
-      const text = await file.text();
-      const lines = text.split(/\r?\n/).filter((l) => l.trim());
-      if (lines.length < 2) throw new Error("CSV is empty");
+      for (const file of Array.from(files)) {
+        const text = await file.text();
+        const lines = text.split(/\r?\n/).filter((l) => l.trim());
+        if (lines.length < 2) { toast({ title: `${file.name} is empty`, variant: "destructive" }); continue; }
 
-      const parseBruteforceCells = (line: string) => line.split('","').map((c) => c.replace(/"/g, "").trim());
-      const ORDER_REF_INDEX = 0, CUSTOMER_NAME_INDEX = 1, MOBILE_INDEX = 2, ORDER_DATE_INDEX = 6, AMOUNT_INDEX = 25;
-      const monthsMap: Record<string, string> = { Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06", Jul: "07", Aug: "08", Sep: "09", Oct: "10", Nov: "11", Dec: "12" };
+        // Detect headers
+        const headerLine = lines[0];
+        const headers = headerLine.split(/[\t,]/).map((h) => h.replace(/"/g, "").trim().toLowerCase());
+        const colIdx = {
+          date: headers.findIndex((h) => h.includes("order creation date") || h.includes("date")),
+          order_ref: headers.findIndex((h) => h === "order" || h.includes("order ref") || h.includes("order_ref")),
+          phone: headers.findIndex((h) => h.includes("mobile") || h.includes("phone")),
+          amount: headers.findIndex((h) => h === "amount" || h.includes("amount")),
+          qty: headers.findIndex((h) => h === "qty" || h.includes("quantity")),
+          customer_name: headers.findIndex((h) => h.includes("name") || h.includes("customer")),
+        };
 
-      const parsedRows: { date: string; amount: number; phone: string; sanitized_phone: string; customer_name: string; order_ref: string }[] = [];
+        // Fallback to positional if headers not found
+        const parseBruteforceCells = (line: string) => line.split('","').map((c) => c.replace(/"/g, "").trim());
 
-      for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-        const cells = parseBruteforceCells(line);
-        if (cells.length <= AMOUNT_INDEX) continue;
-        const rawDate = (cells[ORDER_DATE_INDEX] || "").replace(/"/g, "").trim();
-        const parts = rawDate.split("-");
-        let date: string | null = null;
-        if (parts.length === 3) {
-          const dayStr = parts[0].padStart(2, "0");
-          const monthKey = parts[1].slice(0, 1).toUpperCase() + parts[1].slice(1).toLowerCase();
-          const monthNum = monthsMap[monthKey];
-          const yearStr = parts[2];
-          if (monthNum && /^\d{4}$/.test(yearStr)) date = `${yearStr}-${monthNum}-${dayStr}`;
+        const parsedRows: { date: string; amount: number; phone: string; sanitized_phone: string; customer_name: string; order_ref: string; qty: number }[] = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+
+          let cells: string[];
+          if (colIdx.date >= 0 && colIdx.amount >= 0) {
+            cells = line.split(/[\t,]/).map((c) => c.replace(/"/g, "").trim());
+          } else {
+            cells = parseBruteforceCells(line);
+          }
+
+          // Get raw values
+          const rawDate = colIdx.date >= 0 ? (cells[colIdx.date] || "") : (cells[6] || "");
+          const rawAmount = colIdx.amount >= 0 ? (cells[colIdx.amount] || "") : (cells[25] || "");
+          const rawPhone = colIdx.phone >= 0 ? (cells[colIdx.phone] || "") : (cells[2] || "");
+          const rawName = colIdx.customer_name >= 0 ? (cells[colIdx.customer_name] || "") : (cells[1] || "");
+          const rawOrder = colIdx.order_ref >= 0 ? (cells[colIdx.order_ref] || "") : (cells[0] || "");
+          const rawQty = colIdx.qty >= 0 ? (cells[colIdx.qty] || "1") : "1";
+
+          // Strict date parsing
+          const parts = rawDate.split("-");
+          let date: string | null = null;
+          if (parts.length === 3) {
+            const mk = parts[1].slice(0, 1).toUpperCase() + parts[1].slice(1).toLowerCase();
+            const monthNum = monthMap[mk];
+            if (monthNum) {
+              const yearStr = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
+              if (/^\d{4}$/.test(yearStr)) {
+                date = `${yearStr}-${monthNum}-${parts[0].padStart(2, "0")}`;
+              }
+            } else if (/^\d{4}$/.test(parts[0])) {
+              date = rawDate;
+            }
+          }
+
+          const amount = parseFloat(rawAmount.replace(/[^0-9.]/g, "")) || 0;
+          if (!date || amount <= 0) continue;
+
+          const phone = rawPhone.replace(/"/g, "").trim();
+          const sanitized_phone = sanitizePhone(phone);
+          const qty = parseInt(rawQty.replace(/[^0-9]/g, "")) || 1;
+
+          parsedRows.push({ date, amount, phone, sanitized_phone, customer_name: rawName, order_ref: rawOrder, qty });
         }
-        const amount = parseFloat((cells[AMOUNT_INDEX] || "").replace(/[^0-9.]/g, ""));
-        if (!date || !Number.isFinite(amount) || amount <= 0) continue;
-        const phone = (cells[MOBILE_INDEX] || "").replace(/"/g, "").trim();
-        const sanitized_phone = phone.replace(/\D/g, "");
-        const customer_name = (cells[CUSTOMER_NAME_INDEX] || "").replace(/"/g, "").trim();
-        const order_ref = (cells[ORDER_REF_INDEX] || "").replace(/"/g, "").trim();
-        parsedRows.push({ date, amount, phone, sanitized_phone, customer_name, order_ref });
-      }
 
-      if (parsedRows.length === 0) throw new Error("No valid data rows found in Turns CSV");
+        if (parsedRows.length === 0) { toast({ title: `No valid rows in ${file.name}`, variant: "destructive" }); continue; }
 
-      const { data: customers, error: customersError } = await supabase.from("customers").select("id, phone");
-      if (customersError) throw customersError;
-      const customerByPhone = new Map<string, string>();
-      (customers || []).forEach((c) => { const key = (c.phone || "").replace(/\D/g, ""); if (key) customerByPhone.set(key, c.id); });
+        // Chunked deletion by order_ref
+        const orderRefs = parsedRows.map((r) => r.order_ref).filter(Boolean);
+        for (let i = 0; i < orderRefs.length; i += CHUNK_SIZE) {
+          const chunk = orderRefs.slice(i, i + CHUNK_SIZE);
+          await supabase.from("turns_sales").delete().in("order_ref", chunk);
+        }
 
-      const customerIds = Array.from(new Set(Array.from(customerByPhone.values())));
-      const leadsByCustomer = new Map<string, { id: string; created_at: string }[]>();
-      const chunkSize = 50;
-      if (customerIds.length > 0) {
-        for (let i = 0; i < customerIds.length; i += chunkSize) {
-          const chunk = customerIds.slice(i, i + chunkSize);
-          const { data: leadsChunk, error: leadsError } = await supabase.from("leads").select("id, customer_id, created_at").in("customer_id", chunk);
-          if (leadsError) throw new Error(`Lead fetch error: ${leadsError.message}`);
+        // Chunked lead matching
+        const { data: customers } = await supabase.from("customers").select("id, phone");
+        const customerByPhone = new Map<string, string>();
+        (customers || []).forEach((c) => { const key = (c.phone || "").replace(/\D/g, ""); if (key) customerByPhone.set(key, c.id); });
+        const customerIds = Array.from(new Set(Array.from(customerByPhone.values())));
+        const leadsByCustomer = new Map<string, { id: string; created_at: string }[]>();
+        for (let i = 0; i < customerIds.length; i += CHUNK_SIZE) {
+          const chunk = customerIds.slice(i, i + CHUNK_SIZE);
+          const { data: leadsChunk } = await supabase.from("leads").select("id, customer_id, created_at").in("customer_id", chunk);
           (leadsChunk || []).forEach((l) => {
             const arr = leadsByCustomer.get(l.customer_id) || [];
             arr.push({ id: l.id, created_at: l.created_at });
             leadsByCustomer.set(l.customer_id, arr);
           });
         }
-      }
 
-      const upsertRows = parsedRows.map((r) => {
-        const normalizedPhone = r.sanitized_phone.length > 10 ? r.sanitized_phone.slice(-10) : r.sanitized_phone;
-        const customerId = customerByPhone.get(normalizedPhone) || customerByPhone.get(r.sanitized_phone) || null;
-        let matched_lead_id: string | null = null;
-        if (customerId) {
-          const customerLeads = leadsByCustomer.get(customerId) || [];
-          if (customerLeads.length > 0) {
-            const saleDate = new Date(r.date).getTime();
-            let closest = customerLeads[0];
-            let closestDiff = Math.abs(new Date(closest.created_at).getTime() - saleDate);
-            customerLeads.forEach((l) => {
-              const diff = Math.abs(new Date(l.created_at).getTime() - saleDate);
-              if (diff < closestDiff) { closest = l; closestDiff = diff; }
-            });
-            matched_lead_id = closest.id;
+        const upsertRows = parsedRows.map((r) => {
+          const normalizedPhone = r.sanitized_phone.length > 10 ? r.sanitized_phone.slice(-10) : r.sanitized_phone;
+          const customerId = customerByPhone.get(normalizedPhone) || customerByPhone.get(r.sanitized_phone) || null;
+          let matched_lead_id: string | null = null;
+          if (customerId) {
+            const customerLeads = leadsByCustomer.get(customerId) || [];
+            if (customerLeads.length > 0) {
+              const saleDate = new Date(r.date).getTime();
+              let closest = customerLeads[0];
+              let closestDiff = Math.abs(new Date(closest.created_at).getTime() - saleDate);
+              customerLeads.forEach((l) => {
+                const diff = Math.abs(new Date(l.created_at).getTime() - saleDate);
+                if (diff < closestDiff) { closest = l; closestDiff = diff; }
+              });
+              matched_lead_id = closest.id;
+            }
           }
+          return {
+            date: r.date, order_ref: r.order_ref || "", customer_name: r.customer_name || null,
+            phone: r.phone || null, sanitized_phone: r.sanitized_phone || null, amount: r.amount,
+            qty: r.qty, matched_lead_id, matched_at: matched_lead_id ? new Date().toISOString() : null,
+          };
+        });
+
+        // Chunked inserts
+        for (let i = 0; i < upsertRows.length; i += CHUNK_SIZE) {
+          const batch = upsertRows.slice(i, i + CHUNK_SIZE);
+          const { error } = await supabase.from("turns_sales").insert(batch);
+          if (error) throw error;
         }
-        return { date: r.date, order_ref: r.order_ref || "", customer_name: r.customer_name || null, phone: r.phone || null, sanitized_phone: r.sanitized_phone || null, amount: r.amount, matched_lead_id, matched_at: matched_lead_id ? new Date().toISOString() : null };
-      });
 
-      const orderRefs = upsertRows.map((r) => r.order_ref).filter(Boolean);
-      if (orderRefs.length > 0) {
-        for (let i = 0; i < orderRefs.length; i += chunkSize) {
-          const chunk = orderRefs.slice(i, i + chunkSize);
-          await supabase.from("turns_sales").delete().in("order_ref", chunk);
-        }
+        const totalAmount = parsedRows.reduce((s, r) => s + r.amount, 0);
+        toast({ title: `✅ ${file.name}: ₹${totalAmount.toLocaleString("en-IN")} from ${parsedRows.length} orders` });
       }
-
-      for (let i = 0; i < upsertRows.length; i += 100) {
-        const batch = upsertRows.slice(i, i + 100);
-        const { error } = await supabase.from("turns_sales").insert(batch);
-        if (error) throw error;
-      }
-
-      const totalAmount = parsedRows.reduce((s, r) => s + r.amount, 0);
-      toast({ title: `✅ Synced ₹${totalAmount.toLocaleString("en-IN")} from ${parsedRows.length} Turns orders` });
       await refreshFinanceDashboard();
     } catch (err: any) {
       toast({ title: "Upload Error", description: err.message, variant: "destructive" });
@@ -485,9 +559,11 @@ const Finance = () => {
           {/* Global Date Range Presets */}
           <div className="flex items-center gap-1 bg-secondary/50 rounded-xl p-0.5">
             {([
-              { key: "all" as DatePreset, label: "Sep 25 – Now" },
+              { key: "last_7" as DatePreset, label: "7d" },
+              { key: "last_14" as DatePreset, label: "14d" },
+              { key: "last_30" as DatePreset, label: "30d" },
+              { key: "all" as DatePreset, label: "Sep 25–Now" },
               { key: "last_month" as DatePreset, label: "Last Month" },
-              { key: "last_14" as DatePreset, label: "Last 14d" },
             ]).map((preset) => (
               <Button
                 key={preset.key}
@@ -501,20 +577,50 @@ const Finance = () => {
             ))}
           </div>
 
+          {/* Settings Gear */}
+          <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm" className="h-8 w-8 p-0">
+                <Settings className="h-3.5 w-3.5" />
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Meta API Settings</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label>Meta Access Token</Label>
+                  <Input type="password" placeholder="EAAx..." value={metaToken} onChange={(e) => setMetaToken(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Ad Account ID</Label>
+                  <Input placeholder="717289587216194" value={metaAdAccountId} onChange={(e) => setMetaAdAccountId(e.target.value)} />
+                </div>
+              </div>
+              <DialogFooter>
+                <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
+                <Button onClick={handleSaveSettings} disabled={savingSettings}>
+                  {savingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
           <Button variant="outline" size="sm" className="gap-2 text-xs border-mint/30 text-mint hover:bg-mint/10" onClick={handleLiveSync} disabled={syncing}>
             {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             {syncing ? "Syncing..." : "Sync Live"}
           </Button>
 
           <label className="cursor-pointer">
-            <input type="file" accept=".csv" className="hidden" onChange={handleTurnsCsvUpload} disabled={uploadingTurns} />
+            <input type="file" accept=".csv" multiple className="hidden" onChange={handleTurnsCsvUpload} disabled={uploadingTurns} />
             <Button variant="outline" size="sm" className="gap-2 text-xs pointer-events-none" asChild>
               <span>{uploadingTurns ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Turns CSV</span>
             </Button>
           </label>
 
           <label className="cursor-pointer">
-            <input type="file" accept=".csv" className="hidden" onChange={handleAdCsvUpload} disabled={uploadingAds} />
+            <input type="file" accept=".csv" multiple className="hidden" onChange={handleAdCsvUpload} disabled={uploadingAds} />
             <Button variant="outline" size="sm" className="gap-2 text-xs pointer-events-none" asChild>
               <span>{uploadingAds ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Meta CSV</span>
             </Button>
@@ -535,15 +641,15 @@ const Finance = () => {
         <TabsList className="grid w-full grid-cols-4 h-11 rounded-2xl bg-secondary/50">
           <TabsTrigger value="executive" className="rounded-xl text-xs font-semibold gap-1.5 data-[state=active]:shadow-md">
             <Target className="h-3.5 w-3.5" />
-            Executive P&L
+            P&L
           </TabsTrigger>
           <TabsTrigger value="ads" className="rounded-xl text-xs font-semibold gap-1.5 data-[state=active]:shadow-md">
             <BarChart3 className="h-3.5 w-3.5" />
-            360° Ad Intel
+            Ad Intel
           </TabsTrigger>
-          <TabsTrigger value="timeline" className="rounded-xl text-xs font-semibold gap-1.5 data-[state=active]:shadow-md">
-            <CalendarDays className="h-3.5 w-3.5" />
-            Daily Cashflow
+          <TabsTrigger value="operations" className="rounded-xl text-xs font-semibold gap-1.5 data-[state=active]:shadow-md">
+            <ShoppingCart className="h-3.5 w-3.5" />
+            Operations
           </TabsTrigger>
           <TabsTrigger value="ai" className="rounded-xl text-xs font-semibold gap-1.5 data-[state=active]:shadow-md">
             <Brain className="h-3.5 w-3.5" />
@@ -553,7 +659,6 @@ const Finance = () => {
 
         {/* TAB 1: EXECUTIVE P&L */}
         <TabsContent value="executive" className="space-y-6">
-          {/* P&L Cards */}
           <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
             <div className="neu-raised-neon p-5">
               <div className="flex items-center gap-2 text-muted-foreground mb-2">
@@ -589,7 +694,6 @@ const Finance = () => {
             </div>
           </div>
 
-          {/* Gross ROAS */}
           <Card className="neu-raised-neon">
             <CardContent className="p-6 flex items-center justify-between">
               <div>
@@ -607,7 +711,6 @@ const Finance = () => {
             </CardContent>
           </Card>
 
-          {/* MoM Chart */}
           <Card className="neu-raised-neon">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold">Month-over-Month Performance</CardTitle>
@@ -623,13 +726,7 @@ const Finance = () => {
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 14%, 88%)" />
                     <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="hsl(215, 15%, 55%)" />
                     <YAxis tick={{ fontSize: 11 }} stroke="hsl(215, 15%, 55%)" />
-                    <Tooltip
-                      contentStyle={tooltipStyle}
-                      formatter={(value: number, name: string) => [
-                        `₹${value.toLocaleString("en-IN")}`,
-                        name === "revenue" ? "Revenue" : name === "spend" ? "Ad Spend" : "Profit",
-                      ]}
-                    />
+                    <Tooltip contentStyle={tooltipStyle} formatter={(value: number, name: string) => [`₹${value.toLocaleString("en-IN")}`, name === "revenue" ? "Revenue" : name === "spend" ? "Ad Spend" : "Profit"]} />
                     <Bar dataKey="revenue" fill="hsl(170, 50%, 55%)" radius={[10, 10, 0, 0]} name="revenue" />
                     <Bar dataKey="spend" fill="hsl(48, 80%, 78%)" radius={[10, 10, 0, 0]} name="spend" />
                   </BarChart>
@@ -638,7 +735,6 @@ const Finance = () => {
             </CardContent>
           </Card>
 
-          {/* Monthly Breakdown Table */}
           <Card className="neu-raised-neon">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold">Monthly Breakdown</CardTitle>
@@ -652,7 +748,7 @@ const Finance = () => {
                       <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Revenue</th>
                       <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Ad Spend</th>
                       <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">ROAS</th>
-                      <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Profit</th>
+                      <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Net Profit</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -663,14 +759,10 @@ const Finance = () => {
                         <td className="px-4 py-2.5 text-right text-destructive font-semibold">₹{m.spend.toLocaleString("en-IN")}</td>
                         <td className="px-4 py-2.5 text-right">
                           {m.spend > 0 ? (
-                            <Badge variant={m.roas >= 2 ? "default" : m.roas >= 1 ? "secondary" : "destructive"} className="rounded-full text-xs">
-                              {m.roas.toFixed(2)}x
-                            </Badge>
+                            <Badge variant={m.roas >= 2 ? "default" : m.roas >= 1 ? "secondary" : "destructive"} className="rounded-full text-xs">{m.roas.toFixed(2)}x</Badge>
                           ) : <span className="text-muted-foreground">—</span>}
                         </td>
-                        <td className={`px-4 py-2.5 text-right font-semibold ${m.profit >= 0 ? "text-mint" : "text-destructive"}`}>
-                          ₹{m.profit.toLocaleString("en-IN")}
-                        </td>
+                        <td className={`px-4 py-2.5 text-right font-semibold ${m.profit >= 0 ? "text-mint" : "text-destructive"}`}>₹{m.profit.toLocaleString("en-IN")}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -680,66 +772,75 @@ const Finance = () => {
           </Card>
         </TabsContent>
 
-        {/* TAB 2: 360° AD INTELLIGENCE */}
+        {/* TAB 2: AD INTEL */}
         <TabsContent value="ads" className="space-y-6">
           <AdsIntelligence
             adSpend={adSpend as any[]}
             dateFilter={isInRange}
             turnsRevenue={pnl.turnsRevenue}
+            leadsCount={filteredLeads.length}
+            onSelectionChange={setSelectedAds}
           />
         </TabsContent>
 
-        {/* TAB 3: DAILY CASHFLOW */}
-        <TabsContent value="timeline" className="space-y-6">
-          <div className="text-center space-y-1 mb-4">
-            <h2 className="text-lg font-bold text-foreground">Daily Cashflow</h2>
-            <p className="text-xs text-muted-foreground">Revenue vs Spend — newest first</p>
+        {/* TAB 3: OPERATIONS */}
+        <TabsContent value="operations" className="space-y-6">
+          <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+            <div className="neu-raised-neon p-5 text-center">
+              <ShoppingCart className="h-5 w-5 mx-auto mb-2 text-primary icon-recessed" />
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">AOV</p>
+              <p className="text-2xl font-bold text-foreground">₹{Math.round(opsMetrics.aov).toLocaleString("en-IN")}</p>
+              <p className="text-[10px] text-muted-foreground">{opsMetrics.totalOrders} orders</p>
+            </div>
+            <div className="neu-raised-neon p-5 text-center">
+              <BarChart3 className="h-5 w-5 mx-auto mb-2 text-primary icon-recessed" />
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Units Served</p>
+              <p className="text-2xl font-bold text-foreground">{opsMetrics.totalQty.toLocaleString("en-IN")}</p>
+            </div>
+            <div className="neu-raised-neon p-5 text-center">
+              <Repeat className="h-5 w-5 mx-auto mb-2 text-primary icon-recessed" />
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Repeat Rate</p>
+              <p className="text-2xl font-bold text-foreground">{opsMetrics.repeatRate.toFixed(1)}%</p>
+              <p className="text-[10px] text-muted-foreground">{opsMetrics.repeatPhones} of {opsMetrics.uniquePhones}</p>
+            </div>
+            <div className="neu-raised-neon p-5 text-center">
+              <Users className="h-5 w-5 mx-auto mb-2 text-primary icon-recessed" />
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Unique Customers</p>
+              <p className="text-2xl font-bold text-foreground">{opsMetrics.uniquePhones.toLocaleString("en-IN")}</p>
+            </div>
           </div>
 
-          {dailyTimelineData.length === 0 ? (
-            <Card className="neu-raised-neon">
-              <CardContent className="flex h-40 items-center justify-center">
-                <p className="text-sm text-muted-foreground">No data for selected period</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card className="neu-raised-neon">
-              <CardContent className="p-0">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-neon-border/20">
-                        <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wider text-xs">Date</th>
-                        <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Revenue</th>
-                        <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Ad Spend</th>
-                        <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Profit</th>
-                        <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Active Ads</th>
+          {/* Top Customers */}
+          <Card className="neu-raised-neon">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold">Top Customers by Revenue</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-neon-border/20">
+                      <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wider text-xs">#</th>
+                      <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wider text-xs">Customer</th>
+                      <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Revenue</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {opsMetrics.topCustomers.map((c, i) => (
+                      <tr key={i} className="border-b border-neon-border/10 last:border-0">
+                        <td className="px-4 py-2.5 text-muted-foreground">{i + 1}</td>
+                        <td className="px-4 py-2.5 font-medium text-foreground">{c.name}</td>
+                        <td className="px-4 py-2.5 text-right text-mint font-semibold">₹{Math.round(c.amount).toLocaleString("en-IN")}</td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {dailyTimelineData.map((d) => (
-                        <tr key={d.date} className="border-b border-neon-border/10 last:border-0">
-                          <td className="px-4 py-2.5 font-medium text-foreground">{d.dateLabel}</td>
-                          <td className="px-4 py-2.5 text-right text-mint font-semibold">
-                            {d.revenue > 0 ? `₹${d.revenue.toLocaleString("en-IN")}` : "—"}
-                          </td>
-                          <td className="px-4 py-2.5 text-right text-destructive font-semibold">
-                            {d.spend > 0 ? `₹${d.spend.toLocaleString("en-IN")}` : "—"}
-                          </td>
-                          <td className={`px-4 py-2.5 text-right font-semibold ${d.profit >= 0 ? "text-mint" : "text-destructive"}`}>
-                            {(d.revenue > 0 || d.spend > 0) ? `₹${d.profit.toLocaleString("en-IN")}` : "—"}
-                          </td>
-                          <td className="px-4 py-2.5 text-right text-muted-foreground">
-                            {d.adCount > 0 ? d.adCount : "—"}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+                    ))}
+                    {opsMetrics.topCustomers.length === 0 && (
+                      <tr><td colSpan={3} className="px-4 py-8 text-center text-muted-foreground">No customer data</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* TAB 4: AI CFO */}
@@ -752,6 +853,9 @@ const Finance = () => {
             profitMargin={profitMargin}
             topAd={topAd as any}
             worstAd={worstAd as any}
+            selectedAds={selectedAds}
+            aov={opsMetrics.aov}
+            totalOrders={opsMetrics.totalOrders}
           />
         </TabsContent>
       </Tabs>

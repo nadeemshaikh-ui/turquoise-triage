@@ -917,6 +917,7 @@ export type Database = {
           matched_lead_id: string | null
           order_ref: string | null
           phone: string | null
+          qty: number | null
           sanitized_phone: string | null
         }
         Insert: {
@@ -929,6 +930,7 @@ export type Database = {
           matched_lead_id?: string | null
           order_ref?: string | null
           phone?: string | null
+          qty?: number | null
           sanitized_phone?: string | null
         }
         Update: {
@@ -941,6 +943,7 @@ export type Database = {
           matched_lead_id?: string | null
           order_ref?: string | null
           phone?: string | null
+          qty?: number | null
           sanitized_phone?: string | null
         }
         Relationships: [

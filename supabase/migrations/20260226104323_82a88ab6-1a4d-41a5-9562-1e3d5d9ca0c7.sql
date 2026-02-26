@@ -1,0 +1,1 @@
+ALTER TABLE turns_sales ADD COLUMN IF NOT EXISTS qty integer DEFAULT 1;

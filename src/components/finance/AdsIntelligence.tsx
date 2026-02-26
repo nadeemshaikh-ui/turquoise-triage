@@ -1,21 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { BarChart3, Zap, AlertTriangle, ArrowDown, Eye, MousePointerClick, Users, DollarSign, Trophy, Calendar } from "lucide-react";
 import {
-  ResponsiveContainer,
-  ScatterChart,
-  Scatter,
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  Cell,
+  ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
 } from "recharts";
 
 type AdSpendRow = {
@@ -43,6 +33,8 @@ export type AdStat = {
   days: number;
   ctr: number;
   cpc: number;
+  cpm: number;
+  cac: number;
   frequency: number;
   isHighBurn: boolean;
   firstDate: string;
@@ -53,6 +45,8 @@ type Props = {
   adSpend: AdSpendRow[];
   dateFilter: (dateStr: string) => boolean;
   turnsRevenue: number;
+  leadsCount?: number;
+  onSelectionChange?: (selected: AdStat[]) => void;
 };
 
 const tooltipStyle = {
@@ -63,27 +57,19 @@ const tooltipStyle = {
   boxShadow: "4px 4px 10px hsl(220, 20%, 84%), -4px -4px 10px hsl(0, 0%, 100%)",
 };
 
-const AdsIntelligence = ({ adSpend, dateFilter, turnsRevenue }: Props) => {
+const AdsIntelligence = ({ adSpend, dateFilter, turnsRevenue, leadsCount = 0, onSelectionChange }: Props) => {
   const [timelineMode, setTimelineMode] = useState<"daily" | "monthly">("monthly");
-  const [sortCol, setSortCol] = useState<"spend" | "cpc" | "ctr" | "clicks">("spend");
+  const [sortCol, setSortCol] = useState<"spend" | "cpc" | "ctr" | "clicks" | "cpm" | "cac" | "frequency">("spend");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const filtered = useMemo(() => adSpend.filter((a) => dateFilter(a.date)), [adSpend, dateFilter]);
 
-  // Aggregated ad-level stats (always by ad)
   const adStats: AdStat[] = useMemo(() => {
     const map = new Map<string, {
-      ad_name: string;
-      ad_id: string;
-      campaign_name: string;
-      spend: number;
-      impressions: number;
-      clicks: number;
-      reach: number;
-      engagement: number;
-      days: number;
-      firstDate: string;
-      lastDate: string;
+      ad_name: string; ad_id: string; campaign_name: string;
+      spend: number; impressions: number; clicks: number; reach: number; engagement: number;
+      days: number; firstDate: string; lastDate: string;
     }>();
 
     filtered.forEach((a) => {
@@ -101,38 +87,51 @@ const AdsIntelligence = ({ adSpend, dateFilter, turnsRevenue }: Props) => {
         if (a.date > existing.lastDate) existing.lastDate = a.date;
       } else {
         map.set(key, {
-          ad_name: label,
-          ad_id: a.ad_id || key,
-          campaign_name: a.campaign_name || "",
-          spend: Number(a.amount_spent),
-          impressions: Number(a.impressions || 0),
-          clicks: Number(a.clicks || 0),
-          reach: Number(a.reach || 0),
-          engagement: Number(a.engagement || 0),
-          days: 1,
-          firstDate: a.date,
-          lastDate: a.date,
+          ad_name: label, ad_id: a.ad_id || key, campaign_name: a.campaign_name || "",
+          spend: Number(a.amount_spent), impressions: Number(a.impressions || 0),
+          clicks: Number(a.clicks || 0), reach: Number(a.reach || 0), engagement: Number(a.engagement || 0),
+          days: 1, firstDate: a.date, lastDate: a.date,
         });
       }
     });
+
+    const totalAds = map.size;
+    const cacDivisor = leadsCount > 0 ? leadsCount / Math.max(totalAds, 1) : 0;
 
     const stats = Array.from(map.values()).map((a) => ({
       ...a,
       ctr: a.impressions > 0 ? (a.clicks / a.impressions) * 100 : 0,
       cpc: a.clicks > 0 ? a.spend / a.clicks : 0,
+      cpm: a.impressions > 0 ? (a.spend / a.impressions) * 1000 : 0,
+      cac: cacDivisor > 0 ? a.spend / cacDivisor : 0,
       frequency: a.reach > 0 ? a.impressions / a.reach : 0,
       isHighBurn: a.spend > 100 && a.clicks === 0,
     }));
 
-    // Sort by selected column
     return stats.sort((a, b) => {
       const aVal = a[sortCol];
       const bVal = b[sortCol];
       return sortDir === "desc" ? bVal - aVal : aVal - bVal;
     });
-  }, [filtered, sortCol, sortDir]);
+  }, [filtered, sortCol, sortDir, leadsCount]);
 
-  // Winning ad: lowest CPC with meaningful clicks + highest engagement
+  // Notify parent of selection changes
+  useEffect(() => {
+    if (onSelectionChange) {
+      const selected = adStats.filter((a) => selectedIds.has(a.ad_id));
+      onSelectionChange(selected);
+    }
+  }, [selectedIds, adStats, onSelectionChange]);
+
+  const toggleSelection = (adId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(adId)) next.delete(adId);
+      else next.add(adId);
+      return next;
+    });
+  };
+
   const winningAd = useMemo(() => {
     const withClicks = adStats.filter((a) => a.clicks >= 5 && a.cpc > 0);
     if (withClicks.length === 0) return null;
@@ -143,35 +142,20 @@ const AdsIntelligence = ({ adSpend, dateFilter, turnsRevenue }: Props) => {
     })[0];
   }, [adStats]);
 
-  // Spend timeline data
   const timelineData = useMemo(() => {
     if (timelineMode === "daily") {
       const dayMap = new Map<string, number>();
-      filtered.forEach((a) => {
-        dayMap.set(a.date, (dayMap.get(a.date) || 0) + Number(a.amount_spent));
-      });
-      return Array.from(dayMap.entries())
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, spend]) => ({
-          label: new Date(date).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }),
-          spend: Math.round(spend),
-        }));
+      filtered.forEach((a) => { dayMap.set(a.date, (dayMap.get(a.date) || 0) + Number(a.amount_spent)); });
+      return Array.from(dayMap.entries()).sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, spend]) => ({ label: new Date(date).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }), spend: Math.round(spend) }));
     } else {
-      const monthMap = new Map<string, number>();
-      filtered.forEach((a) => {
-        const key = a.date.substring(0, 7);
-        monthMap.set(key, (monthMap.get(key) || 0) + Number(a.amount_spent));
-      });
-      return Array.from(monthMap.entries())
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([month, spend]) => ({
-          label: new Date(month + "-01").toLocaleDateString("en-IN", { month: "short", year: "2-digit" }),
-          spend: Math.round(spend),
-        }));
+      const mMap = new Map<string, number>();
+      filtered.forEach((a) => { const key = a.date.substring(0, 7); mMap.set(key, (mMap.get(key) || 0) + Number(a.amount_spent)); });
+      return Array.from(mMap.entries()).sort(([a], [b]) => a.localeCompare(b))
+        .map(([month, spend]) => ({ label: new Date(month + "-01").toLocaleDateString("en-IN", { month: "short", year: "2-digit" }), spend: Math.round(spend) }));
     }
   }, [filtered, timelineMode]);
 
-  // Funnel data
   const funnel = useMemo(() => {
     const totalReach = filtered.reduce((s, a) => s + Number(a.reach || 0), 0);
     const totalImpressions = filtered.reduce((s, a) => s + Number(a.impressions || 0), 0);
@@ -184,19 +168,14 @@ const AdsIntelligence = ({ adSpend, dateFilter, turnsRevenue }: Props) => {
     ];
   }, [filtered, turnsRevenue]);
 
-  // Calculate ad duration in days
   const getAdDuration = (firstDate: string, lastDate: string) => {
     const diff = Math.ceil((new Date(lastDate).getTime() - new Date(firstDate).getTime()) / (1000 * 60 * 60 * 24));
     return Math.max(diff + 1, 1);
   };
 
-  const handleSort = (col: "spend" | "cpc" | "ctr" | "clicks") => {
-    if (sortCol === col) {
-      setSortDir(sortDir === "desc" ? "asc" : "desc");
-    } else {
-      setSortCol(col);
-      setSortDir("desc");
-    }
+  const handleSort = (col: typeof sortCol) => {
+    if (sortCol === col) setSortDir(sortDir === "desc" ? "asc" : "desc");
+    else { setSortCol(col); setSortDir("desc"); }
   };
 
   const SortIndicator = ({ col }: { col: string }) => {
@@ -215,6 +194,14 @@ const AdsIntelligence = ({ adSpend, dateFilter, turnsRevenue }: Props) => {
 
   return (
     <div className="space-y-6">
+      {/* Selected ads indicator */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-2 p-3 rounded-xl bg-primary/10 border border-primary/20">
+          <span className="text-xs font-medium text-primary">{selectedIds.size} ad(s) selected for AI comparison</span>
+          <Button variant="ghost" size="sm" className="h-6 text-[10px] ml-auto" onClick={() => setSelectedIds(new Set())}>Clear</Button>
+        </div>
+      )}
+
       {/* Winning Ad Highlight */}
       {winningAd && (
         <Card className="neu-raised-neon border-mint/40">
@@ -230,22 +217,11 @@ const AdsIntelligence = ({ adSpend, dateFilter, turnsRevenue }: Props) => {
                 <p className="text-sm font-bold text-foreground truncate">{winningAd.ad_name}</p>
                 <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">{winningAd.ad_id}</p>
                 <div className="flex gap-4 mt-3">
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">CPC</p>
-                    <p className="text-sm font-bold text-mint">₹{winningAd.cpc.toFixed(0)}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">CTR</p>
-                    <p className="text-sm font-bold text-foreground">{winningAd.ctr.toFixed(2)}%</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Engagement</p>
-                    <p className="text-sm font-bold text-foreground">{winningAd.engagement.toLocaleString("en-IN")}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Spend</p>
-                    <p className="text-sm font-bold text-destructive">₹{Math.round(winningAd.spend).toLocaleString("en-IN")}</p>
-                  </div>
+                  <div><p className="text-[10px] uppercase tracking-wider text-muted-foreground">CPC</p><p className="text-sm font-bold text-mint">₹{winningAd.cpc.toFixed(0)}</p></div>
+                  <div><p className="text-[10px] uppercase tracking-wider text-muted-foreground">CTR</p><p className="text-sm font-bold text-foreground">{winningAd.ctr.toFixed(2)}%</p></div>
+                  <div><p className="text-[10px] uppercase tracking-wider text-muted-foreground">CPM</p><p className="text-sm font-bold text-foreground">₹{winningAd.cpm.toFixed(0)}</p></div>
+                  <div><p className="text-[10px] uppercase tracking-wider text-muted-foreground">Freq</p><p className="text-sm font-bold text-foreground">{winningAd.frequency.toFixed(1)}</p></div>
+                  <div><p className="text-[10px] uppercase tracking-wider text-muted-foreground">Spend</p><p className="text-sm font-bold text-destructive">₹{Math.round(winningAd.spend).toLocaleString("en-IN")}</p></div>
                 </div>
               </div>
             </div>
@@ -292,9 +268,7 @@ const AdsIntelligence = ({ adSpend, dateFilter, turnsRevenue }: Props) => {
 
       {/* Performance Funnel */}
       <Card className="neu-raised-neon">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold">Performance Funnel</CardTitle>
-        </CardHeader>
+        <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Performance Funnel</CardTitle></CardHeader>
         <CardContent>
           <div className="flex items-center justify-between gap-2">
             {funnel.map((step, i) => {
@@ -311,14 +285,11 @@ const AdsIntelligence = ({ adSpend, dateFilter, turnsRevenue }: Props) => {
                     <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{step.stage}</p>
                     {dropRate !== null && dropRate > 0 && (
                       <p className="text-[9px] text-destructive mt-0.5 flex items-center justify-center gap-0.5">
-                        <ArrowDown className="h-2.5 w-2.5" />
-                        {dropRate.toFixed(1)}% drop
+                        <ArrowDown className="h-2.5 w-2.5" />{dropRate.toFixed(1)}% drop
                       </p>
                     )}
                   </div>
-                  {i < funnel.length - 1 && (
-                    <div className="w-6 h-0.5 bg-gradient-to-r from-primary/40 to-primary/10 flex-shrink-0" />
-                  )}
+                  {i < funnel.length - 1 && <div className="w-6 h-0.5 bg-gradient-to-r from-primary/40 to-primary/10 flex-shrink-0" />}
                 </div>
               );
             })}
@@ -326,63 +297,62 @@ const AdsIntelligence = ({ adSpend, dateFilter, turnsRevenue }: Props) => {
         </CardContent>
       </Card>
 
-      {/* Ad Breakdown Table with Ad ID & Sorting */}
+      {/* Ad Performance Table with checkboxes + CPM/CAC/Frequency */}
       <Card className="neu-raised-neon">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold">Ad Performance Table</CardTitle>
+          <CardTitle className="text-sm font-semibold">Creative Rollup</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-neon-border/20">
-                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wider text-xs">Ad ID</th>
+                  <th className="px-2 py-2.5 text-center w-8">
+                    <Checkbox
+                      checked={selectedIds.size === adStats.length && adStats.length > 0}
+                      onCheckedChange={(checked) => {
+                        if (checked) setSelectedIds(new Set(adStats.map((a) => a.ad_id)));
+                        else setSelectedIds(new Set());
+                      }}
+                    />
+                  </th>
                   <th className="px-3 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wider text-xs">Ad Name</th>
-                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs cursor-pointer hover:text-foreground" onClick={() => handleSort("spend")}>
-                    Spend<SortIndicator col="spend" />
-                  </th>
-                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs cursor-pointer hover:text-foreground" onClick={() => handleSort("clicks")}>
-                    Clicks<SortIndicator col="clicks" />
-                  </th>
-                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs cursor-pointer hover:text-foreground" onClick={() => handleSort("ctr")}>
-                    CTR<SortIndicator col="ctr" />
-                  </th>
-                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs cursor-pointer hover:text-foreground" onClick={() => handleSort("cpc")}>
-                    CPC<SortIndicator col="cpc" />
-                  </th>
+                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs cursor-pointer hover:text-foreground" onClick={() => handleSort("spend")}>Spend<SortIndicator col="spend" /></th>
+                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs cursor-pointer hover:text-foreground" onClick={() => handleSort("clicks")}>Clicks<SortIndicator col="clicks" /></th>
+                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs cursor-pointer hover:text-foreground" onClick={() => handleSort("ctr")}>CTR<SortIndicator col="ctr" /></th>
+                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs cursor-pointer hover:text-foreground" onClick={() => handleSort("cpc")}>CPC<SortIndicator col="cpc" /></th>
+                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs cursor-pointer hover:text-foreground" onClick={() => handleSort("cpm")}>CPM<SortIndicator col="cpm" /></th>
+                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs cursor-pointer hover:text-foreground" onClick={() => handleSort("frequency")}>Freq<SortIndicator col="frequency" /></th>
                   <th className="px-3 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Duration</th>
                   <th className="px-3 py-2.5 text-center font-medium text-muted-foreground uppercase tracking-wider text-xs">Status</th>
                 </tr>
               </thead>
               <tbody>
                 {adStats.slice(0, 30).map((a, i) => (
-                  <tr key={i} className={`border-b border-neon-border/10 last:border-0 ${a.isHighBurn ? "bg-destructive/5" : ""}`}>
-                    <td className="px-3 py-2.5 font-mono text-[10px] text-muted-foreground max-w-[100px] truncate">{a.ad_id}</td>
-                    <td className="px-3 py-2.5 font-medium text-foreground max-w-[180px] truncate">{a.ad_name}</td>
+                  <tr key={i} className={`border-b border-neon-border/10 last:border-0 ${a.isHighBurn ? "bg-destructive/5" : ""} ${selectedIds.has(a.ad_id) ? "bg-primary/5" : ""}`}>
+                    <td className="px-2 py-2.5 text-center">
+                      <Checkbox checked={selectedIds.has(a.ad_id)} onCheckedChange={() => toggleSelection(a.ad_id)} />
+                    </td>
+                    <td className="px-3 py-2.5 max-w-[180px]">
+                      <p className="font-medium text-foreground truncate">{a.ad_name}</p>
+                      <p className="text-[9px] text-muted-foreground font-mono truncate">{a.ad_id}</p>
+                    </td>
                     <td className="px-3 py-2.5 text-right text-destructive font-semibold">₹{Math.round(a.spend).toLocaleString("en-IN")}</td>
                     <td className="px-3 py-2.5 text-right text-foreground">{a.clicks.toLocaleString("en-IN")}</td>
                     <td className="px-3 py-2.5 text-right">
-                      <span className={a.ctr >= 2 ? "text-mint font-semibold" : a.ctr >= 1 ? "text-foreground" : "text-muted-foreground"}>
-                        {a.ctr.toFixed(2)}%
-                      </span>
+                      <span className={a.ctr >= 2 ? "text-mint font-semibold" : a.ctr >= 1 ? "text-foreground" : "text-muted-foreground"}>{a.ctr.toFixed(2)}%</span>
                     </td>
                     <td className="px-3 py-2.5 text-right">
-                      <span className={a.cpc > 0 && a.cpc < 20 ? "text-mint font-semibold" : "text-foreground"}>
-                        {a.cpc > 0 ? `₹${a.cpc.toFixed(0)}` : "—"}
-                      </span>
+                      <span className={a.cpc > 0 && a.cpc < 20 ? "text-mint font-semibold" : "text-foreground"}>{a.cpc > 0 ? `₹${a.cpc.toFixed(0)}` : "—"}</span>
                     </td>
-                    <td className="px-3 py-2.5 text-right text-muted-foreground text-xs">
-                      {getAdDuration(a.firstDate, a.lastDate)}d
-                    </td>
+                    <td className="px-3 py-2.5 text-right text-foreground">{a.cpm > 0 ? `₹${a.cpm.toFixed(0)}` : "—"}</td>
+                    <td className="px-3 py-2.5 text-right text-foreground">{a.frequency > 0 ? a.frequency.toFixed(1) : "—"}</td>
+                    <td className="px-3 py-2.5 text-right text-muted-foreground text-xs">{getAdDuration(a.firstDate, a.lastDate)}d</td>
                     <td className="px-3 py-2.5 text-center">
                       {a.isHighBurn ? (
-                        <Badge variant="destructive" className="text-[9px] gap-0.5">
-                          <AlertTriangle className="h-2.5 w-2.5" /> Burn
-                        </Badge>
+                        <Badge variant="destructive" className="text-[9px] gap-0.5"><AlertTriangle className="h-2.5 w-2.5" /> Burn</Badge>
                       ) : a.ctr >= 2 ? (
-                        <Badge className="text-[9px] gap-0.5 bg-mint text-mint-foreground">
-                          <Zap className="h-2.5 w-2.5" /> Hot
-                        </Badge>
+                        <Badge className="text-[9px] gap-0.5 bg-mint text-mint-foreground"><Zap className="h-2.5 w-2.5" /> Hot</Badge>
                       ) : (
                         <span className="text-[9px] text-muted-foreground">—</span>
                       )}
