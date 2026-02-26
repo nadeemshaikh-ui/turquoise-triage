@@ -367,7 +367,7 @@ const Finance = () => {
       let headerCols: string[] = [];
       for (let i = 0; i < lines.length; i++) {
         const cols = parseCSVLine(lines[i]).map((c) => c.toLowerCase().replace(/"/g, ""));
-        if (cols.some((c) => c.includes("date")) && cols.some((c) => c.includes("amount") || c.includes("total") || c.includes("price"))) {
+        if (cols.some((c) => c.includes("date")) && cols.some((c) => c.includes("amount") || c.includes("total") || c.includes("price") || c.includes("value"))) {
           headerIdx = i;
           headerCols = cols;
           break;
@@ -382,14 +382,15 @@ const Finance = () => {
       const amountCol = headerCols.findIndex((c) => c === "amount" || c.includes("amount") || c.includes("total") || c.includes("price"));
       const phoneCol = headerCols.findIndex((c) => c.includes("phone") || c.includes("mobile") || c.includes("contact"));
       const nameCol = headerCols.findIndex((c) => c.includes("customer") || c.includes("name") || c.includes("client"));
-      const orderCol = headerCols.findIndex((c) => c.includes("order") && !c.includes("date") || c.includes("invoice") || c.includes("ref"));
+      const orderCol = headerCols.findIndex((c) => (c.includes("order") && !c.includes("date")) || c.includes("invoice") || c.includes("ref"));
 
-      const skipPhrases = ["total", "gst", "tds", "subtotal", "grand total"];
+      const skipPhrases = ["grand total", "subtotal", "gst", "tds"];
       const rows: { date: string; amount: number; phone: string; sanitized_phone: string; customer_name: string; order_ref: string }[] = [];
 
       for (let i = headerIdx + 1; i < lines.length; i++) {
-        const lower = lines[i].toLowerCase();
-        if (skipPhrases.some((p) => lower.includes(p))) continue;
+        const lower = lines[i].toLowerCase().trim();
+        // Only skip summary/footer rows, not data rows that happen to contain "total" in a column name
+        if (!lower || skipPhrases.some((p) => lower.startsWith(p) || lower.includes(`\t${p}`) || lower.includes(`,${p}`))) continue;
 
         const cells = parseCSVLine(lines[i]);
         const rawDate = (cells[dateCol] || "").replace(/"/g, "").trim();
