@@ -30,8 +30,8 @@ Deno.serve(async (req) => {
     const since = "2025-09-01";
     const until = today.toISOString().split("T")[0];
 
-    // Fetch ad-level insights with daily breakdown
-    const url = `https://graph.facebook.com/v21.0/act_${AD_ACCOUNT_ID}/insights?fields=campaign_name,ad_name,spend,impressions,clicks,reach,inline_post_engagement&time_range={"since":"${since}","until":"${until}"}&time_increment=1&level=ad&limit=500&access_token=${metaToken}`;
+    // Fetch ad-level insights with daily breakdown — include ad_id for precise tracking
+    const url = `https://graph.facebook.com/v21.0/act_${AD_ACCOUNT_ID}/insights?fields=ad_id,campaign_name,ad_name,spend,impressions,clicks,reach,inline_post_engagement&time_range={"since":"${since}","until":"${until}"}&time_increment=1&level=ad&limit=500&access_token=${metaToken}`;
 
     console.log("Fetching Meta ad-level insights for account:", AD_ACCOUNT_ID, "range:", since, "to", until);
 
@@ -40,6 +40,7 @@ Deno.serve(async (req) => {
       amount_spent: number;
       campaign_name: string;
       ad_name: string;
+      ad_id: string;
       impressions: number;
       clicks: number;
       reach: number;
@@ -74,6 +75,7 @@ Deno.serve(async (req) => {
           amount_spent: parseFloat(row.spend) || 0,
           campaign_name: row.campaign_name || "Unknown",
           ad_name: row.ad_name || "Unknown Ad",
+          ad_id: row.ad_id || `META-${row.date_start}`,
           impressions: parseInt(row.impressions) || 0,
           clicks: parseInt(row.clicks) || 0,
           reach: parseInt(row.reach) || 0,
@@ -93,7 +95,7 @@ Deno.serve(async (req) => {
     // Deduplicate rows by date+ad_name (keep last occurrence)
     const deduped = new Map<string, typeof allRows[0]>();
     for (const row of allRows) {
-      deduped.set(`${row.date}||${row.ad_name}`, row);
+      deduped.set(`${row.date}||${row.ad_id}`, row);
     }
     const uniqueRows = Array.from(deduped.values());
     console.log(`Fetched ${allRows.length} rows, deduplicated to ${uniqueRows.length}`);
@@ -106,8 +108,8 @@ Deno.serve(async (req) => {
       .lte("date", until);
 
     if (deleteError) {
-      console.error("Delete error:", deleteError);
-      throw deleteError;
+      console.error("Delete error:", JSON.stringify(deleteError));
+      throw new Error(`Delete failed: ${deleteError.message}`);
     }
 
     // Insert in batches of 100
@@ -117,8 +119,8 @@ Deno.serve(async (req) => {
       const batch = uniqueRows.slice(i, i + batchSize);
       const { error } = await supabase.from("meta_ad_spend").insert(batch);
       if (error) {
-        console.error("Insert error:", error);
-        throw error;
+        console.error("Insert error:", JSON.stringify(error));
+        throw new Error(`Insert failed: ${error.message}`);
       }
       inserted += batch.length;
     }
@@ -134,9 +136,9 @@ Deno.serve(async (req) => {
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
-  } catch (err) {
+  } catch (err: any) {
     console.error("fetch-meta-data error:", err);
-    return new Response(JSON.stringify({ error: String(err) }), {
+    return new Response(JSON.stringify({ error: err?.message || String(err) }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

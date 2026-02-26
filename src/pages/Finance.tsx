@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Upload, DollarSign, TrendingUp, BarChart3, Trash2, RefreshCw, Wifi, Target, Brain } from "lucide-react";
+import { Loader2, Upload, DollarSign, TrendingUp, BarChart3, Trash2, RefreshCw, Wifi, Target, Brain, CalendarDays } from "lucide-react";
 import RoasSentinel from "@/components/finance/RoasSentinel";
 import AdsIntelligence from "@/components/finance/AdsIntelligence";
 import AiAuditor from "@/components/finance/AiAuditor";
@@ -31,18 +31,13 @@ import {
   Tooltip,
   CartesianGrid,
 } from "recharts";
-import { format as fnsFormat, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths } from "date-fns";
+import { format as fnsFormat, endOfMonth, eachMonthOfInterval } from "date-fns";
 
 // Sanitize phone: remove +91, spaces, dashes, parens, dots
 const sanitizePhone = (raw: string): string => {
   let p = raw.replace(/[\s\-().+]/g, "");
   if (p.startsWith("91") && p.length > 10) p = p.slice(p.length - 10);
   return p.slice(-10);
-};
-
-const MONTH_MAP: Record<string, string> = {
-  jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
-  jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12",
 };
 
 const tooltipStyle = {
@@ -174,9 +169,41 @@ const Finance = () => {
       const spend = (adSpend as any[])
         .filter((a) => { const d = new Date(a.date); return d >= month && d <= monthEnd; })
         .reduce((s, a: any) => s + Number(a.amount_spent), 0);
-      return { month: monthLabel, monthKey, revenue: Math.round(revenue), spend: Math.round(spend) };
+      const profit = revenue - spend;
+      const roas = spend > 0 ? revenue / spend : 0;
+      return { month: monthLabel, monthKey, revenue: Math.round(revenue), spend: Math.round(spend), profit: Math.round(profit), roas };
     });
   }, [turnsSales, adSpend]);
+
+  // Daily timeline data (grouped by date)
+  const dailyTimelineData = useMemo(() => {
+    const dayMap = new Map<string, { revenue: number; spend: number; ads: string[] }>();
+
+    filteredTurnsSales.forEach((t: any) => {
+      const existing = dayMap.get(t.date) || { revenue: 0, spend: 0, ads: [] };
+      existing.revenue += Number(t.amount);
+      dayMap.set(t.date, existing);
+    });
+
+    filteredAdSpend.forEach((a: any) => {
+      const existing = dayMap.get(a.date) || { revenue: 0, spend: 0, ads: [] };
+      existing.spend += Number(a.amount_spent);
+      const adName = a.ad_name || a.campaign_name || "Unknown";
+      if (!existing.ads.includes(adName)) existing.ads.push(adName);
+      dayMap.set(a.date, existing);
+    });
+
+    return Array.from(dayMap.entries())
+      .sort(([a], [b]) => b.localeCompare(a)) // newest first
+      .map(([date, data]) => ({
+        date,
+        dateLabel: new Date(date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
+        revenue: Math.round(data.revenue),
+        spend: Math.round(data.spend),
+        profit: Math.round(data.revenue - data.spend),
+        adCount: data.ads.length,
+      }));
+  }, [filteredTurnsSales, filteredAdSpend]);
 
   // Ad stats for AI CFO
   const adStatsForAi = useMemo(() => {
@@ -236,7 +263,7 @@ const Finance = () => {
     try {
       const { data, error } = await supabase.functions.invoke("fetch-meta-data");
       if (error) throw error;
-      if (data?.error) throw new Error(data.error);
+      if (data?.error) throw new Error(typeof data.error === "object" ? JSON.stringify(data.error) : data.error);
       setLastSyncTime(new Date().toLocaleTimeString());
       await refreshFinanceDashboard();
       toast({ title: "✅ Live Meta Sync Complete", description: data?.message || `Synced ${data?.synced || 0} rows` });
@@ -259,7 +286,7 @@ const Finance = () => {
       const lines = text.split(/\r?\n/).filter((l) => l.trim());
       if (lines.length <= 11) throw new Error("Invalid Format: expected tab-delimited file with preamble");
 
-      const rows: { date: string; amount_spent: number; ad_name: string; campaign_name: string; reach: number; impressions: number; clicks: number; engagement: number; }[] = [];
+      const rows: { date: string; amount_spent: number; ad_name: string; ad_id: string; campaign_name: string; reach: number; impressions: number; clicks: number; engagement: number; }[] = [];
 
       for (const line of lines.slice(11)) {
         const cells = line.split("\t").map((c) => c.replace(/"/g, "").trim());
@@ -274,7 +301,17 @@ const Finance = () => {
         const date = `${year}-${month}-${day}`;
         const amount = parseFloat((cells[2] || "").replace(/[^0-9.]/g, ""));
         if (!Number.isFinite(amount) || amount <= 0) continue;
-        rows.push({ date, amount_spent: amount, ad_name: "Manual Meta CSV", campaign_name: "Manual Meta CSV", reach: 0, impressions: 0, clicks: 0, engagement: 0 });
+        rows.push({
+          date,
+          amount_spent: amount,
+          ad_name: "Manual Meta CSV",
+          ad_id: `CSV-MANUAL-${date}`,
+          campaign_name: "Manual Meta CSV",
+          reach: 0,
+          impressions: 0,
+          clicks: 0,
+          engagement: 0,
+        });
       }
 
       if (rows.length === 0) throw new Error("No valid data rows found in Meta CSV");
@@ -382,9 +419,21 @@ const Finance = () => {
       });
 
       const orderRefs = upsertRows.map((r) => r.order_ref).filter(Boolean);
-      if (orderRefs.length > 0) await supabase.from("turns_sales").delete().in("order_ref", orderRefs);
-      const { error } = await supabase.from("turns_sales").insert(upsertRows);
-      if (error) throw error;
+      if (orderRefs.length > 0) {
+        // Chunk order ref deletes to avoid URL length limits
+        for (let i = 0; i < orderRefs.length; i += chunkSize) {
+          const chunk = orderRefs.slice(i, i + chunkSize);
+          await supabase.from("turns_sales").delete().in("order_ref", chunk);
+        }
+      }
+
+      // Insert in batches
+      for (let i = 0; i < upsertRows.length; i += 100) {
+        const batch = upsertRows.slice(i, i + 100);
+        const { error } = await supabase.from("turns_sales").insert(batch);
+        if (error) throw error;
+      }
+
       const totalAmount = parsedRows.reduce((s, r) => s + r.amount, 0);
       toast({ title: `✅ Synced ₹${totalAmount.toLocaleString("en-IN")} from ${parsedRows.length} Turns orders` });
       await refreshFinanceDashboard();
@@ -421,7 +470,7 @@ const Finance = () => {
       {/* Page Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <h1 className="text-xl font-bold text-foreground">Finance & ROI</h1>
+          <h1 className="text-xl font-bold text-foreground">CEO Command Center</h1>
           {lastSyncTime && (
             <Badge variant="outline" className="gap-1.5 text-[10px] border-neon-border/40 text-mint">
               <Wifi className="h-3 w-3" />
@@ -466,16 +515,20 @@ const Finance = () => {
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* 4-Tab Layout */}
       <Tabs defaultValue="executive" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3 h-11 rounded-2xl bg-secondary/50">
+        <TabsList className="grid w-full grid-cols-4 h-11 rounded-2xl bg-secondary/50">
           <TabsTrigger value="executive" className="rounded-xl text-xs font-semibold gap-1.5 data-[state=active]:shadow-md">
             <Target className="h-3.5 w-3.5" />
-            Executive ROAS
+            Executive P&L
           </TabsTrigger>
           <TabsTrigger value="ads" className="rounded-xl text-xs font-semibold gap-1.5 data-[state=active]:shadow-md">
             <BarChart3 className="h-3.5 w-3.5" />
-            360° Ads Intel
+            Ad Performance
+          </TabsTrigger>
+          <TabsTrigger value="timeline" className="rounded-xl text-xs font-semibold gap-1.5 data-[state=active]:shadow-md">
+            <CalendarDays className="h-3.5 w-3.5" />
+            Daily Timeline
           </TabsTrigger>
           <TabsTrigger value="ai" className="rounded-xl text-xs font-semibold gap-1.5 data-[state=active]:shadow-md">
             <Brain className="h-3.5 w-3.5" />
@@ -483,7 +536,7 @@ const Finance = () => {
           </TabsTrigger>
         </TabsList>
 
-        {/* TAB 1: EXECUTIVE ROAS */}
+        {/* TAB 1: EXECUTIVE P&L */}
         <TabsContent value="executive" className="space-y-6">
           {/* P&L Cards */}
           <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
@@ -580,7 +633,7 @@ const Finance = () => {
             dateFilter={isInRange}
           />
 
-          {/* Monthly Breakdown Table */}
+          {/* Monthly Breakdown Table with Profit */}
           <Card className="neu-raised-neon">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold">Monthly Breakdown</CardTitle>
@@ -594,26 +647,27 @@ const Finance = () => {
                       <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Revenue</th>
                       <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Ad Spend</th>
                       <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">ROAS</th>
+                      <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Profit</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {momChartData.filter((m) => m.revenue > 0 || m.spend > 0).map((m) => {
-                      const roas = m.spend > 0 ? m.revenue / m.spend : 0;
-                      return (
-                        <tr key={m.month} className="border-b border-neon-border/10 last:border-0">
-                          <td className="px-4 py-2.5 font-medium text-foreground">{m.month}</td>
-                          <td className="px-4 py-2.5 text-right text-mint font-semibold">₹{m.revenue.toLocaleString("en-IN")}</td>
-                          <td className="px-4 py-2.5 text-right text-destructive font-semibold">₹{m.spend.toLocaleString("en-IN")}</td>
-                          <td className="px-4 py-2.5 text-right">
-                            {m.spend > 0 ? (
-                              <Badge variant={roas >= 2 ? "default" : roas >= 1 ? "secondary" : "destructive"} className="rounded-full text-xs">
-                                {roas.toFixed(2)}x
-                              </Badge>
-                            ) : <span className="text-muted-foreground">—</span>}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {momChartData.filter((m) => m.revenue > 0 || m.spend > 0).map((m) => (
+                      <tr key={m.month} className="border-b border-neon-border/10 last:border-0">
+                        <td className="px-4 py-2.5 font-medium text-foreground">{m.month}</td>
+                        <td className="px-4 py-2.5 text-right text-mint font-semibold">₹{m.revenue.toLocaleString("en-IN")}</td>
+                        <td className="px-4 py-2.5 text-right text-destructive font-semibold">₹{m.spend.toLocaleString("en-IN")}</td>
+                        <td className="px-4 py-2.5 text-right">
+                          {m.spend > 0 ? (
+                            <Badge variant={m.roas >= 2 ? "default" : m.roas >= 1 ? "secondary" : "destructive"} className="rounded-full text-xs">
+                              {m.roas.toFixed(2)}x
+                            </Badge>
+                          ) : <span className="text-muted-foreground">—</span>}
+                        </td>
+                        <td className={`px-4 py-2.5 text-right font-semibold ${m.profit >= 0 ? "text-mint" : "text-destructive"}`}>
+                          ₹{m.profit.toLocaleString("en-IN")}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -621,7 +675,7 @@ const Finance = () => {
           </Card>
         </TabsContent>
 
-        {/* TAB 2: 360° ADS INTELLIGENCE */}
+        {/* TAB 2: AD PERFORMANCE */}
         <TabsContent value="ads" className="space-y-6">
           <AdsIntelligence
             adSpend={adSpend as any[]}
@@ -630,7 +684,60 @@ const Finance = () => {
           />
         </TabsContent>
 
-        {/* TAB 3: AI CFO */}
+        {/* TAB 3: DAILY TIMELINE */}
+        <TabsContent value="timeline" className="space-y-6">
+          <div className="text-center space-y-1 mb-4">
+            <h2 className="text-lg font-bold text-foreground">Daily Spend & Revenue Timeline</h2>
+            <p className="text-xs text-muted-foreground">Grouped by date — newest first</p>
+          </div>
+
+          {dailyTimelineData.length === 0 ? (
+            <Card className="neu-raised-neon">
+              <CardContent className="flex h-40 items-center justify-center">
+                <p className="text-sm text-muted-foreground">No data for selected period</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="neu-raised-neon">
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-neon-border/20">
+                        <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wider text-xs">Date</th>
+                        <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Revenue</th>
+                        <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Ad Spend</th>
+                        <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Profit</th>
+                        <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Active Ads</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dailyTimelineData.map((d) => (
+                        <tr key={d.date} className="border-b border-neon-border/10 last:border-0">
+                          <td className="px-4 py-2.5 font-medium text-foreground">{d.dateLabel}</td>
+                          <td className="px-4 py-2.5 text-right text-mint font-semibold">
+                            {d.revenue > 0 ? `₹${d.revenue.toLocaleString("en-IN")}` : "—"}
+                          </td>
+                          <td className="px-4 py-2.5 text-right text-destructive font-semibold">
+                            {d.spend > 0 ? `₹${d.spend.toLocaleString("en-IN")}` : "—"}
+                          </td>
+                          <td className={`px-4 py-2.5 text-right font-semibold ${d.profit >= 0 ? "text-mint" : "text-destructive"}`}>
+                            {(d.revenue > 0 || d.spend > 0) ? `₹${d.profit.toLocaleString("en-IN")}` : "—"}
+                          </td>
+                          <td className="px-4 py-2.5 text-right text-muted-foreground">
+                            {d.adCount > 0 ? d.adCount : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* TAB 4: AI CFO */}
         <TabsContent value="ai" className="space-y-6">
           <AiAuditor
             turnsRevenue={pnl.turnsRevenue}

@@ -14,21 +14,27 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    const systemPrompt = `You are a ruthless, no-BS CFO for a luxury restoration business (Restoree). You analyze financial data and output ONLY in the strict format below. No paragraphs. No introductions. No fluff. Be brutally specific with numbers.
+    const systemPrompt = `You are a ruthless, no-BS CFO for Restoree (luxury restoration). You give ONLY actionable intel. No paragraphs. No fluff. No introductions. Numbers only.
 
-OUTPUT FORMAT (use exactly these 3 headers):
+OUTPUT FORMAT (use EXACTLY these 3 headers, no deviations):
 
-📊 **The Hard Numbers**
-- (bullet 1)
-- (bullet 2)  
-- (bullet 3)
+📊 **Hard Numbers**
+- (bullet with exact ₹ amounts and % changes)
+- (bullet)
+- (bullet — max 3)
 
-🔍 **What's Broken / What's Working**
-- (bullet 1)
-- (bullet 2)
+🔍 **Performance Trends**
+- (what's working or broken, with data)
+- (second insight — max 2)
 
-🎯 **Next Move**
-- (single decisive action, e.g. "Kill Ad X", "Scale Ad Y by 2x", "Pause all spend until ROAS > 2")`;
+🎯 **Stop/Scale Instructions**
+- (single decisive command: "Kill [X]", "Scale [Y] by 2x", "Pause all spend until ROAS > [Z]")
+
+RULES:
+- Every bullet MUST contain a number
+- Never exceed 3/2/1 bullets per section
+- Use ₹ for currency, x for ROAS multiples
+- If ROAS < 1, lead with "STOP ALL SPEND" in the action`;
 
     const userPrompt = `Revenue: ₹${totalRevenue?.toLocaleString("en-IN") || 0}
 Ad Spend: ₹${totalAdSpend?.toLocaleString("en-IN") || 0}
@@ -36,7 +42,7 @@ Material COGS: ₹${materialCogs?.toLocaleString("en-IN") || 0}
 Profit: ₹${realProfit?.toLocaleString("en-IN") || 0}
 Margin: ${profitMargin || "N/A"}
 ROAS: ${totalAdSpend > 0 ? (totalRevenue / totalAdSpend).toFixed(2) + "x" : "No ad spend"}
-${topAd ? `Best Performing Ad: "${topAd.name}" (CPC: ₹${topAd.cpc}, CTR: ${topAd.ctr}%)` : ""}
+${topAd ? `Best Ad: "${topAd.name}" (CPC: ₹${topAd.cpc}, CTR: ${topAd.ctr}%)` : ""}
 ${worstAd ? `Worst Ad: "${worstAd.name}" (Spend: ₹${worstAd.spend}, Clicks: ${worstAd.clicks})` : ""}
 
 Analyze. Be ruthless. Follow the exact output format.`;
