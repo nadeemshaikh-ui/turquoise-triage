@@ -188,6 +188,19 @@ const Finance = () => {
     });
   }, [filteredTurnsSales, filteredAdSpend]);
 
+  const refreshFinanceDashboard = async () => {
+    const keys = [
+      ["finance-turns-sales"],
+      ["finance-ad-spend"],
+      ["finance-leads"],
+      ["finance-recipes"],
+      ["finance-top-customers"],
+    ] as const;
+
+    await Promise.all(keys.map((queryKey) => queryClient.invalidateQueries({ queryKey })));
+    await Promise.all(keys.map((queryKey) => queryClient.refetchQueries({ queryKey })));
+  };
+
   // ═══════════════════════════════════════════════════
   // LIVE META SYNC
   // ═══════════════════════════════════════════════════
@@ -266,84 +279,54 @@ const Finance = () => {
     setUploadingAds(true);
     try {
       const text = await file.text();
-      const lines = text.split("\n").filter((l) => l.trim());
-      if (lines.length < 2) throw new Error("Invalid Format: CSV is empty");
+      const lines = text.split(/\r?\n/).filter((l) => l.trim());
+      if (lines.length <= 11) throw new Error("Invalid Format: expected tab-delimited file with preamble");
 
-      // Search-and-Skip: find the row that STARTS with "Date" (skip metadata/preamble)
-      let headerIdx = -1;
-      let delimiter = ",";
-      for (let i = 0; i < lines.length; i++) {
-        const trimmed = lines[i].replace(/^["'\s]+/, "");
-        if (/^date\b/i.test(trimmed)) {
-          headerIdx = i;
-          delimiter = lines[i].includes("\t") ? "\t" : ",";
-          break;
-        }
-      }
-      if (headerIdx < 0) throw new Error("Invalid Format: Could not find a header row starting with 'Date'. Make sure your CSV has Date and Amount columns.");
+      const rows: {
+        date: string;
+        amount_spent: number;
+        ad_name: string;
+        campaign_name: string;
+      }[] = [];
 
-      const headerCols = parseCSVLine(lines[headerIdx], delimiter).map((c) => c.replace(/"/g, "").toLowerCase());
-      const dateCol = headerCols.findIndex((c) => c === "date" || c.includes("date"));
-      const amountCol = headerCols.findIndex((c) => c === "amount" || c.includes("spend") || c.includes("amount") || c.includes("cost"));
-      if (dateCol < 0 || amountCol < 0) throw new Error("Invalid Format: Could not find Date and Amount/Spend columns");
+      for (const line of lines.slice(11)) {
+        const cells = line.split("\t").map((c) => c.replace(/"/g, "").trim());
+        if (cells.length < 3) continue;
 
-      const campaignCol = headerCols.findIndex((c) => c.includes("campaign"));
-      const impressionsCol = headerCols.findIndex((c) => c.includes("impression"));
-      const clicksCol = headerCols.findIndex((c) => c.includes("click"));
+        const rawDate = cells[0] || "";
+        const dateParts = rawDate.split("-");
+        if (dateParts.length !== 3) continue;
 
-      const skipPhrases = ["total", "gst", "tds", "vat", "funds added"];
+        const day = dateParts[0].padStart(2, "0");
+        const month = dateParts[1].padStart(2, "0");
+        const year = dateParts[2];
+        if (!/^\d{4}$/.test(year)) continue;
+        const date = `${year}-${month}-${day}`;
 
-      const parsedRows = lines.slice(headerIdx + 1).map((line) => {
-        const lower = line.toLowerCase();
-        if (skipPhrases.some((phrase) => lower.includes(phrase))) return null;
+        const amount = parseFloat((cells[2] || "").replace(/[^0-9.]/g, ""));
+        if (!Number.isFinite(amount) || amount <= 0) continue;
 
-        const cells = parseCSVLine(line, delimiter);
-        const rawDate = (cells[dateCol] || "").replace(/"/g, "").trim();
-        const amount = cleanAmount(cells[amountCol] || "");
-        if (amount <= 0) return null;
-
-        const normalizedDate = parseFlexDate(rawDate);
-        if (!normalizedDate) return null;
-
-        return {
-          date: normalizedDate,
+        rows.push({
+          date,
           amount_spent: amount,
-          campaign_name: campaignCol >= 0 ? (cells[campaignCol] || "").replace(/"/g, "").trim() || "Meta Ads" : "Meta Ads",
-          impressions: impressionsCol >= 0 ? parseInt((cells[impressionsCol] || "").replace(/["₹,\s]/g, "")) || 0 : 0,
-          clicks: clicksCol >= 0 ? parseInt((cells[clicksCol] || "").replace(/["₹,\s]/g, "")) || 0 : 0,
-        };
-      }).filter((r): r is NonNullable<typeof r> => r !== null && !isNaN(new Date(r.date).getTime()));
+          ad_name: "Manual Meta CSV",
+          campaign_name: "Manual Meta CSV",
+        });
+      }
 
-      if (parsedRows.length === 0) throw new Error("No valid data rows found. Check that your file has Date and Amount columns with valid values.");
+      if (rows.length === 0) {
+        throw new Error("No valid data rows found in Meta CSV");
+      }
 
-      // Sum by date+campaign for deduplication
-      const byKey = new Map<string, { amount_spent: number; campaign_name: string; impressions: number; clicks: number }>();
-      parsedRows.forEach((r) => {
-        const key = `${r.date}|${r.campaign_name}`;
-        const existing = byKey.get(key);
-        if (existing) {
-          existing.amount_spent += r.amount_spent;
-          existing.impressions += r.impressions;
-          existing.clicks += r.clicks;
-        } else {
-          byKey.set(key, { ...r });
-        }
+      const totalSpend = rows.reduce((s, r) => s + r.amount_spent, 0);
+      const { error } = await supabase.from("meta_ad_spend").upsert(rows, { onConflict: "date,ad_name" });
+      if (error) throw error;
+
+      toast({
+        title: `✅ Successfully synced ₹${totalSpend.toLocaleString("en-IN", { minimumFractionDigits: 2 })} across ${rows.length} entries`,
       });
 
-      const insertRows = Array.from(byKey.entries()).map(([key, data]) => ({
-        date: key.split("|")[0],
-        amount_spent: data.amount_spent,
-        campaign_name: data.campaign_name || "",
-        ad_name: "",
-        impressions: data.impressions,
-        clicks: data.clicks,
-      }));
-
-      const totalSpend = insertRows.reduce((s, r) => s + r.amount_spent, 0);
-      const { error } = await supabase.from("meta_ad_spend").upsert(insertRows, { onConflict: "date,campaign_name,ad_name,amount_spent" });
-      if (error) throw error;
-      toast({ title: `✅ Successfully synced ₹${totalSpend.toLocaleString("en-IN", { minimumFractionDigits: 2 })} across ${insertRows.length} entries` });
-      queryClient.invalidateQueries({ queryKey: ["finance-ad-spend"] });
+      await refreshFinanceDashboard();
     } catch (err: any) {
       toast({ title: "Upload Error", description: err.message, variant: "destructive" });
     } finally {
@@ -500,9 +483,7 @@ const Finance = () => {
         description: "Turns revenue imported and dashboard refreshed",
       });
 
-      // Force immediate finance refresh
-      await queryClient.invalidateQueries({ queryKey: ["finance-turns-sales"] });
-      await queryClient.refetchQueries({ queryKey: ["finance-turns-sales"] });
+      await refreshFinanceDashboard();
     } catch (err: any) {
       toast({ title: "Upload Error", description: err.message, variant: "destructive" });
     } finally {
