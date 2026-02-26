@@ -33,6 +33,9 @@
     --destructive-foreground: 0 0% 100%;
 
     --border: 220 14% 88%;
+    --soft-yellow: 48 80% 90%;
+    --soft-yellow-foreground: 40 40% 30%;
+    --neon-border: 186 60% 75%;
     --input: 220 14% 90%;
     --ring: 215 30% 55%;
 
@@ -75,6 +78,9 @@
     --destructive: 0 60% 60%;
     --destructive-foreground: 0 0% 100%;
     --border: 220 14% 88%;
+    --soft-yellow: 48 80% 90%;
+    --soft-yellow-foreground: 40 40% 30%;
+    --neon-border: 186 60% 75%;
     --input: 220 14% 90%;
     --ring: 215 30% 55%;
     --neu-light: 0 0% 100%;
@@ -132,6 +138,25 @@
     box-shadow:
       inset 4px 4px 10px hsl(var(--neu-dark)),
       inset -4px -4px 10px hsl(var(--neu-light));
+  }
+
+  .neu-raised-neon {
+    background: hsl(var(--background));
+    border-radius: 1.5rem;
+    border: 1px solid hsl(var(--neon-border) / 0.35);
+    box-shadow:
+      8px 8px 16px hsl(var(--neu-dark)),
+      -8px -8px 16px hsl(var(--neu-light)),
+      0 0 12px -2px hsl(var(--neon-border) / 0.15);
+  }
+
+  .neu-raised-yellow {
+    background: hsl(var(--soft-yellow) / 0.35);
+    border-radius: 1.5rem;
+    border: 1px solid hsl(48 70% 78% / 0.5);
+    box-shadow:
+      6px 6px 14px hsl(var(--neu-dark)),
+      -6px -6px 14px hsl(var(--neu-light));
   }
 
   .neu-flat {

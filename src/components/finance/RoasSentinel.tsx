@@ -4,13 +4,14 @@ import { Badge } from "@/components/ui/badge";
 import { Target, TrendingUp, Zap, ArrowUpRight, ArrowDownRight, Link2 } from "lucide-react";
 import {
   ResponsiveContainer,
+  AreaChart,
+  Area,
   BarChart,
   Bar,
   XAxis,
   YAxis,
   Tooltip,
   CartesianGrid,
-  Cell,
 } from "recharts";
 
 type TurnsSale = {
@@ -36,6 +37,19 @@ type Props = {
   turnsSales: TurnsSale[];
   adSpend: AdSpend[];
   dateFilter: (dateStr: string) => boolean;
+};
+
+const neonTeal = "hsl(186, 60%, 55%)";
+const neonTealGlow = "hsl(186, 80%, 65%)";
+const softYellow = "hsl(48, 80%, 78%)";
+const mintColor = "hsl(170, 50%, 55%)";
+
+const tooltipStyle = {
+  borderRadius: 16,
+  border: "1px solid hsl(186, 60%, 75%, 0.35)",
+  background: "hsl(220, 16%, 95%)",
+  fontSize: 12,
+  boxShadow: "4px 4px 10px hsl(220, 20%, 84%), -4px -4px 10px hsl(0, 0%, 100%)",
 };
 
 const RoasSentinel = ({ turnsSales, adSpend, dateFilter }: Props) => {
@@ -67,7 +81,6 @@ const RoasSentinel = ({ turnsSales, adSpend, dateFilter }: Props) => {
     };
   }, [filtered]);
 
-  // Campaign profitability
   const campaignData = useMemo(() => {
     const campaignMap = new Map<string, { spend: number; impressions: number; clicks: number }>();
     filtered.ads.forEach((a) => {
@@ -79,7 +92,6 @@ const RoasSentinel = ({ turnsSales, adSpend, dateFilter }: Props) => {
       campaignMap.set(name, existing);
     });
 
-    // Distribute matched revenue proportionally across campaigns by spend share
     const totalSpend = Array.from(campaignMap.values()).reduce((s, c) => s + c.spend, 0);
 
     return Array.from(campaignMap.entries())
@@ -92,12 +104,11 @@ const RoasSentinel = ({ turnsSales, adSpend, dateFilter }: Props) => {
       .sort((a, b) => b.roas - a.roas);
   }, [filtered.ads, stats.matchedRevenue]);
 
-  // Monthly attribution chart data
   const monthlyData = useMemo(() => {
     const monthMap = new Map<string, { matched: number; unmatched: number; spend: number }>();
 
     filtered.turns.forEach((t) => {
-      const key = t.date.substring(0, 7); // YYYY-MM
+      const key = t.date.substring(0, 7);
       const existing = monthMap.get(key) || { matched: 0, unmatched: 0, spend: 0 };
       if (t.matched_lead_id) existing.matched += Number(t.amount);
       else existing.unmatched += Number(t.amount);
@@ -119,6 +130,7 @@ const RoasSentinel = ({ turnsSales, adSpend, dateFilter }: Props) => {
         matched: Math.round(data.matched),
         unmatched: Math.round(data.unmatched),
         spend: Math.round(data.spend),
+        total: Math.round(data.matched + data.unmatched),
       }));
   }, [filtered]);
 
@@ -126,12 +138,12 @@ const RoasSentinel = ({ turnsSales, adSpend, dateFilter }: Props) => {
 
   if (!hasData) {
     return (
-      <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
+      <Card className="neu-raised-neon">
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-            <Target className="h-4 w-4 text-primary" />
+            <Target className="h-4 w-4 icon-recessed" />
             ROAS Sentinel
-            <span className="ml-auto flex items-center gap-1 text-[9px] text-emerald-600 font-medium"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" /> Live</span>
+            <span className="ml-auto flex items-center gap-1 text-[9px] text-mint font-medium"><span className="h-1.5 w-1.5 rounded-full bg-mint animate-pulse" /> Live</span>
           </CardTitle>
         </CardHeader>
         <CardContent className="flex h-40 items-center justify-center">
@@ -145,67 +157,59 @@ const RoasSentinel = ({ turnsSales, adSpend, dateFilter }: Props) => {
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center gap-2">
-        <Target className="h-5 w-5 text-primary" />
+        <Target className="h-5 w-5 text-primary icon-recessed" />
         <h2 className="text-base font-bold text-foreground">ROAS Sentinel</h2>
-        <Badge variant="outline" className="text-[10px]">Live Attribution</Badge>
+        <Badge variant="outline" className="text-[10px] border-neon-border/40 text-dusty-blue">Live Attribution</Badge>
       </div>
 
       {/* KPI Cards */}
-      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-        <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-1.5 text-muted-foreground">
-              <TrendingUp className="h-3.5 w-3.5" />
-              <span className="text-[11px] font-medium">Matched Revenue</span>
-            </div>
-            <p className="mt-1 text-lg font-bold text-primary">₹{stats.matchedRevenue.toLocaleString("en-IN")}</p>
-            <p className="text-[10px] text-muted-foreground">from {stats.matchedCount} matched orders</p>
-          </CardContent>
-        </Card>
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+        <div className="neu-raised-neon p-4">
+          <div className="flex items-center gap-1.5 text-muted-foreground">
+            <TrendingUp className="h-3.5 w-3.5 icon-recessed" />
+            <span className="text-[11px] font-medium uppercase tracking-wider">Matched Revenue</span>
+          </div>
+          <p className="mt-2 text-lg font-bold text-mint">₹{stats.matchedRevenue.toLocaleString("en-IN")}</p>
+          <p className="text-[10px] text-muted-foreground">from {stats.matchedCount} matched orders</p>
+        </div>
 
-        <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-1.5 text-muted-foreground">
-              <Zap className="h-3.5 w-3.5" />
-              <span className="text-[11px] font-medium">ROAS</span>
-            </div>
-            <p className={`mt-1 text-lg font-bold ${stats.roas >= 2 ? "text-primary" : stats.roas >= 1 ? "text-foreground" : "text-destructive"}`}>
-              {stats.roas > 0 ? `${stats.roas.toFixed(2)}x` : "—"}
-            </p>
-            <div className="flex items-center gap-1">
-              {stats.roas >= 2 ? <ArrowUpRight className="h-3 w-3 text-primary" /> : stats.roas > 0 ? <ArrowDownRight className="h-3 w-3 text-destructive" /> : null}
-              <span className="text-[10px] text-muted-foreground">
-                {stats.roas >= 3 ? "Excellent" : stats.roas >= 2 ? "Good" : stats.roas >= 1 ? "Break-even" : stats.roas > 0 ? "Below target" : "No data"}
-              </span>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="neu-raised-neon p-4">
+          <div className="flex items-center gap-1.5 text-muted-foreground">
+            <Zap className="h-3.5 w-3.5 icon-recessed" />
+            <span className="text-[11px] font-medium uppercase tracking-wider">ROAS</span>
+          </div>
+          <p className={`mt-2 text-lg font-bold ${stats.roas >= 2 ? "text-mint" : stats.roas >= 1 ? "text-foreground" : "text-destructive"}`}>
+            {stats.roas > 0 ? `${stats.roas.toFixed(2)}x` : "—"}
+          </p>
+          <div className="flex items-center gap-1">
+            {stats.roas >= 2 ? <ArrowUpRight className="h-3 w-3 text-mint" /> : stats.roas > 0 ? <ArrowDownRight className="h-3 w-3 text-destructive" /> : null}
+            <span className="text-[10px] text-muted-foreground">
+              {stats.roas >= 3 ? "Excellent" : stats.roas >= 2 ? "Good" : stats.roas >= 1 ? "Break-even" : stats.roas > 0 ? "Below target" : "No data"}
+            </span>
+          </div>
+        </div>
 
-        <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-1.5 text-muted-foreground">
-              <Link2 className="h-3.5 w-3.5" />
-              <span className="text-[11px] font-medium">Match Rate</span>
-            </div>
-            <p className="mt-1 text-lg font-bold text-foreground">{stats.matchRate.toFixed(0)}%</p>
-            <p className="text-[10px] text-muted-foreground">{stats.matchedCount}/{stats.totalCount} orders linked</p>
-          </CardContent>
-        </Card>
+        <div className="neu-raised-yellow p-4">
+          <div className="flex items-center gap-1.5 text-soft-yellow-foreground">
+            <Link2 className="h-3.5 w-3.5 icon-recessed" />
+            <span className="text-[11px] font-medium uppercase tracking-wider">Match Rate</span>
+          </div>
+          <p className="mt-2 text-lg font-bold text-soft-yellow-foreground">{stats.matchRate.toFixed(0)}%</p>
+          <p className="text-[10px] text-muted-foreground">{stats.matchedCount}/{stats.totalCount} orders linked</p>
+        </div>
 
-        <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-1.5 text-muted-foreground">
-              <TrendingUp className="h-3.5 w-3.5" />
-              <span className="text-[11px] font-medium">Unmatched Revenue</span>
-            </div>
-            <p className="mt-1 text-lg font-bold text-muted-foreground">₹{stats.unmatchedRevenue.toLocaleString("en-IN")}</p>
-            <p className="text-[10px] text-muted-foreground">organic / walk-in</p>
-          </CardContent>
-        </Card>
+        <div className="neu-raised p-4">
+          <div className="flex items-center gap-1.5 text-muted-foreground">
+            <TrendingUp className="h-3.5 w-3.5 icon-recessed" />
+            <span className="text-[11px] font-medium uppercase tracking-wider">Unmatched Revenue</span>
+          </div>
+          <p className="mt-2 text-lg font-bold text-muted-foreground">₹{stats.unmatchedRevenue.toLocaleString("en-IN")}</p>
+          <p className="text-[10px] text-muted-foreground">organic / walk-in</p>
+        </div>
       </div>
 
-      {/* Attribution Chart: Matched vs Unmatched vs Spend */}
-      <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
+      {/* Neon-Thread Area Chart */}
+      <Card className="neu-raised-neon">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-semibold">Revenue Attribution vs Ad Spend</CardTitle>
         </CardHeader>
@@ -216,26 +220,55 @@ const RoasSentinel = ({ turnsSales, adSpend, dateFilter }: Props) => {
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={monthlyData} barGap={2}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+              <AreaChart data={monthlyData}>
+                <defs>
+                  <linearGradient id="neonTealGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={neonTeal} stopOpacity={0.3} />
+                    <stop offset="100%" stopColor={neonTeal} stopOpacity={0.02} />
+                  </linearGradient>
+                  <linearGradient id="yellowGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={softYellow} stopOpacity={0.35} />
+                    <stop offset="100%" stopColor={softYellow} stopOpacity={0.02} />
+                  </linearGradient>
+                  <filter id="neonGlow">
+                    <feGaussianBlur stdDeviation="3" result="blur" />
+                    <feMerge>
+                      <feMergeNode in="blur" />
+                      <feMergeNode in="SourceGraphic" />
+                    </feMerge>
+                  </filter>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 14%, 88%)" />
+                <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="hsl(215, 15%, 55%)" />
+                <YAxis tick={{ fontSize: 11 }} stroke="hsl(215, 15%, 55%)" />
                 <Tooltip
-                  contentStyle={{
-                    borderRadius: 16,
-                    border: "1px solid hsl(var(--border))",
-                    background: "hsl(var(--card))",
-                    fontSize: 12,
-                  }}
+                  contentStyle={tooltipStyle}
                   formatter={(value: number, name: string) => [
                     `₹${value.toLocaleString("en-IN")}`,
-                    name === "matched" ? "Matched Revenue" : name === "unmatched" ? "Unmatched Revenue" : "Ad Spend",
+                    name === "total" ? "Revenue" : "Ad Spend",
                   ]}
                 />
-                <Bar dataKey="matched" stackId="revenue" fill="hsl(16, 100%, 50%)" radius={[0, 0, 0, 0]} name="matched" />
-                <Bar dataKey="unmatched" stackId="revenue" fill="hsl(16, 100%, 50%, 0.35)" radius={[8, 8, 0, 0]} name="unmatched" />
-                <Bar dataKey="spend" fill="hsl(var(--destructive))" radius={[8, 8, 0, 0]} name="spend" />
-              </BarChart>
+                <Area
+                  type="monotone"
+                  dataKey="total"
+                  stroke={neonTealGlow}
+                  strokeWidth={2.5}
+                  fill="url(#neonTealGrad)"
+                  filter="url(#neonGlow)"
+                  name="total"
+                  dot={{ r: 4, fill: neonTeal, stroke: "white", strokeWidth: 2 }}
+                  activeDot={{ r: 6, fill: neonTealGlow, stroke: "white", strokeWidth: 2 }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="spend"
+                  stroke={softYellow}
+                  strokeWidth={2}
+                  fill="url(#yellowGrad)"
+                  name="spend"
+                  dot={{ r: 3, fill: softYellow, stroke: "white", strokeWidth: 2 }}
+                />
+              </AreaChart>
             </ResponsiveContainer>
           )}
         </CardContent>
@@ -243,7 +276,7 @@ const RoasSentinel = ({ turnsSales, adSpend, dateFilter }: Props) => {
 
       {/* Campaign Profitability Table */}
       {campaignData.length > 0 && (
-        <Card className="rounded-[28px] shadow-[0_2px_12px_-4px_hsl(16_100%_50%/0.10)]">
+        <Card className="neu-raised-neon">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold">Campaign Profitability</CardTitle>
           </CardHeader>
@@ -251,17 +284,17 @@ const RoasSentinel = ({ turnsSales, adSpend, dateFilter }: Props) => {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border">
-                    <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Campaign</th>
-                    <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">Spend</th>
-                    <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">Attr. Revenue</th>
-                    <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">ROAS</th>
-                    <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">CPC</th>
+                  <tr className="border-b border-neon-border/20">
+                    <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wider text-xs">Campaign</th>
+                    <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Spend</th>
+                    <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Attr. Revenue</th>
+                    <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">ROAS</th>
+                    <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">CPC</th>
                   </tr>
                 </thead>
                 <tbody>
                   {campaignData.map((c, i) => (
-                    <tr key={c.name} className={`border-b border-border last:border-0 ${i === 0 && c.roas > 0 ? "bg-primary/5" : ""}`}>
+                    <tr key={c.name} className={`border-b border-neon-border/10 last:border-0 ${i === 0 && c.roas > 0 ? "bg-mint/5" : ""}`}>
                       <td className="px-4 py-2.5 font-medium text-foreground">
                         <div className="flex items-center gap-2">
                           {c.name}
@@ -274,7 +307,7 @@ const RoasSentinel = ({ turnsSales, adSpend, dateFilter }: Props) => {
                         </div>
                       </td>
                       <td className="px-4 py-2.5 text-right text-destructive font-semibold">₹{c.spend.toLocaleString("en-IN")}</td>
-                      <td className="px-4 py-2.5 text-right text-primary font-semibold">₹{Math.round(c.revenue).toLocaleString("en-IN")}</td>
+                      <td className="px-4 py-2.5 text-right text-mint font-semibold">₹{Math.round(c.revenue).toLocaleString("en-IN")}</td>
                       <td className="px-4 py-2.5 text-right">
                         <Badge variant={c.roas >= 2 ? "default" : c.roas >= 1 ? "secondary" : "destructive"} className="rounded-full text-xs">
                           {c.roas.toFixed(2)}x
