@@ -26,7 +26,6 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Fetch last 30 days of insights from Meta Marketing API
     const today = new Date();
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(today.getDate() - 30);
@@ -34,12 +33,21 @@ Deno.serve(async (req) => {
     const since = thirtyDaysAgo.toISOString().split("T")[0];
     const until = today.toISOString().split("T")[0];
 
-    // Fetch campaign-level insights with daily breakdown
-    const url = `https://graph.facebook.com/v21.0/act_${AD_ACCOUNT_ID}/insights?fields=campaign_name,spend,impressions,clicks&time_range={"since":"${since}","until":"${until}"}&time_increment=1&level=campaign&limit=500&access_token=${metaToken}`;
+    // Fetch ad-level insights with daily breakdown
+    const url = `https://graph.facebook.com/v21.0/act_${AD_ACCOUNT_ID}/insights?fields=campaign_name,ad_name,spend,impressions,clicks,reach,inline_post_engagement&time_range={"since":"${since}","until":"${until}"}&time_increment=1&level=ad&limit=500&access_token=${metaToken}`;
 
-    console.log("Fetching Meta insights for account:", AD_ACCOUNT_ID, "range:", since, "to", until);
+    console.log("Fetching Meta ad-level insights for account:", AD_ACCOUNT_ID, "range:", since, "to", until);
 
-    const allRows: { date: string; amount_spent: number; campaign_name: string; impressions: number; clicks: number }[] = [];
+    const allRows: {
+      date: string;
+      amount_spent: number;
+      campaign_name: string;
+      ad_name: string;
+      impressions: number;
+      clicks: number;
+      reach: number;
+      engagement: number;
+    }[] = [];
     let nextUrl: string | null = url;
 
     while (nextUrl) {
@@ -68,8 +76,11 @@ Deno.serve(async (req) => {
           date: row.date_start,
           amount_spent: parseFloat(row.spend) || 0,
           campaign_name: row.campaign_name || "Unknown",
+          ad_name: row.ad_name || "Unknown Ad",
           impressions: parseInt(row.impressions) || 0,
           clicks: parseInt(row.clicks) || 0,
+          reach: parseInt(row.reach) || 0,
+          engagement: parseInt(row.inline_post_engagement) || 0,
         });
       }
 
@@ -106,7 +117,7 @@ Deno.serve(async (req) => {
 
     return new Response(
       JSON.stringify({
-        message: `Synced ${inserted} rows, ₹${totalSpend.toFixed(2)} total spend`,
+        message: `Synced ${inserted} ad-level rows, ₹${totalSpend.toFixed(2)} total spend`,
         synced: inserted,
         totalSpend,
         dateRange: { since, until },
