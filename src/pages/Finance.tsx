@@ -360,111 +360,129 @@ const Finance = () => {
     setUploadingTurns(true);
     try {
       const text = await file.text();
-      const lines = text.split("\n").filter((l) => l.trim());
+      const lines = text.split(/\r?\n/).filter((l) => l.trim());
       if (lines.length < 2) throw new Error("CSV is empty");
 
-      // Find header row — aggressively clean every cell before matching
-      let headerIdx = -1;
-      let headerCols: string[] = [];
-      let delimiter = ",";
-      for (let i = 0; i < lines.length; i++) {
-        delimiter = lines[i].includes("\t") ? "\t" : ",";
-        const cols = parseCSVLine(lines[i], delimiter).map((c) => c.replace(/"/g, "").trim().toLowerCase());
-        const hasDate = cols.some((c) => c.includes("date"));
-        const hasAmount = cols.some((c) => c.includes("amount") || c.includes("total") || c.includes("price") || c.includes("value"));
-        if (hasDate && hasAmount) {
-          headerIdx = i;
-          headerCols = cols;
-          break;
-        }
+      // Brute-force parser requested: split by "," while preserving quoted commas
+      const parseBruteforceCells = (line: string) => line.split('","').map((c) => c.replace(/"/g, "").trim());
+
+      // Header matching (exact names)
+      const header = parseBruteforceCells(lines[0]).map((h) => h.toLowerCase());
+      const dateCol = header.findIndex((h) => h === "order creation date");
+      const amountCol = header.findIndex((h) => h === "amount");
+      const mobileCol = header.findIndex((h) => h === "mobile");
+      const nameCol = header.findIndex((h) => h === "customer name");
+      const orderCol = header.findIndex((h) => h === "order");
+
+      if (dateCol < 0 || amountCol < 0) {
+        throw new Error("Invalid Turns CSV: required headers 'Order Creation Date' and 'Amount' not found");
       }
-      if (headerIdx < 0) throw new Error("Invalid Turns CSV: must contain Date and Amount/Total columns");
 
-      console.log("[Turns Parser] Header row:", headerIdx, "Cols:", headerCols, "Delimiter:", delimiter === "\t" ? "TAB" : "COMMA");
+      const months: Record<string, string> = {
+        Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06",
+        Jul: "07", Aug: "08", Sep: "09", Oct: "10", Nov: "11", Dec: "12",
+      };
 
-      // Explicit column matching — prefer "order creation date" over generic "date"
-      const dateCol = headerCols.findIndex((c) => c.includes("order") && c.includes("date")) >= 0
-        ? headerCols.findIndex((c) => c.includes("order") && c.includes("date"))
-        : headerCols.findIndex((c) => c.includes("date"));
-      const amountCol = headerCols.findIndex((c) => c === "amount" || c.includes("amount") || c.includes("total amount") || c.includes("price"));
-      const phoneCol = headerCols.findIndex((c) => c.includes("phone") || c.includes("mobile") || c.includes("contact"));
-      const nameCol = headerCols.findIndex((c) => c.includes("customer") || c.includes("name") || c.includes("client"));
-      const orderCol = headerCols.findIndex((c) => (c.includes("order") && !c.includes("date")) || c.includes("invoice") || c.includes("ref"));
+      const parsedRows: {
+        date: string;
+        amount: number;
+        phone: string;
+        sanitized_phone: string;
+        customer_name: string;
+        order_ref: string;
+      }[] = [];
 
-      console.log("[Turns Parser] Columns — date:", dateCol, "amount:", amountCol, "phone:", phoneCol, "name:", nameCol, "order:", orderCol);
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
 
-      const skipPhrases = ["grand total", "subtotal", "gst", "tds"];
-      const rows: { date: string; amount: number; phone: string; sanitized_phone: string; customer_name: string; order_ref: string }[] = [];
+        const cells = parseBruteforceCells(line);
 
-      for (let i = headerIdx + 1; i < lines.length; i++) {
-        const lower = lines[i].toLowerCase().trim();
-        if (!lower || skipPhrases.some((p) => lower.startsWith(p) || lower.includes(`\t${p}`) || lower.includes(`,${p}`))) continue;
-
-        const cells = parseCSVLine(lines[i], delimiter);
         const rawDate = (cells[dateCol] || "").replace(/"/g, "").trim();
-        // Aggressive amount: strip EVERYTHING except digits and decimal
-        const rawAmount = (cells[amountCol] || "").replace(/[^0-9.]/g, "");
-        const amount = parseFloat(rawAmount) || 0;
-        if (amount <= 0) continue;
+        const parts = rawDate.split("-");
+        let date: string | null = null;
+        if (parts.length === 3) {
+          const day = parts[0].padStart(2, "0");
+          const monthKey = parts[1].slice(0, 1).toUpperCase() + parts[1].slice(1).toLowerCase();
+          const monthNum = months[monthKey];
+          const year = parts[2];
+          if (monthNum && /^\d{4}$/.test(year)) {
+            date = `${year}-${monthNum}-${day}`;
+          }
+        }
+        if (!date || isNaN(new Date(date).getTime())) continue;
 
-        // Parse date flexibly (DD-Mon-YYYY, DD-MM-YYYY, DD/MM/YYYY, YYYY-MM-DD)
-        const dateStr = parseFlexDate(rawDate);
-        if (!dateStr || isNaN(new Date(dateStr).getTime())) continue;
+        const amountRaw = cells[amountCol] || "";
+        const amount = parseFloat(amountRaw.replace(/[^0-9.]/g, ""));
+        if (!Number.isFinite(amount) || amount <= 0) continue;
 
-        const rawPhone = phoneCol >= 0 ? (cells[phoneCol] || "").replace(/"/g, "").trim() : "";
-        const sPhone = sanitizePhone(rawPhone);
-        const custName = nameCol >= 0 ? (cells[nameCol] || "").replace(/"/g, "").trim() : "";
-        const orderRef = orderCol >= 0 ? (cells[orderCol] || "").replace(/"/g, "").trim() : "";
+        const phone = mobileCol >= 0 ? (cells[mobileCol] || "").replace(/"/g, "").trim() : "";
+        const sanitized_phone = phone.replace(/\D/g, "");
+        const customer_name = nameCol >= 0 ? (cells[nameCol] || "").replace(/"/g, "").trim() : "";
+        const order_ref = orderCol >= 0 ? (cells[orderCol] || "").replace(/"/g, "").trim() : "";
 
-        rows.push({ date: dateStr, amount, phone: rawPhone, sanitized_phone: sPhone, customer_name: custName, order_ref: orderRef });
+        console.log("Parsed Row:", { date, amount, phone });
+
+        parsedRows.push({
+          date,
+          amount,
+          phone,
+          sanitized_phone,
+          customer_name,
+          order_ref,
+        });
       }
 
-      if (rows.length === 0) throw new Error("No valid data rows found in Turns CSV");
+      if (parsedRows.length === 0) {
+        throw new Error("No valid data rows found in Turns CSV");
+      }
 
-      // Fetch customers for phone matching
-      const { data: customers } = await supabase.from("customers").select("id, phone, name");
-      const customerByPhone = new Map<string, { id: string; name: string }>();
+      // Customer/lead matching using sanitized Mobile
+      const { data: customers, error: customersError } = await supabase.from("customers").select("id, phone");
+      if (customersError) throw customersError;
+
+      const customerByPhone = new Map<string, string>();
       (customers || []).forEach((c) => {
-        const sp = sanitizePhone(c.phone);
-        if (sp.length >= 10) customerByPhone.set(sp, { id: c.id, name: c.name });
+        const key = (c.phone || "").replace(/\D/g, "");
+        if (key) customerByPhone.set(key, c.id);
       });
 
-      // Fetch recent leads (30-day window) for matching
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      const { data: recentLeads } = await supabase
+      const customerIds = Array.from(new Set(Array.from(customerByPhone.values())));
+      const { data: leads, error: leadsError } = await supabase
         .from("leads")
-        .select("id, customer_id, created_at, quoted_price")
-        .gte("created_at", thirtyDaysAgo.toISOString());
+        .select("id, customer_id, created_at")
+        .in("customer_id", customerIds.length ? customerIds : ["00000000-0000-0000-0000-000000000000"]);
+      if (leadsError) throw leadsError;
+
       const leadsByCustomer = new Map<string, { id: string; created_at: string }[]>();
-      (recentLeads || []).forEach((l) => {
+      (leads || []).forEach((l) => {
         const arr = leadsByCustomer.get(l.customer_id) || [];
         arr.push({ id: l.id, created_at: l.created_at });
         leadsByCustomer.set(l.customer_id, arr);
       });
 
-      let matchedCount = 0;
-      const insertRows = rows.map((r) => {
+      const upsertRows = parsedRows.map((r) => {
+        const normalizedPhone = r.sanitized_phone.length > 10 ? r.sanitized_phone.slice(-10) : r.sanitized_phone;
+        const customerId = customerByPhone.get(normalizedPhone) || customerByPhone.get(r.sanitized_phone) || null;
         let matched_lead_id: string | null = null;
-        if (r.sanitized_phone.length >= 10) {
-          const customer = customerByPhone.get(r.sanitized_phone);
-          if (customer) {
-            const customerLeads = leadsByCustomer.get(customer.id);
-            if (customerLeads && customerLeads.length > 0) {
-              const saleDate = new Date(r.date).getTime();
-              let closest = customerLeads[0];
-              let closestDiff = Math.abs(new Date(closest.created_at).getTime() - saleDate);
-              customerLeads.forEach((l) => {
-                const diff = Math.abs(new Date(l.created_at).getTime() - saleDate);
-                if (diff < closestDiff) { closest = l; closestDiff = diff; }
-              });
-              if (closestDiff <= 30 * 24 * 60 * 60 * 1000) {
-                matched_lead_id = closest.id;
-                matchedCount++;
+
+        if (customerId) {
+          const customerLeads = leadsByCustomer.get(customerId) || [];
+          if (customerLeads.length > 0) {
+            const saleDate = new Date(r.date).getTime();
+            let closest = customerLeads[0];
+            let closestDiff = Math.abs(new Date(closest.created_at).getTime() - saleDate);
+            customerLeads.forEach((l) => {
+              const diff = Math.abs(new Date(l.created_at).getTime() - saleDate);
+              if (diff < closestDiff) {
+                closest = l;
+                closestDiff = diff;
               }
-            }
+            });
+            matched_lead_id = closest.id;
           }
         }
+
         return {
           date: r.date,
           order_ref: r.order_ref || null,
@@ -477,15 +495,19 @@ const Finance = () => {
         };
       });
 
-      const { error } = await supabase.from("turns_sales").insert(insertRows);
+      // Upsert cleaned data
+      const { error } = await supabase.from("turns_sales").upsert(upsertRows);
       if (error) throw error;
 
-      const totalAmount = rows.reduce((s, r) => s + r.amount, 0);
+      const totalAmount = parsedRows.reduce((s, r) => s + r.amount, 0);
       toast({
-        title: `✅ Synced ₹${totalAmount.toLocaleString("en-IN")} from ${rows.length} Turns orders`,
-        description: `${matchedCount} orders matched to leads via phone number`,
+        title: `✅ Synced ₹${totalAmount.toLocaleString("en-IN")} from ${parsedRows.length} Turns orders`,
+        description: "Turns revenue imported and dashboard refreshed",
       });
-      queryClient.invalidateQueries({ queryKey: ["finance-turns-sales"] });
+
+      // Force immediate finance refresh
+      await queryClient.invalidateQueries({ queryKey: ["finance-turns-sales"] });
+      await queryClient.refetchQueries({ queryKey: ["finance-turns-sales"] });
     } catch (err: any) {
       toast({ title: "Upload Error", description: err.message, variant: "destructive" });
     } finally {
