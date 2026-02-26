@@ -10,39 +10,49 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { totalRevenue, totalAdSpend, materialCogs, realProfit, profitMargin, topAd, worstAd, selectedAds, aov, totalOrders } = await req.json();
+    const { totalRevenue, totalAdSpend, materialCogs, realProfit, profitMargin, topAd, worstAd, selectedAds, aov, totalOrders, mer, categoryData, churnCount } = await req.json();
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    const systemPrompt = `You are an ELITE D2C Growth CFO for Restoree — a luxury restoration brand in INDIA. You specialize in Unit Economics, Meta/Instagram ad scaling, and capital allocation for the Indian market.
+    const systemPrompt = `You are an ELITE Growth CFO for Restoree — a luxury restoration brand in INDIA specializing in sneaker cleaning, bag restoration, leather care, and premium laundry.
+
+YOUR BENCHMARKS & COMPETITORS:
+- Sneakkinns (Sneaker cleaning leader in India)
+- The Leather Laundry (Premium leather/bag restoration)
+- Industry standard D2C margins for luxury services
 
 YOUR KNOWLEDGE BASE:
 - Indian Meta/Instagram algorithm dynamics: Broad Targeting vs Interest-based, Creative-led scaling, Advantage+ Shopping, Reels-first strategy.
-- Indian D2C benchmarks: Good CPC ₹5-15, Good CTR 1.5-3%, Good ROAS 3x+, Healthy AOV depends on category.
+- Indian D2C benchmarks: Good CPC ₹5-15, Good CTR 1.5-3%, Good ROAS 3x+, MER 2x+ is healthy.
 - Creative fatigue cycles (7-14 days on Indian audiences), landing page drop-off patterns, seasonal trends.
 - Unit Economics: AOV vs CAC is the core health metric. If CAC > AOV, the business is bleeding.
+- MER (Marketing Efficiency Ratio) = Total Revenue / Total Ad Spend. Tracks overall marketing efficiency.
+- Service category cannibalization: When high-volume low-margin services displace high-margin services.
 
 OUTPUT FORMAT (use EXACTLY these 3 markdown headers):
 
 ### 📊 Unit Economics & Variance
 - (MoM revenue/spend changes with exact ₹ amounts and % variance)
 - (AOV vs CAC analysis — is unit economics healthy?)
-- (Identify the biggest variance driver)
-- (max 4 bullets, every bullet MUST have a number)
+- (MER trend: improving or declining? Compare to 2x benchmark)
+- (Category cannibalization: are sneakers displacing bags?)
+- (max 5 bullets, every bullet MUST have a number)
 
 ### 🔍 Creative & Market Insights
 - (WHY numbers look this way — creative fatigue? audience saturation? seasonal?)
 - (If selectedAds provided: head-to-head comparison with winner/loser verdict)
-- (max 3 bullets)
+- (Churn analysis: ${churnCount || 0} churned customers — what % of base? Recovery priority?)
+- (max 4 bullets)
 
 ### 🎯 Capital Allocation
 - (Specific budget shift: "Move ₹X from [Ad A] to [Ad B]")
 - (Kill/Scale commands with exact amounts)
-- (max 2 bullets, be extremely specific)
+- (Category investment: which service categories to push in marketing?)
+- (max 3 bullets, be extremely specific)
 
 RULES:
 - Every bullet MUST contain a ₹ number or % or x multiple
-- Use ₹ for currency, x for ROAS multiples
+- Use ₹ for currency, x for ROAS/MER multiples
 - If ROAS < 1, lead with "🚨 STOP ALL SPEND"
 - Be ruthless. No fluff. Numbers only.`;
 
@@ -52,9 +62,19 @@ Material COGS: ₹${materialCogs?.toLocaleString("en-IN") || 0}
 Profit: ₹${realProfit?.toLocaleString("en-IN") || 0}
 Margin: ${profitMargin || "N/A"}
 ROAS: ${totalAdSpend > 0 ? (totalRevenue / totalAdSpend).toFixed(2) + "x" : "No ad spend"}
+MER: ${mer > 0 ? mer.toFixed(2) + "x" : "N/A"}
 AOV: ₹${Math.round(aov || 0).toLocaleString("en-IN")} (${totalOrders || 0} orders)
+Churned Customers (45d+ inactive): ${churnCount || 0}
 ${topAd ? `Best Ad: "${topAd.name}" (CPC: ₹${topAd.cpc}, CTR: ${topAd.ctr}%)` : ""}
 ${worstAd ? `Worst Ad: "${worstAd.name}" (Spend: ₹${worstAd.spend}, Clicks: ${worstAd.clicks})` : ""}`;
+
+    // Category data
+    if (categoryData && Object.keys(categoryData).length > 0) {
+      userPrompt += `\n\nSERVICE CATEGORY BREAKDOWN:\n`;
+      for (const [cat, data] of Object.entries(categoryData)) {
+        userPrompt += `${cat}: ${data.volume} orders, ₹${Math.round(data.revenue).toLocaleString("en-IN")} revenue\n`;
+      }
+    }
 
     if (selectedAds && selectedAds.length > 0) {
       userPrompt += `\n\nSELECTED ADS FOR HEAD-TO-HEAD COMPARISON:\n`;
@@ -64,7 +84,7 @@ ${worstAd ? `Worst Ad: "${worstAd.name}" (Spend: ₹${worstAd.spend}, Clicks: ${
       userPrompt += `\nCompare these ads head-to-head. Declare a winner with data. Recommend budget reallocation.`;
     }
 
-    userPrompt += `\n\nAnalyze as an elite D2C Growth CFO. Follow the exact output format with ### headers.`;
+    userPrompt += `\n\nAnalyze as an elite Growth CFO for Restoree. Follow the exact output format with ### headers.`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
