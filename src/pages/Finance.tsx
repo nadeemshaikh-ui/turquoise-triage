@@ -367,17 +367,12 @@ const Finance = () => {
       // Brute-force parser requested: split by "," while preserving quoted commas
       const parseBruteforceCells = (line: string) => line.split('","').map((c) => c.replace(/"/g, "").trim());
 
-      // Header matching (exact names)
-      const header = parseBruteforceCells(lines[0]).map((h) => h.toLowerCase());
-      const dateCol = header.findIndex((h) => h === "order creation date");
-      const amountCol = header.findIndex((h) => h === "amount");
-      const mobileCol = header.findIndex((h) => h === "mobile");
-      const nameCol = header.findIndex((h) => h === "customer name");
-      const orderCol = header.findIndex((h) => h === "order");
-
-      if (dateCol < 0 || amountCol < 0) {
-        throw new Error("Invalid Turns CSV: required headers 'Order Creation Date' and 'Amount' not found");
-      }
+      // Hardcoded column indexes (ignore headers)
+      const ORDER_REF_INDEX = 0;
+      const CUSTOMER_NAME_INDEX = 1;
+      const MOBILE_INDEX = 2;
+      const ORDER_DATE_INDEX = 6;
+      const AMOUNT_INDEX = 25;
 
       const months: Record<string, string> = {
         Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06",
@@ -398,8 +393,9 @@ const Finance = () => {
         if (!line) continue;
 
         const cells = parseBruteforceCells(line);
+        if (cells.length <= AMOUNT_INDEX) continue;
 
-        const rawDate = (cells[dateCol] || "").replace(/"/g, "").trim();
+        const rawDate = (cells[ORDER_DATE_INDEX] || "").replace(/"/g, "").trim();
         const parts = rawDate.split("-");
         let date: string | null = null;
         if (parts.length === 3) {
@@ -411,16 +407,14 @@ const Finance = () => {
             date = `${year}-${monthNum}-${day}`;
           }
         }
-        if (!date || isNaN(new Date(date).getTime())) continue;
 
-        const amountRaw = cells[amountCol] || "";
-        const amount = parseFloat(amountRaw.replace(/[^0-9.]/g, ""));
-        if (!Number.isFinite(amount) || amount <= 0) continue;
+        const amount = parseFloat((cells[AMOUNT_INDEX] || "").replace(/[^0-9.]/g, ""));
+        if (!date || !Number.isFinite(amount) || amount <= 0) continue;
 
-        const phone = mobileCol >= 0 ? (cells[mobileCol] || "").replace(/"/g, "").trim() : "";
+        const phone = (cells[MOBILE_INDEX] || "").replace(/"/g, "").trim();
         const sanitized_phone = phone.replace(/\D/g, "");
-        const customer_name = nameCol >= 0 ? (cells[nameCol] || "").replace(/"/g, "").trim() : "";
-        const order_ref = orderCol >= 0 ? (cells[orderCol] || "").replace(/"/g, "").trim() : "";
+        const customer_name = (cells[CUSTOMER_NAME_INDEX] || "").replace(/"/g, "").trim();
+        const order_ref = (cells[ORDER_REF_INDEX] || "").replace(/"/g, "").trim();
 
         console.log("Parsed Row:", { date, amount, phone });
 
@@ -497,7 +491,7 @@ const Finance = () => {
       });
 
       // Upsert cleaned data
-      const { error } = await supabase.from("turns_sales").upsert(upsertRows, { onConflict: "date,order_ref,amount" });
+      const { error } = await supabase.from("turns_sales").upsert(upsertRows, { onConflict: "order_ref" });
       if (error) throw error;
 
       const totalAmount = parsedRows.reduce((s, r) => s + r.amount, 0);
