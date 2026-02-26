@@ -9,10 +9,10 @@ interface StatsBarProps {
 
 const StatsBar = ({ todayOrders, activeLeads, revenue, pendingPickup }: StatsBarProps) => {
   const stats = [
-    { label: "Today's Orders", value: todayOrders, icon: Package, color: "text-primary" },
-    { label: "Active Leads", value: activeLeads, icon: Users, color: "text-deep-teal" },
-    { label: "Revenue (₹)", value: `₹${revenue.toLocaleString("en-IN")}`, icon: TrendingUp, color: "text-primary" },
-    { label: "Ready for Pickup", value: pendingPickup, icon: Clock, color: "text-gold" },
+    { label: "Today's Orders", value: todayOrders, icon: Package, glow: true },
+    { label: "Active Leads", value: activeLeads, icon: Users, glow: false },
+    { label: "Revenue (₹)", value: `₹${revenue.toLocaleString("en-IN")}`, icon: TrendingUp, glow: true },
+    { label: "Ready for Pickup", value: pendingPickup, icon: Clock, glow: false },
   ];
 
   return (
@@ -20,14 +20,16 @@ const StatsBar = ({ todayOrders, activeLeads, revenue, pendingPickup }: StatsBar
       {stats.map((stat) => (
         <div
           key={stat.label}
-          className="flex items-center gap-4 rounded-[28px] border border-border bg-card p-5 shadow-sm transition-shadow hover:shadow-md"
+          className={`flex items-center gap-4 rounded-lg p-5 transition-shadow ${
+            stat.glow ? "glass-card-glow" : "glass-card"
+          }`}
         >
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
-            <stat.icon className={`h-6 w-6 ${stat.color}`} />
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+            <stat.icon className="h-6 w-6 text-primary" />
           </div>
           <div>
-            <p className="text-sm font-medium text-muted-foreground">{stat.label}</p>
-            <p className="text-2xl font-bold text-card-foreground">{stat.value}</p>
+            <p className="text-xs font-tech uppercase tracking-widest text-muted-foreground">{stat.label}</p>
+            <p className="text-2xl font-bold font-display text-foreground">{stat.value}</p>
           </div>
         </div>
       ))}

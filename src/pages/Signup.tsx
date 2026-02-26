@@ -42,27 +42,28 @@ const Signup = () => {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-sm">
+    <div className="flex min-h-screen items-center justify-center p-4">
+      <Card className="w-full max-w-sm glass-card-glow">
         <CardHeader className="text-center">
-          <CardTitle className="text-xl font-extrabold tracking-tight">
-            Restoree <span className="text-primary">360</span>
+          <CardTitle className="text-2xl font-display">
+            <span className="text-gold-gradient">Restoree</span>{" "}
+            <span className="text-primary">360</span>
           </CardTitle>
-          <CardDescription>Create your team account</CardDescription>
+          <CardDescription className="font-tech">Create your team account</CardDescription>
         </CardHeader>
         <form onSubmit={handleSignup}>
           <CardContent className="space-y-3">
             <div className="space-y-1.5">
-              <Label htmlFor="name">Display Name</Label>
-              <Input id="name" required value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+              <Label htmlFor="name" className="font-tech text-xs uppercase tracking-widest text-muted-foreground">Display Name</Label>
+              <Input id="name" required value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="bg-input/50 border-primary/20 focus:border-primary/50" />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+              <Label htmlFor="email" className="font-tech text-xs uppercase tracking-widest text-muted-foreground">Email</Label>
+              <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="bg-input/50 border-primary/20 focus:border-primary/50" />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Min 6 characters" />
+              <Label htmlFor="password" className="font-tech text-xs uppercase tracking-widest text-muted-foreground">Password</Label>
+              <Input id="password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Min 6 characters" className="bg-input/50 border-primary/20 focus:border-primary/50" />
             </div>
           </CardContent>
           <CardFooter className="flex flex-col gap-3">
@@ -70,7 +71,7 @@ const Signup = () => {
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Create Account
             </Button>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground font-tech">
               Already have an account?{" "}
               <Link to="/login" className="font-medium text-primary hover:underline">
                 Sign in
