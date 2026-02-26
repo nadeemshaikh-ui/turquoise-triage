@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Loader2, Upload, DollarSign, TrendingUp, BarChart3, CalendarIcon, Trash2 } from "lucide-react";
+import { Loader2, Upload, DollarSign, TrendingUp, BarChart3, CalendarIcon, Trash2, RefreshCw, Wifi } from "lucide-react";
 import RoasSentinel from "@/components/finance/RoasSentinel";
 import AiAuditor from "@/components/finance/AiAuditor";
 import {
@@ -31,7 +31,7 @@ import {
   Tooltip,
   CartesianGrid,
 } from "recharts";
-import { format as fnsFormat, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths, isWithinInterval } from "date-fns";
+import { format as fnsFormat, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths } from "date-fns";
 
 // Sanitize phone: remove +91, spaces, dashes, parens, dots
 const sanitizePhone = (raw: string): string => {
@@ -40,10 +40,18 @@ const sanitizePhone = (raw: string): string => {
   return p.slice(-10); // last 10 digits
 };
 
+// Month name map for DD-Mon-YYYY parsing
+const MONTH_MAP: Record<string, string> = {
+  jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
+  jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12",
+};
+
 const Finance = () => {
   const queryClient = useQueryClient();
   const [uploadingAds, setUploadingAds] = useState(false);
   const [uploadingTurns, setUploadingTurns] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined);
   const [dateTo, setDateTo] = useState<Date | undefined>(undefined);
 
@@ -59,7 +67,6 @@ const Finance = () => {
       return data || [];
     },
   });
-
 
   // Turns sales data
   const { data: turnsSales = [] } = useQuery({
@@ -98,7 +105,6 @@ const Finance = () => {
       return data || [];
     },
   });
-
 
   // Top customers by lifetime spend
   const { data: topCustomers = [] } = useQuery({
@@ -143,64 +149,116 @@ const Finance = () => {
   // Filtered data
   const filteredLeads = useMemo(() => leads.filter((l: any) => isInRange(l.created_at)), [leads, dateFrom, dateTo]);
   const filteredAdSpend = useMemo(() => (adSpend as any[]).filter((a) => isInRange(a.date)), [adSpend, dateFrom, dateTo]);
-
-  // Compute P&L
-  // Filtered Turns sales
   const filteredTurnsSales = useMemo(() => (turnsSales as any[]).filter((t) => isInRange(t.date)), [turnsSales, dateFrom, dateTo]);
 
   const pnl = useMemo(() => {
-    // Primary revenue = Turns Sales
     const turnsRevenue = filteredTurnsSales.reduce((s, t: any) => s + Number(t.amount), 0);
-
     const recipeCostByService = new Map<string, number>();
     (recipes as any[]).forEach((r: any) => {
       const cost = Number(r.quantity) * Number(r.inventory_items?.cost_per_unit || 0);
       const existing = recipeCostByService.get(r.service_id) || 0;
       recipeCostByService.set(r.service_id, existing + cost);
     });
-
     let totalMaterialCost = 0;
     filteredLeads.forEach((l: any) => {
       totalMaterialCost += recipeCostByService.get(l.service_id) || 0;
     });
-
     const totalAdSpend = filteredAdSpend.reduce((s, a: any) => s + Number(a.amount_spent), 0);
     const realProfit = turnsRevenue - totalAdSpend - totalMaterialCost;
-
     return { turnsRevenue, totalMaterialCost, totalAdSpend, realProfit };
   }, [filteredLeads, filteredTurnsSales, filteredAdSpend, recipes]);
 
-  // ROAS chart data
   const roasChartData = useMemo(() => {
     const now = new Date();
     const months = eachMonthOfInterval({
       start: subMonths(startOfMonth(now), 5),
       end: endOfMonth(now),
     });
-
     return months.map((month) => {
       const monthLabel = fnsFormat(month, "MMM yy");
       const monthEnd = endOfMonth(month);
-
       const revenue = filteredTurnsSales
-        .filter((t: any) => {
-          const d = new Date(t.date);
-          return d >= month && d <= monthEnd;
-        })
+        .filter((t: any) => { const d = new Date(t.date); return d >= month && d <= monthEnd; })
         .reduce((s, t: any) => s + Number(t.amount), 0);
-
       const spend = filteredAdSpend
-        .filter((a) => {
-          const d = new Date(a.date);
-          return d >= month && d <= monthEnd;
-        })
+        .filter((a) => { const d = new Date(a.date); return d >= month && d <= monthEnd; })
         .reduce((s, a: any) => s + Number(a.amount_spent), 0);
-
       return { month: monthLabel, revenue, spend };
     });
   }, [filteredTurnsSales, filteredAdSpend]);
 
-  // CSV upload handlers
+  // ═══════════════════════════════════════════════════
+  // LIVE META SYNC
+  // ═══════════════════════════════════════════════════
+  const handleLiveSync = async () => {
+    setSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("fetch-meta-data");
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      setLastSyncTime(new Date().toLocaleTimeString());
+      queryClient.invalidateQueries({ queryKey: ["finance-ad-spend"] });
+      toast({
+        title: "✅ Live Meta Sync Complete",
+        description: data?.message || `Synced ${data?.synced || 0} rows`,
+      });
+    } catch (err: any) {
+      toast({ title: "Sync Error", description: err.message, variant: "destructive" });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  // ═══════════════════════════════════════════════════
+  // CSV PARSER UTILITIES
+  // ═══════════════════════════════════════════════════
+  const parseCSVLine = (line: string, delimiter = ","): string[] => {
+    if (delimiter === "\t") return line.split("\t").map((c) => c.trim().replace(/^"|"$/g, ""));
+    const result: string[] = [];
+    let current = "";
+    let inQuotes = false;
+    for (const char of line) {
+      if (char === '"') { inQuotes = !inQuotes; }
+      else if (char === delimiter && !inQuotes) { result.push(current.trim()); current = ""; }
+      else { current += char; }
+    }
+    result.push(current.trim());
+    return result;
+  };
+
+  const cleanAmount = (raw: string): number => {
+    const cleaned = raw.replace(/["₹,\s()]/g, "").trim();
+    return Math.abs(parseFloat(cleaned) || 0);
+  };
+
+  // Parse DD-Mon-YYYY (e.g. "01-Jan-2026") or DD-MM-YYYY or YYYY-MM-DD
+  const parseFlexDate = (rawDate: string): string | null => {
+    const trimmed = rawDate.replace(/"/g, "").trim();
+
+    // DD-Mon-YYYY (e.g. 01-Jan-2026)
+    const monMatch = trimmed.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
+    if (monMatch) {
+      const mm = MONTH_MAP[monMatch[2].toLowerCase()];
+      if (mm) return `${monMatch[3]}-${mm}-${monMatch[1].padStart(2, "0")}`;
+    }
+
+    // DD-MM-YYYY
+    const ddmmMatch = trimmed.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+    if (ddmmMatch) return `${ddmmMatch[3]}-${ddmmMatch[2].padStart(2, "0")}-${ddmmMatch[1].padStart(2, "0")}`;
+
+    // YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed) && !isNaN(new Date(trimmed).getTime())) return trimmed;
+
+    // DD/MM/YYYY
+    const slashMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (slashMatch) return `${slashMatch[3]}-${slashMatch[2].padStart(2, "0")}-${slashMatch[1].padStart(2, "0")}`;
+
+    return null;
+  };
+
+  // ═══════════════════════════════════════════════════
+  // META AD CSV UPLOAD (Historical)
+  // ═══════════════════════════════════════════════════
   const handleAdCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -208,92 +266,81 @@ const Finance = () => {
     try {
       const text = await file.text();
       const lines = text.split("\n").filter((l) => l.trim());
-      if (lines.length < 2) throw new Error("Invalid Format: Please ensure you are uploading the 'Transaction Report' from Meta Ads Manager");
+      if (lines.length < 2) throw new Error("Invalid Format: CSV is empty");
 
-      // Search-and-Skip: find the row that STARTS with "Date" (tab-delimited header)
+      // Search-and-Skip: find the row that STARTS with "Date" (skip metadata/preamble)
       let headerIdx = -1;
-      let delimiter = "\t"; // Default to tab for Meta exports
+      let delimiter = ",";
       for (let i = 0; i < lines.length; i++) {
         const trimmed = lines[i].replace(/^["'\s]+/, "");
         if (/^date\b/i.test(trimmed)) {
           headerIdx = i;
-          // Detect delimiter from this header row
           delimiter = lines[i].includes("\t") ? "\t" : ",";
           break;
         }
       }
-      if (headerIdx < 0) throw new Error("Invalid Format: Please ensure you are uploading the 'Transaction Report' from Meta Ads Manager");
+      if (headerIdx < 0) throw new Error("Invalid Format: Could not find a header row starting with 'Date'. Make sure your CSV has Date and Amount columns.");
 
-      // Parse header to find column indices
-      const parseCells = (line: string): string[] => {
-        if (delimiter === "\t") return line.split("\t").map((c) => c.trim().replace(/^"|"$/g, ""));
-        const result: string[] = [];
-        let current = "";
-        let inQuotes = false;
-        for (const char of line) {
-          if (char === '"') { inQuotes = !inQuotes; }
-          else if (char === ',' && !inQuotes) { result.push(current.trim()); current = ""; }
-          else { current += char; }
-        }
-        result.push(current.trim());
-        return result;
-      };
-
-      const headerCols = parseCells(lines[headerIdx]).map((c) => c.replace(/"/g, "").toLowerCase());
+      const headerCols = parseCSVLine(lines[headerIdx], delimiter).map((c) => c.replace(/"/g, "").toLowerCase());
       const dateCol = headerCols.findIndex((c) => c === "date" || c.includes("date"));
       const amountCol = headerCols.findIndex((c) => c === "amount" || c.includes("spend") || c.includes("amount") || c.includes("cost"));
-      if (dateCol < 0 || amountCol < 0) throw new Error("Invalid Format: Please ensure you are uploading the 'Transaction Report' from Meta Ads Manager");
+      if (dateCol < 0 || amountCol < 0) throw new Error("Invalid Format: Could not find Date and Amount/Spend columns");
 
-      // Aggressive number scrubbing
-      const cleanAmount = (raw: string): number => {
-        const cleaned = raw.replace(/["₹,\s()]/g, "").trim();
-        return Math.abs(parseFloat(cleaned) || 0);
-      };
+      const campaignCol = headerCols.findIndex((c) => c.includes("campaign"));
+      const impressionsCol = headerCols.findIndex((c) => c.includes("impression"));
+      const clicksCol = headerCols.findIndex((c) => c.includes("click"));
 
-      // Anti-double-counting blacklist
       const skipPhrases = ["total", "gst", "tds", "vat", "funds added"];
 
       const parsedRows = lines.slice(headerIdx + 1).map((line) => {
         const lower = line.toLowerCase();
         if (skipPhrases.some((phrase) => lower.includes(phrase))) return null;
 
-        const cells = parseCells(line);
+        const cells = parseCSVLine(line, delimiter);
         const rawDate = (cells[dateCol] || "").replace(/"/g, "").trim();
         const amount = cleanAmount(cells[amountCol] || "");
-
-        // Only accept DD-MM-YYYY or YYYY-MM-DD date formats
-        const isDdMmYyyy = /^\d{1,2}-\d{1,2}-\d{4}$/.test(rawDate);
-        const isIsoDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate);
-        if (!isDdMmYyyy && !isIsoDate) return null;
         if (amount <= 0) return null;
 
-        let normalizedDate = rawDate;
-        if (isDdMmYyyy) {
-          const m = rawDate.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
-          if (m) normalizedDate = `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
-        }
+        const normalizedDate = parseFlexDate(rawDate);
+        if (!normalizedDate) return null;
 
-        return { date: normalizedDate, amount_spent: amount };
-      }).filter((r): r is { date: string; amount_spent: number } => r !== null && !!r.date && !isNaN(new Date(r.date).getTime()));
+        return {
+          date: normalizedDate,
+          amount_spent: amount,
+          campaign_name: campaignCol >= 0 ? (cells[campaignCol] || "").replace(/"/g, "").trim() || "Meta Ads" : "Meta Ads",
+          impressions: impressionsCol >= 0 ? parseInt((cells[impressionsCol] || "").replace(/["₹,\s]/g, "")) || 0 : 0,
+          clicks: clicksCol >= 0 ? parseInt((cells[clicksCol] || "").replace(/["₹,\s]/g, "")) || 0 : 0,
+        };
+      }).filter((r): r is NonNullable<typeof r> => r !== null && !isNaN(new Date(r.date).getTime()));
 
       if (parsedRows.length === 0) throw new Error("No valid data rows found. Check that your file has Date and Amount columns with valid values.");
 
-      // Sum by date for deduplication
-      const byDate = new Map<string, number>();
+      // Sum by date+campaign for deduplication
+      const byKey = new Map<string, { amount_spent: number; campaign_name: string; impressions: number; clicks: number }>();
       parsedRows.forEach((r) => {
-        byDate.set(r.date, (byDate.get(r.date) || 0) + r.amount_spent);
+        const key = `${r.date}|${r.campaign_name}`;
+        const existing = byKey.get(key);
+        if (existing) {
+          existing.amount_spent += r.amount_spent;
+          existing.impressions += r.impressions;
+          existing.clicks += r.clicks;
+        } else {
+          byKey.set(key, { ...r });
+        }
       });
 
-      const insertRows = Array.from(byDate.entries()).map(([date, amount_spent]) => ({
-        date,
-        amount_spent,
-        campaign_name: "Meta Ads",
+      const insertRows = Array.from(byKey.entries()).map(([key, data]) => ({
+        date: key.split("|")[0],
+        amount_spent: data.amount_spent,
+        campaign_name: data.campaign_name,
+        impressions: data.impressions,
+        clicks: data.clicks,
       }));
 
       const totalSpend = insertRows.reduce((s, r) => s + r.amount_spent, 0);
       const { error } = await supabase.from("meta_ad_spend").insert(insertRows);
       if (error) throw error;
-      toast({ title: `✅ Successfully synced ₹${totalSpend.toLocaleString("en-IN", { minimumFractionDigits: 2 })} across ${insertRows.length} days` });
+      toast({ title: `✅ Successfully synced ₹${totalSpend.toLocaleString("en-IN", { minimumFractionDigits: 2 })} across ${insertRows.length} entries` });
       queryClient.invalidateQueries({ queryKey: ["finance-ad-spend"] });
     } catch (err: any) {
       toast({ title: "Upload Error", description: err.message, variant: "destructive" });
@@ -303,7 +350,9 @@ const Finance = () => {
     }
   };
 
-  // Turns Sales CSV upload with phone-number matching
+  // ═══════════════════════════════════════════════════
+  // TURNS SALES CSV UPLOAD
+  // ═══════════════════════════════════════════════════
   const handleTurnsCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -312,19 +361,6 @@ const Finance = () => {
       const text = await file.text();
       const lines = text.split("\n").filter((l) => l.trim());
       if (lines.length < 2) throw new Error("CSV is empty");
-
-      const parseCSVLine = (line: string) => {
-        const result: string[] = [];
-        let current = "";
-        let inQuotes = false;
-        for (const char of line) {
-          if (char === '"') { inQuotes = !inQuotes; }
-          else if (char === ',' && !inQuotes) { result.push(current.trim()); current = ""; }
-          else { current += char; }
-        }
-        result.push(current.trim());
-        return result;
-      };
 
       // Find header row (search-and-skip)
       let headerIdx = -1;
@@ -339,11 +375,14 @@ const Finance = () => {
       }
       if (headerIdx < 0) throw new Error("Invalid Turns CSV: must contain Date and Amount/Total columns");
 
-      const dateCol = headerCols.findIndex((c) => c.includes("date"));
-      const amountCol = headerCols.findIndex((c) => c.includes("amount") || c.includes("total") || c.includes("price"));
+      // Flexible column matching for Turns format
+      const dateCol = headerCols.findIndex((c) => c.includes("order") && c.includes("date")) >= 0
+        ? headerCols.findIndex((c) => c.includes("order") && c.includes("date"))
+        : headerCols.findIndex((c) => c.includes("date"));
+      const amountCol = headerCols.findIndex((c) => c === "amount" || c.includes("amount") || c.includes("total") || c.includes("price"));
       const phoneCol = headerCols.findIndex((c) => c.includes("phone") || c.includes("mobile") || c.includes("contact"));
       const nameCol = headerCols.findIndex((c) => c.includes("customer") || c.includes("name") || c.includes("client"));
-      const orderCol = headerCols.findIndex((c) => c.includes("order") || c.includes("invoice") || c.includes("ref"));
+      const orderCol = headerCols.findIndex((c) => c.includes("order") && !c.includes("date") || c.includes("invoice") || c.includes("ref"));
 
       const skipPhrases = ["total", "gst", "tds", "subtotal", "grand total"];
       const rows: { date: string; amount: number; phone: string; sanitized_phone: string; customer_name: string; order_ref: string }[] = [];
@@ -354,14 +393,12 @@ const Finance = () => {
 
         const cells = parseCSVLine(lines[i]);
         const rawDate = (cells[dateCol] || "").replace(/"/g, "").trim();
-        const rawAmount = (cells[amountCol] || "").replace(/["₹,\s()]/g, "").trim();
-        const amount = Math.abs(parseFloat(rawAmount) || 0);
+        const amount = cleanAmount(cells[amountCol] || "");
         if (amount <= 0) continue;
 
-        // Parse date
-        const parsedDate = new Date(rawDate);
-        if (isNaN(parsedDate.getTime())) continue;
-        const dateStr = fnsFormat(parsedDate, "yyyy-MM-dd");
+        // Parse date flexibly (DD-Mon-YYYY, DD-MM-YYYY, DD/MM/YYYY, YYYY-MM-DD)
+        const dateStr = parseFlexDate(rawDate);
+        if (!dateStr || isNaN(new Date(dateStr).getTime())) continue;
 
         const rawPhone = phoneCol >= 0 ? (cells[phoneCol] || "").replace(/"/g, "").trim() : "";
         const sPhone = sanitizePhone(rawPhone);
@@ -403,7 +440,6 @@ const Finance = () => {
           if (customer) {
             const customerLeads = leadsByCustomer.get(customer.id);
             if (customerLeads && customerLeads.length > 0) {
-              // Match to closest lead by date within 30-day window
               const saleDate = new Date(r.date).getTime();
               let closest = customerLeads[0];
               let closestDiff = Math.abs(new Date(closest.created_at).getTime() - saleDate);
@@ -447,7 +483,6 @@ const Finance = () => {
     }
   };
 
-
   const handleResetFinanceData = async () => {
     try {
       const { error: e1 } = await supabase.from("meta_ad_spend").delete().neq("id", "00000000-0000-0000-0000-000000000000");
@@ -477,8 +512,29 @@ const Finance = () => {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-lg font-bold text-foreground">Finance & ROI</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-lg font-bold text-foreground">Finance & ROI</h1>
+          {/* Live Sync Indicator */}
+          {lastSyncTime && (
+            <Badge variant="outline" className="gap-1.5 text-[10px] border-neon-border/40 text-mint">
+              <Wifi className="h-3 w-3" />
+              <span className="h-1.5 w-1.5 rounded-full bg-mint animate-pulse" />
+              Synced {lastSyncTime}
+            </Badge>
+          )}
+        </div>
         <div className="flex flex-wrap items-center gap-2">
+          {/* Live Meta Sync Button */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2 text-xs border-mint/30 text-mint hover:bg-mint/10"
+            onClick={handleLiveSync}
+            disabled={syncing}
+          >
+            {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            {syncing ? "Syncing..." : "Sync Live Data"}
+          </Button>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="outline" size="sm" className={cn("gap-2 text-xs", !dateFrom && "text-muted-foreground")}>
@@ -525,6 +581,11 @@ const Finance = () => {
           <div className="flex items-center gap-2 text-muted-foreground">
             <BarChart3 className="h-4 w-4 icon-recessed" />
             <span className="text-xs font-medium uppercase tracking-wider">Meta Ad Spend</span>
+            {lastSyncTime && (
+              <span className="ml-auto flex items-center gap-1 text-[9px] text-mint font-medium">
+                <Wifi className="h-2.5 w-2.5" /> API
+              </span>
+            )}
           </div>
           <p className="mt-2 text-2xl font-semibold text-destructive">₹{pnl.totalAdSpend.toLocaleString("en-IN")}</p>
         </div>
@@ -552,7 +613,6 @@ const Finance = () => {
         </div>
       </div>
 
-
       {/* ROAS Sentinel */}
       <RoasSentinel
         turnsSales={turnsSales as any[]}
@@ -568,7 +628,6 @@ const Finance = () => {
         realProfit={pnl.realProfit}
         profitMargin={pnl.turnsRevenue > 0 ? `${((pnl.realProfit / pnl.turnsRevenue) * 100).toFixed(1)}%` : "N/A"}
       />
-
 
       {/* Reset Finance Data */}
       <AlertDialog>
@@ -623,7 +682,7 @@ const Finance = () => {
         <CardContent className="h-64 px-2">
           {adSpend.length === 0 && turnsSales.length === 0 ? (
             <div className="flex h-full items-center justify-center">
-              <p className="text-sm text-muted-foreground">Upload CSVs to see ROAS data</p>
+              <p className="text-sm text-muted-foreground">Upload CSVs or Sync Live Data to see ROAS</p>
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
