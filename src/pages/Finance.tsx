@@ -333,13 +333,14 @@ const Finance = () => {
       const insertRows = Array.from(byKey.entries()).map(([key, data]) => ({
         date: key.split("|")[0],
         amount_spent: data.amount_spent,
-        campaign_name: data.campaign_name,
+        campaign_name: data.campaign_name || "",
+        ad_name: "",
         impressions: data.impressions,
         clicks: data.clicks,
       }));
 
       const totalSpend = insertRows.reduce((s, r) => s + r.amount_spent, 0);
-      const { error } = await supabase.from("meta_ad_spend").insert(insertRows);
+      const { error } = await supabase.from("meta_ad_spend").upsert(insertRows, { onConflict: "date,campaign_name,ad_name,amount_spent" });
       if (error) throw error;
       toast({ title: `✅ Successfully synced ₹${totalSpend.toLocaleString("en-IN", { minimumFractionDigits: 2 })} across ${insertRows.length} entries` });
       queryClient.invalidateQueries({ queryKey: ["finance-ad-spend"] });
@@ -485,7 +486,7 @@ const Finance = () => {
 
         return {
           date: r.date,
-          order_ref: r.order_ref || null,
+          order_ref: r.order_ref || "",
           customer_name: r.customer_name || null,
           phone: r.phone || null,
           sanitized_phone: r.sanitized_phone || null,
@@ -496,7 +497,7 @@ const Finance = () => {
       });
 
       // Upsert cleaned data
-      const { error } = await supabase.from("turns_sales").upsert(upsertRows);
+      const { error } = await supabase.from("turns_sales").upsert(upsertRows, { onConflict: "date,order_ref,amount" });
       if (error) throw error;
 
       const totalAmount = parsedRows.reduce((s, r) => s + r.amount, 0);
