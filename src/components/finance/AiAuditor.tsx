@@ -1,18 +1,11 @@
 import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Loader2, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-
-type AdStat = {
-  ad_name: string;
-  spend: number;
-  clicks: number;
-  cpc: number;
-  ctr: number;
-  engagement: number;
-};
+import type { AdStat } from "@/components/finance/AdsIntelligence";
 
 type Props = {
   turnsRevenue: number;
@@ -20,11 +13,14 @@ type Props = {
   materialCogs: number;
   realProfit: number;
   profitMargin: string;
-  topAd?: AdStat | null;
-  worstAd?: AdStat | null;
+  topAd?: { ad_name: string; spend: number; clicks: number; cpc: number; ctr: number; engagement: number } | null;
+  worstAd?: { ad_name: string; spend: number; clicks: number; cpc: number; ctr: number; engagement: number } | null;
+  selectedAds?: AdStat[];
+  aov?: number;
+  totalOrders?: number;
 };
 
-const AiAuditor = ({ turnsRevenue, totalAdSpend, materialCogs, realProfit, profitMargin, topAd, worstAd }: Props) => {
+const AiAuditor = ({ turnsRevenue, totalAdSpend, materialCogs, realProfit, profitMargin, topAd, worstAd, selectedAds = [], aov = 0, totalOrders = 0 }: Props) => {
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -39,16 +35,20 @@ const AiAuditor = ({ turnsRevenue, totalAdSpend, materialCogs, realProfit, profi
           materialCogs,
           realProfit,
           profitMargin,
+          aov,
+          totalOrders,
           topAd: topAd ? { name: topAd.ad_name, cpc: topAd.cpc.toFixed(0), ctr: topAd.ctr.toFixed(2) } : null,
           worstAd: worstAd ? { name: worstAd.ad_name, spend: worstAd.spend.toFixed(0), clicks: worstAd.clicks } : null,
+          selectedAds: selectedAds.length > 0 ? selectedAds.map((a) => ({
+            name: a.ad_name, ad_id: a.ad_id, spend: Math.round(a.spend),
+            clicks: a.clicks, impressions: a.impressions, ctr: a.ctr.toFixed(2),
+            cpc: a.cpc.toFixed(0), cpm: a.cpm.toFixed(0), frequency: a.frequency.toFixed(1),
+          })) : undefined,
         },
       });
 
       if (error) throw error;
-      if (data?.error) {
-        toast({ title: "AI CFO", description: data.error, variant: "destructive" });
-        return;
-      }
+      if (data?.error) { toast({ title: "AI CFO", description: data.error, variant: "destructive" }); return; }
       setAnalysis(data.analysis);
     } catch (err: any) {
       toast({ title: "AI CFO Error", description: err.message, variant: "destructive" });
@@ -57,7 +57,7 @@ const AiAuditor = ({ turnsRevenue, totalAdSpend, materialCogs, realProfit, profi
     }
   };
 
-  // Parse markdown sections
+  // Parse markdown sections (### headers or emoji headers)
   const sections = useMemo(() => {
     if (!analysis) return null;
     const lines = analysis.split("\n");
@@ -65,10 +65,18 @@ const AiAuditor = ({ turnsRevenue, totalAdSpend, materialCogs, realProfit, profi
     let current: { icon: string; title: string; bullets: string[] } | null = null;
 
     for (const line of lines) {
-      const headerMatch = line.match(/^(📊|🔍|🎯)\s*\*\*(.+?)\*\*/);
-      if (headerMatch) {
+      // Match ### headers or emoji headers
+      const hashMatch = line.match(/^###\s*(📊|🔍|🎯)?\s*(.+)/);
+      const emojiMatch = line.match(/^(📊|🔍|🎯)\s*\*\*(.+?)\*\*/);
+
+      if (hashMatch) {
         if (current) result.push(current);
-        current = { icon: headerMatch[1], title: headerMatch[2], bullets: [] };
+        current = { icon: hashMatch[1] || "📊", title: hashMatch[2].replace(/\*\*/g, "").trim(), bullets: [] };
+        continue;
+      }
+      if (emojiMatch) {
+        if (current) result.push(current);
+        current = { icon: emojiMatch[1], title: emojiMatch[2], bullets: [] };
         continue;
       }
       if (current && line.trim().startsWith("-")) {
@@ -81,14 +89,13 @@ const AiAuditor = ({ turnsRevenue, totalAdSpend, materialCogs, realProfit, profi
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="text-center space-y-2">
         <h2 className="text-xl font-bold text-foreground">AI CFO Action Plan</h2>
-        <p className="text-sm text-muted-foreground">Ruthless, data-driven strategy from your AI finance advisor</p>
+        <p className="text-sm text-muted-foreground">Elite D2C Growth CFO — Unit Economics & Capital Allocation</p>
       </div>
 
-      {/* Quick Stats for Context */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Quick Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="neu-raised p-4 text-center">
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Revenue</p>
           <p className="text-lg font-bold text-foreground">₹{turnsRevenue.toLocaleString("en-IN")}</p>
@@ -99,9 +106,11 @@ const AiAuditor = ({ turnsRevenue, totalAdSpend, materialCogs, realProfit, profi
         </div>
         <div className="neu-raised p-4 text-center">
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">ROAS</p>
-          <p className="text-lg font-bold text-foreground">
-            {totalAdSpend > 0 ? `${(turnsRevenue / totalAdSpend).toFixed(2)}x` : "—"}
-          </p>
+          <p className="text-lg font-bold text-foreground">{totalAdSpend > 0 ? `${(turnsRevenue / totalAdSpend).toFixed(2)}x` : "—"}</p>
+        </div>
+        <div className="neu-raised p-4 text-center">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">AOV</p>
+          <p className="text-lg font-bold text-foreground">₹{Math.round(aov).toLocaleString("en-IN")}</p>
         </div>
         <div className="neu-raised p-4 text-center">
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Margin</p>
@@ -109,24 +118,31 @@ const AiAuditor = ({ turnsRevenue, totalAdSpend, materialCogs, realProfit, profi
         </div>
       </div>
 
+      {/* Selected Ads Summary */}
+      {selectedAds.length > 0 && (
+        <Card className="border-primary/20 bg-primary/5">
+          <CardContent className="p-4">
+            <p className="text-xs font-semibold text-primary mb-2">
+              {selectedAds.length} ad(s) selected for head-to-head comparison
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {selectedAds.map((a) => (
+                <Badge key={a.ad_id} variant="outline" className="text-[10px]">
+                  {a.ad_name} — ₹{Math.round(a.spend).toLocaleString("en-IN")}
+                </Badge>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Analyze Button */}
       <div className="flex justify-center">
-        <Button
-          onClick={handleAnalyze}
-          disabled={loading}
-          size="lg"
-          className="h-14 px-10 text-sm font-semibold rounded-2xl shadow-lg"
-        >
+        <Button onClick={handleAnalyze} disabled={loading} size="lg" className="h-14 px-10 text-sm font-semibold rounded-2xl shadow-lg">
           {loading ? (
-            <span className="flex items-center gap-2">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              Analyzing...
-            </span>
+            <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" />Analyzing...</span>
           ) : (
-            <span className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5" />
-              Generate Action Plan
-            </span>
+            <span className="flex items-center gap-2"><Sparkles className="h-5 w-5" />Generate Action Plan</span>
           )}
         </Button>
       </div>
