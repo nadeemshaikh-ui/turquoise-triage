@@ -1,105 +1,129 @@
 
 
-# Zenith D2C Command Center (V26) - Execution Plan
+# V27: Exports, WhatsApp CRM, DateRangePicker & Dual-Axis Drilldown
 
-## Execution Order
+## Overview
+Four changes to `src/pages/Finance.tsx` only. No database migrations, no edge function changes needed.
 
-### Step 1: Database Migration (FIRST)
-Add `service_details` column to `turns_sales`:
-```sql
-ALTER TABLE turns_sales ADD COLUMN IF NOT EXISTS service_details text;
+---
+
+## 1. Add `downloadCSV` Helper + 3 Export Buttons
+
+Add a reusable helper near the top of the component (after state declarations):
+
+```typescript
+const downloadCSV = (data: Record<string, any>[], filename: string) => {
+  if (!data.length) return;
+  const headers = Object.keys(data[0]);
+  const csv = [
+    headers.join(","),
+    ...data.map(row => headers.map(h => `"${String(row[h] ?? '').replace(/"/g, '""')}"`).join(","))
+  ].join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+};
 ```
 
-### Step 2: Finance.tsx - Major Rewrite
+**Export buttons added to:**
+- **P&L tab** (Monthly Breakdown card header): Exports `momChartData` as `Month, Revenue, Spend, ROAS, Profit`
+- **Creative tab** (above AdsIntelligence): Exports `adStatsForAi` as `Ad Name, Spend, Clicks, CTR, CPC`
+- **Churn list** (card header): Exports `churnData` as `Name, Phone, Last Order, LTV`
 
-**CSV Parser Update (lines ~396-453)**
-- Add `service_details` to header detection: `headers.findIndex(h => h.includes("order details") || h.includes("price list") || h.includes("item"))`
-- Include `service_details` in parsed row type and insert payload
+---
 
-**5-Tab Layout (lines ~640-861)**
-Expand from 4 tabs to 5: P&L | Creative | Operations | Cohorts | AI CFO
+## 2. WhatsApp "Message Now" Button in Churn Table
 
-**Tab 1: P&L Enhancements**
-- Add MER card (Marketing Efficiency Ratio = Revenue / Ad Spend) alongside existing ROAS card
-- Add Contribution Margin card (Revenue - Ad Spend - COGS, already calculated as `realProfit`)
-- Add "Deep Dive" button on each monthly breakdown row. Uses local `drilldownMonth` state to swap table for a daily Recharts LineChart (Revenue vs Spend line). "Back" button returns to table. No router changes.
+Add a 5th column to the churn table. Each row gets a "Message Now" button that opens WhatsApp:
 
-**Tab 2: Creative Intel (rename from "Ad Intel")**
-- Pass through to enhanced AdsIntelligence component (frequency alerts + horizontal funnel)
+```typescript
+const getWhatsAppUrl = (name: string, phone: string) => {
+  const tenDigits = phone.replace(/\D/g, "").slice(-10);
+  const message = `Hi ${name}, we missed you at Restoree! Here is a special 15% discount for your next sneaker or bag restoration.`;
+  return `https://wa.me/91${tenDigits}?text=${encodeURIComponent(message)}`;
+};
+```
 
-**Tab 3: Operations (Enhanced with Keyword Mining)**
-- Keep existing AOV, Units, Repeat Rate, Top Customers cards
-- Add keyword mining on `service_details` column:
-  ```typescript
-  const text = (row.service_details || '').toLowerCase();
-  ```
-  Categories: Sneaker (sneaker/shoe/trainer/nike/jordan/yeezy), Bag (bag/handbag/purse/clutch/tote), Leather (leather/hide/suede), Laundry (laundry/wash/dry clean)
-- Add Pareto Chart: Recharts ComposedChart with Bar for order volume and Line for revenue per category
-- Add Cannibalization Alert: If sneaker volume grows MoM while bag revenue drops, render warning Alert component
+The churn table gets a 5th `<th>` ("Action") and each row gets:
+```html
+<a href={getWhatsAppUrl(c.name, c.phone)} target="_blank" rel="noopener noreferrer">
+  <Button variant="ghost" size="sm">Message Now</Button>
+</a>
+```
 
-**Tab 4: Cohorts (NEW)**
-- Churn list: Group `turns_sales` by phone, filter where last order > 45 days ago, show name/phone/last order/LTV
-- Cohort Heatmap: Pure HTML/CSS grid. Y-axis = acquisition month (first order month per phone). X-axis = M0, M1, M2... Cell = revenue in that period. Color intensity via inline styles.
-- Repeat Rate stat card (duplicated from Operations for context)
+Update the empty-state `colSpan` from 4 to 5.
 
-**Tab 5: AI CFO (Enhanced)**
-- Pass new props: `mer`, `categoryData` (per-category volume/revenue), `churnCount`
+---
 
-**New state variables needed:**
-- `drilldownMonth: string | null` for P&L deep dive
+## 3. Replace Date Presets with DateRangePicker
 
-### Step 3: AdsIntelligence.tsx Enhancements
+**New imports**: `Calendar` from `@/components/ui/calendar`, `Popover/PopoverTrigger/PopoverContent` from `@/components/ui/popover`, `format` from `date-fns`, `DateRange` from `react-day-picker`, `CalendarIcon` from `lucide-react`.
 
-**Frequency Alert Icons (table rows, line ~349)**
-- In the Freq column cell: show red circle emoji if `frequency > 2.0`, yellow circle if `frequency > 1.5`
+**State change**: Replace `datePreset` state with:
+```typescript
+const [calendarRange, setCalendarRange] = useState<DateRange | undefined>({
+  from: new Date("2025-09-01"),
+  to: new Date(),
+});
+```
 
-**Horizontal Funnel (lines ~269-298)**
-- Convert existing vertical card-based funnel to a horizontal Recharts BarChart with bars for Impressions, Clicks, Leads, Orders
+**Crash-safe `dateRange` memo**:
+```typescript
+const dateRange = useMemo(() => {
+  const from = calendarRange?.from;
+  const to = calendarRange?.to;
+  return {
+    start: from ? fnsFormat(from, "yyyy-MM-dd") : "2025-09-01",
+    end: to ? fnsFormat(to, "yyyy-MM-dd") : fnsFormat(new Date(), "yyyy-MM-dd"),
+  };
+}, [calendarRange]);
+```
 
-### Step 4: AiAuditor.tsx Updates
+If `from` or `to` is undefined, defaults to "All Time" range. The `isInRange` function continues to work unchanged since it only reads `dateRange.start` and `dateRange.end` which are always valid strings.
 
-**New Props:**
-- Add `mer`, `categoryData`, `churnCount` to Props type
-- Pass these in the request body to `ai-auditor` edge function
+**UI replacement**: The preset button bar (lines 691-708) is replaced with:
+- A `Popover` containing a `Calendar mode="range"` with `pointer-events-auto` class
+- The trigger button shows the formatted date range
+- Quick preset buttons (7d, 30d, All) kept alongside for convenience, each setting `calendarRange` directly
 
-### Step 5: ai-auditor Edge Function
+Remove the `DatePreset` type and `datePreset` state.
 
-**System Prompt Update:**
-- Change identity to "Elite Growth CFO for Restoree (Indian Luxury Restoration)"
-- Add benchmarks: Sneakkinns, The Leather Laundry
-- Add MER trend analysis and category cannibalization analysis
-- Keep existing output format (3 markdown headers)
+---
 
-**New input handling:**
-- Accept `mer`, `categoryData`, `churnCount` from request body
-- Include in user prompt for AI analysis
+## 4. Dual-Axis ComposedChart for P&L Drilldown
 
-### Step 6: fetch-meta-data Edge Function
+Replace the `LineChart` drilldown (lines 900-909) with a `ComposedChart` using dual Y-axes:
 
-**Restore Full Sync Logic:**
-- Read token from `app_settings` where `key = 'meta_config'`, parse JSON value
-- Fall back to `META_ACCESS_TOKEN` env var
-- Fetch Meta Graph API `/insights` in 30-day date batches from 2025-09-01 to today
-- Delete existing records per batch date range, then insert new data
-- Return count of synced rows
+```tsx
+<ComposedChart data={drilldownDailyData}>
+  <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 14%, 88%)" />
+  <XAxis dataKey="date" tick={{ fontSize: 9 }} stroke="hsl(215, 15%, 55%)" interval="preserveStartEnd" />
+  <YAxis yAxisId="left" orientation="left" tick={{ fontSize: 10 }} stroke="hsl(215, 15%, 55%)" />
+  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} stroke="hsl(215, 15%, 55%)" />
+  <Tooltip contentStyle={tooltipStyle} formatter={(value: number, name: string) => [`₹${value.toLocaleString("en-IN")}`, name === "revenue" ? "Revenue" : "Ad Spend"]} />
+  <Bar yAxisId="left" dataKey="revenue" fill="hsl(170, 50%, 55%)" radius={[8, 8, 0, 0]} name="revenue" />
+  <Line yAxisId="right" type="monotone" dataKey="spend" stroke="hsl(0, 70%, 60%)" strokeWidth={2} dot={false} name="spend" />
+</ComposedChart>
+```
+
+Revenue renders as bars on the left axis, Ad Spend as a line on the right axis -- independent scales prevent flatline rendering.
+
+All required Recharts imports (`ComposedChart`, `Bar`, `Line`, `CartesianGrid`, `XAxis`, `YAxis`, `Tooltip`) are already present at line 23-24.
 
 ---
 
 ## Files Modified
 
-1. **Migration SQL** -- `ALTER TABLE turns_sales ADD COLUMN IF NOT EXISTS service_details text`
-2. **`src/pages/Finance.tsx`** -- 5 tabs, service_details CSV extraction, keyword mining, P&L drilldown, Cohorts tab (churn + heatmap), pass new AI props
-3. **`src/components/finance/AdsIntelligence.tsx`** -- Frequency alert icons, horizontal funnel BarChart
-4. **`src/components/finance/AiAuditor.tsx`** -- Accept mer/categoryData/churnCount props
-5. **`supabase/functions/ai-auditor/index.ts`** -- Updated system prompt with Restoree benchmarks, new input fields
-6. **`supabase/functions/fetch-meta-data/index.ts`** -- Full Meta API 30-day batch sync logic
+1. **`src/pages/Finance.tsx`** -- All 4 changes: `downloadCSV` helper + 3 export buttons, WhatsApp "Message Now" button, DateRangePicker replacing presets, dual-axis drilldown chart
 
-## Safeguards
-- All batch operations: 50-record chunks
-- Sequential file processing (for...of with await)
-- Strict monthMap date parsing (no Date.parse)
-- Delete-then-insert for idempotency
-- Keyword mining on `service_details` only
-- P&L drilldown via local state (no router changes)
-- Cohort heatmap: pure HTML grid (no external deps)
+No other files need changes. No database migrations. No edge function updates.
+
+## Crash Prevention Summary
+
+- `calendarRange?.from` and `?.to` are always guarded with fallbacks in the `dateRange` memo
+- `isInRange()` always receives valid `start`/`end` strings
+- No `undefined.toISOString()` or similar crashes possible
+- Calendar uses `pointer-events-auto` for popover interactivity
 
