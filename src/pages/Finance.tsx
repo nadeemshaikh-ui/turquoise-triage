@@ -227,7 +227,7 @@ const Finance = () => {
   };
 
   const cleanAmount = (raw: string): number => {
-    const cleaned = raw.replace(/["₹,\s()]/g, "").trim();
+    const cleaned = raw.replace(/[^0-9.]/g, "").trim();
     return Math.abs(parseFloat(cleaned) || 0);
   };
 

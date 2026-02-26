@@ -37,15 +37,25 @@ Deno.serve(async (req) => {
     // Fetch campaign-level insights with daily breakdown
     const url = `https://graph.facebook.com/v21.0/act_${AD_ACCOUNT_ID}/insights?fields=campaign_name,spend,impressions,clicks&time_range={"since":"${since}","until":"${until}"}&time_increment=1&level=campaign&limit=500&access_token=${metaToken}`;
 
+    console.log("Fetching Meta insights for account:", AD_ACCOUNT_ID, "range:", since, "to", until);
+
     const allRows: { date: string; amount_spent: number; campaign_name: string; impressions: number; clicks: number }[] = [];
     let nextUrl: string | null = url;
 
     while (nextUrl) {
       const resp = await fetch(nextUrl);
+      if (!resp.ok) {
+        const rawText = await resp.text();
+        console.error("Meta API Raw Error (HTTP", resp.status, "):", rawText);
+        return new Response(JSON.stringify({ error: `Meta API HTTP ${resp.status}: ${rawText}` }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
       const json = await resp.json();
 
       if (json.error) {
-        console.error("Meta API error:", json.error);
+        console.error("Meta API error:", JSON.stringify(json.error));
         return new Response(JSON.stringify({ error: json.error.message }), {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
