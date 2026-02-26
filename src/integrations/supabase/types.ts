@@ -640,31 +640,40 @@ export type Database = {
       }
       meta_ad_spend: {
         Row: {
+          ad_name: string | null
           amount_spent: number
           campaign_name: string | null
           clicks: number | null
           created_at: string
           date: string
+          engagement: number | null
           id: string
           impressions: number | null
+          reach: number | null
         }
         Insert: {
+          ad_name?: string | null
           amount_spent?: number
           campaign_name?: string | null
           clicks?: number | null
           created_at?: string
           date: string
+          engagement?: number | null
           id?: string
           impressions?: number | null
+          reach?: number | null
         }
         Update: {
+          ad_name?: string | null
           amount_spent?: number
           campaign_name?: string | null
           clicks?: number | null
           created_at?: string
           date?: string
+          engagement?: number | null
           id?: string
           impressions?: number | null
+          reach?: number | null
         }
         Relationships: []
       }

@@ -8,6 +8,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Loader2, Upload, DollarSign, TrendingUp, BarChart3, CalendarIcon, Trash2, RefreshCw, Wifi } from "lucide-react";
 import RoasSentinel from "@/components/finance/RoasSentinel";
+import AdsIntelligence from "@/components/finance/AdsIntelligence";
 import AiAuditor from "@/components/finance/AiAuditor";
 import {
   AlertDialog,
@@ -619,6 +620,13 @@ const Finance = () => {
         turnsSales={turnsSales as any[]}
         adSpend={adSpend as any[]}
         dateFilter={isInRange}
+      />
+
+      {/* 360° Ads Intelligence */}
+      <AdsIntelligence
+        adSpend={adSpend as any[]}
+        dateFilter={isInRange}
+        turnsRevenue={pnl.turnsRevenue}
       />
 
       {/* AI Auditor */}
