@@ -7,7 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Upload, DollarSign, TrendingUp, BarChart3, Trash2, RefreshCw, Wifi, Target, Brain, CalendarDays, Settings, ShoppingCart, Users, Repeat } from "lucide-react";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { Loader2, Upload, DollarSign, TrendingUp, BarChart3, Trash2, RefreshCw, Wifi, Target, Brain, CalendarDays, Settings, ShoppingCart, Users, Repeat, ArrowLeft, AlertTriangle, UserX } from "lucide-react";
 import AdsIntelligence, { AdStat } from "@/components/finance/AdsIntelligence";
 import AiAuditor from "@/components/finance/AiAuditor";
 import {
@@ -19,9 +20,9 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, LineChart, Line, ComposedChart,
 } from "recharts";
-import { format as fnsFormat, endOfMonth, eachMonthOfInterval, subDays, subMonths, startOfMonth } from "date-fns";
+import { format as fnsFormat, endOfMonth, eachMonthOfInterval, subDays, subMonths, startOfMonth, differenceInDays, eachDayOfInterval } from "date-fns";
 
 const sanitizePhone = (raw: string): string => {
   let p = raw.replace(/[\s\-().+]/g, "");
@@ -46,6 +47,22 @@ const CHUNK_SIZE = 50;
 
 type DatePreset = "all" | "last_month" | "last_14" | "last_7" | "last_30" | "custom";
 
+// Keyword mining categories
+const CATEGORY_KEYWORDS: Record<string, string[]> = {
+  Sneaker: ["sneaker", "shoe", "trainer", "footwear", "kicks", "jordan", "nike", "yeezy", "adidas"],
+  Bag: ["bag", "handbag", "purse", "clutch", "tote", "backpack", "wallet", "luggage"],
+  Leather: ["leather", "hide", "suede", "nubuck"],
+  Laundry: ["laundry", "wash", "dry clean", "iron", "press"],
+};
+
+const categorizeServiceDetails = (text: string): string => {
+  const lower = (text || "").toLowerCase();
+  for (const [category, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
+    if (keywords.some((k) => lower.includes(k))) return category;
+  }
+  return "Other";
+};
+
 const Finance = () => {
   const queryClient = useQueryClient();
   const [uploadingAds, setUploadingAds] = useState(false);
@@ -54,6 +71,7 @@ const Finance = () => {
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [datePreset, setDatePreset] = useState<DatePreset>("all");
   const [selectedAds, setSelectedAds] = useState<AdStat[]>([]);
+  const [drilldownMonth, setDrilldownMonth] = useState<string | null>(null);
 
   // Settings dialog state
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -148,6 +166,7 @@ const Finance = () => {
 
   const profitMargin = pnl.turnsRevenue > 0 ? `${((pnl.realProfit / pnl.turnsRevenue) * 100).toFixed(1)}%` : "N/A";
   const grossRoas = pnl.totalAdSpend > 0 ? pnl.turnsRevenue / pnl.totalAdSpend : 0;
+  const mer = pnl.totalAdSpend > 0 ? pnl.turnsRevenue / pnl.totalAdSpend : 0;
 
   // Operations metrics
   const opsMetrics = useMemo(() => {
@@ -180,6 +199,125 @@ const Finance = () => {
     return { aov, totalQty, totalOrders, repeatRate, uniquePhones, repeatPhones, topCustomers };
   }, [filteredTurnsSales]);
 
+  // Keyword mining on service_details
+  const categoryData = useMemo(() => {
+    const cats: Record<string, { volume: number; revenue: number }> = {};
+    filteredTurnsSales.forEach((t: any) => {
+      const cat = categorizeServiceDetails((t as any).service_details || "");
+      if (!cats[cat]) cats[cat] = { volume: 0, revenue: 0 };
+      cats[cat].volume += 1;
+      cats[cat].revenue += Number(t.amount);
+    });
+    return cats;
+  }, [filteredTurnsSales]);
+
+  // MoM category data for cannibalization
+  const categoryMomData = useMemo(() => {
+    const monthCats = new Map<string, Record<string, { volume: number; revenue: number }>>();
+    (turnsSales as any[]).forEach((t: any) => {
+      const monthKey = t.date.substring(0, 7);
+      const cat = categorizeServiceDetails((t as any).service_details || "");
+      if (!monthCats.has(monthKey)) monthCats.set(monthKey, {});
+      const mc = monthCats.get(monthKey)!;
+      if (!mc[cat]) mc[cat] = { volume: 0, revenue: 0 };
+      mc[cat].volume += 1;
+      mc[cat].revenue += Number(t.amount);
+    });
+    const months = Array.from(monthCats.keys()).sort();
+    return { months, data: monthCats };
+  }, [turnsSales]);
+
+  // Cannibalization alert
+  const cannibalizationAlert = useMemo(() => {
+    const { months, data } = categoryMomData;
+    if (months.length < 2) return null;
+    const prev = data.get(months[months.length - 2]);
+    const curr = data.get(months[months.length - 1]);
+    if (!prev || !curr) return null;
+    const sneakerVolGrowth = (curr["Sneaker"]?.volume || 0) - (prev["Sneaker"]?.volume || 0);
+    const bagRevGrowth = (curr["Bag"]?.revenue || 0) - (prev["Bag"]?.revenue || 0);
+    if (sneakerVolGrowth > 0 && bagRevGrowth < 0) {
+      return "Margin Risk: High-volume sneakers are displacing high-margin bags. Consider rebalancing marketing spend.";
+    }
+    return null;
+  }, [categoryMomData]);
+
+  // Churn list (customers inactive > 45 days)
+  const churnData = useMemo(() => {
+    const today = new Date();
+    const phoneData = new Map<string, { name: string; phone: string; lastDate: string; ltv: number }>();
+    (turnsSales as any[]).forEach((t: any) => {
+      const phone = t.sanitized_phone || t.phone || "";
+      if (!phone) return;
+      const existing = phoneData.get(phone);
+      if (!existing) {
+        phoneData.set(phone, { name: t.customer_name || "Unknown", phone, lastDate: t.date, ltv: Number(t.amount) });
+      } else {
+        existing.ltv += Number(t.amount);
+        if (t.date > existing.lastDate) {
+          existing.lastDate = t.date;
+          if (t.customer_name) existing.name = t.customer_name;
+        }
+      }
+    });
+    const churned = Array.from(phoneData.values())
+      .filter((c) => differenceInDays(today, new Date(c.lastDate)) > 45)
+      .sort((a, b) => b.ltv - a.ltv);
+    return churned;
+  }, [turnsSales]);
+
+  // Cohort heatmap data
+  const cohortData = useMemo(() => {
+    const phoneFirstMonth = new Map<string, string>();
+    const phoneMonthRevenue = new Map<string, Map<string, number>>();
+    const sorted = [...(turnsSales as any[])].sort((a, b) => a.date.localeCompare(b.date));
+    sorted.forEach((t: any) => {
+      const phone = t.sanitized_phone || t.phone || "";
+      if (!phone) return;
+      const monthKey = t.date.substring(0, 7);
+      if (!phoneFirstMonth.has(phone)) phoneFirstMonth.set(phone, monthKey);
+      if (!phoneMonthRevenue.has(phone)) phoneMonthRevenue.set(phone, new Map());
+      const mr = phoneMonthRevenue.get(phone)!;
+      mr.set(monthKey, (mr.get(monthKey) || 0) + Number(t.amount));
+    });
+
+    // Build cohort grid
+    const acqMonths = Array.from(new Set(phoneFirstMonth.values())).sort();
+    const allMonths = Array.from(new Set((turnsSales as any[]).map((t) => t.date.substring(0, 7)))).sort();
+    const maxOffset = 6;
+
+    const grid: { acqMonth: string; cells: number[] }[] = acqMonths.map((acqM) => {
+      const cells: number[] = [];
+      for (let offset = 0; offset <= maxOffset; offset++) {
+        const acqDate = new Date(acqM + "-01");
+        const targetMonth = fnsFormat(new Date(acqDate.getFullYear(), acqDate.getMonth() + offset, 1), "yyyy-MM");
+        let revenue = 0;
+        phoneFirstMonth.forEach((firstM, phone) => {
+          if (firstM === acqM) {
+            const mr = phoneMonthRevenue.get(phone);
+            if (mr) revenue += mr.get(targetMonth) || 0;
+          }
+        });
+        cells.push(Math.round(revenue));
+      }
+      return { acqMonth: acqM, cells };
+    });
+
+    return { grid, maxOffset };
+  }, [turnsSales]);
+
+  // Pareto chart data for operations
+  const paretoData = useMemo(() => {
+    return Object.entries(categoryData)
+      .filter(([cat]) => cat !== "Other")
+      .sort((a, b) => b[1].volume - a[1].volume)
+      .map(([category, data]) => ({
+        category,
+        volume: data.volume,
+        revenue: Math.round(data.revenue),
+      }));
+  }, [categoryData]);
+
   // MoM chart data
   const momChartData = useMemo(() => {
     const allDates = [
@@ -204,32 +342,19 @@ const Finance = () => {
     });
   }, [turnsSales, adSpend]);
 
-  // Daily timeline data
-  const dailyTimelineData = useMemo(() => {
-    const dayMap = new Map<string, { revenue: number; spend: number; ads: string[] }>();
-    filteredTurnsSales.forEach((t: any) => {
-      const existing = dayMap.get(t.date) || { revenue: 0, spend: 0, ads: [] };
-      existing.revenue += Number(t.amount);
-      dayMap.set(t.date, existing);
+  // P&L drilldown daily data
+  const drilldownDailyData = useMemo(() => {
+    if (!drilldownMonth) return [];
+    const monthStart = new Date(drilldownMonth + "-01");
+    const monthEnd = endOfMonth(monthStart);
+    const days = eachDayOfInterval({ start: monthStart, end: monthEnd });
+    return days.map((day) => {
+      const dateStr = fnsFormat(day, "yyyy-MM-dd");
+      const revenue = (turnsSales as any[]).filter((t) => t.date === dateStr).reduce((s, t: any) => s + Number(t.amount), 0);
+      const spend = (adSpend as any[]).filter((a) => a.date === dateStr).reduce((s, a: any) => s + Number(a.amount_spent), 0);
+      return { date: fnsFormat(day, "dd MMM"), revenue: Math.round(revenue), spend: Math.round(spend) };
     });
-    filteredAdSpend.forEach((a: any) => {
-      const existing = dayMap.get(a.date) || { revenue: 0, spend: 0, ads: [] };
-      existing.spend += Number(a.amount_spent);
-      const adName = a.ad_name || a.campaign_name || "Unknown";
-      if (!existing.ads.includes(adName)) existing.ads.push(adName);
-      dayMap.set(a.date, existing);
-    });
-    return Array.from(dayMap.entries())
-      .sort(([a], [b]) => b.localeCompare(a))
-      .map(([date, data]) => ({
-        date,
-        dateLabel: new Date(date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
-        revenue: Math.round(data.revenue),
-        spend: Math.round(data.spend),
-        profit: Math.round(data.revenue - data.spend),
-        adCount: data.ads.length,
-      }));
-  }, [filteredTurnsSales, filteredAdSpend]);
+  }, [drilldownMonth, turnsSales, adSpend]);
 
   // Ad stats for AI CFO
   const adStatsForAi = useMemo(() => {
@@ -325,13 +450,10 @@ const Finance = () => {
           let formattedDate: string | null = null;
 
           if (dateParts.length === 3) {
-            // Handle DD-Mon-YY or YYYY-MM-DD
             const monthKey = dateParts[1].slice(0, 1).toUpperCase() + dateParts[1].slice(1).toLowerCase();
             if (monthMap[monthKey]) {
-              // DD-Mon-YY format
               formattedDate = `20${dateParts[2]}-${monthMap[monthKey]}-${dateParts[0].padStart(2, "0")}`;
             } else if (/^\d{4}$/.test(dateParts[0])) {
-              // YYYY-MM-DD format
               formattedDate = rawDate;
             }
           }
@@ -354,14 +476,12 @@ const Finance = () => {
 
         if (rows.length === 0) { toast({ title: `No valid rows in ${file.name}`, variant: "destructive" }); continue; }
 
-        // Chunked idempotency: delete by unique dates
         const uniqueDates = [...new Set(rows.map((r) => r.date))];
         for (let i = 0; i < uniqueDates.length; i += CHUNK_SIZE) {
           const chunk = uniqueDates.slice(i, i + CHUNK_SIZE);
           await supabase.from("meta_ad_spend").delete().in("date", chunk).eq("ad_name", "Manual Meta CSV");
         }
 
-        // Insert in chunks of 50
         for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
           const batch = rows.slice(i, i + CHUNK_SIZE);
           const { error } = await supabase.from("meta_ad_spend").insert(batch);
@@ -380,7 +500,7 @@ const Finance = () => {
     }
   };
 
-  // TURNS SALES CSV UPLOAD — multi-file, strict parser, chunked
+  // TURNS SALES CSV UPLOAD — multi-file, strict parser, chunked, with service_details extraction
   const handleTurnsCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -401,12 +521,13 @@ const Finance = () => {
           amount: headers.findIndex((h) => h === "amount" || h.includes("amount")),
           qty: headers.findIndex((h) => h === "qty" || h.includes("quantity")),
           customer_name: headers.findIndex((h) => h.includes("name") || h.includes("customer")),
+          service_details: headers.findIndex((h) => h.includes("order details") || h.includes("price list") || h.includes("item")),
         };
 
         // Fallback to positional if headers not found
         const parseBruteforceCells = (line: string) => line.split('","').map((c) => c.replace(/"/g, "").trim());
 
-        const parsedRows: { date: string; amount: number; phone: string; sanitized_phone: string; customer_name: string; order_ref: string; qty: number }[] = [];
+        const parsedRows: { date: string; amount: number; phone: string; sanitized_phone: string; customer_name: string; order_ref: string; qty: number; service_details: string }[] = [];
 
         for (let i = 1; i < lines.length; i++) {
           const line = lines[i].trim();
@@ -426,6 +547,7 @@ const Finance = () => {
           const rawName = colIdx.customer_name >= 0 ? (cells[colIdx.customer_name] || "") : (cells[1] || "");
           const rawOrder = colIdx.order_ref >= 0 ? (cells[colIdx.order_ref] || "") : (cells[0] || "");
           const rawQty = colIdx.qty >= 0 ? (cells[colIdx.qty] || "1") : "1";
+          const rawServiceDetails = colIdx.service_details >= 0 ? (cells[colIdx.service_details] || "") : "";
 
           // Strict date parsing
           const parts = rawDate.split("-");
@@ -450,7 +572,7 @@ const Finance = () => {
           const sanitized_phone = sanitizePhone(phone);
           const qty = parseInt(rawQty.replace(/[^0-9]/g, "")) || 1;
 
-          parsedRows.push({ date, amount, phone, sanitized_phone, customer_name: rawName, order_ref: rawOrder, qty });
+          parsedRows.push({ date, amount, phone, sanitized_phone, customer_name: rawName, order_ref: rawOrder, qty, service_details: rawServiceDetails });
         }
 
         if (parsedRows.length === 0) { toast({ title: `No valid rows in ${file.name}`, variant: "destructive" }); continue; }
@@ -499,6 +621,7 @@ const Finance = () => {
             date: r.date, order_ref: r.order_ref || "", customer_name: r.customer_name || null,
             phone: r.phone || null, sanitized_phone: r.sanitized_phone || null, amount: r.amount,
             qty: r.qty, matched_lead_id, matched_at: matched_lead_id ? new Date().toISOString() : null,
+            service_details: r.service_details || null,
           };
         });
 
@@ -540,6 +663,14 @@ const Finance = () => {
       </div>
     );
   }
+
+  // Cohort heatmap color
+  const getHeatColor = (value: number, max: number) => {
+    if (value === 0 || max === 0) return "transparent";
+    const intensity = Math.min(value / max, 1);
+    return `hsl(170, 50%, ${85 - intensity * 40}%)`;
+  };
+  const cohortMax = Math.max(...cohortData.grid.flatMap((r) => r.cells), 1);
 
   return (
     <div className="space-y-6">
@@ -636,20 +767,24 @@ const Finance = () => {
         </span>
       </div>
 
-      {/* 4-Tab Layout */}
+      {/* 5-Tab Layout */}
       <Tabs defaultValue="executive" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4 h-11 rounded-2xl bg-secondary/50">
+        <TabsList className="grid w-full grid-cols-5 h-11 rounded-2xl bg-secondary/50">
           <TabsTrigger value="executive" className="rounded-xl text-xs font-semibold gap-1.5 data-[state=active]:shadow-md">
             <Target className="h-3.5 w-3.5" />
             P&L
           </TabsTrigger>
           <TabsTrigger value="ads" className="rounded-xl text-xs font-semibold gap-1.5 data-[state=active]:shadow-md">
             <BarChart3 className="h-3.5 w-3.5" />
-            Ad Intel
+            Creative
           </TabsTrigger>
           <TabsTrigger value="operations" className="rounded-xl text-xs font-semibold gap-1.5 data-[state=active]:shadow-md">
             <ShoppingCart className="h-3.5 w-3.5" />
             Operations
+          </TabsTrigger>
+          <TabsTrigger value="cohorts" className="rounded-xl text-xs font-semibold gap-1.5 data-[state=active]:shadow-md">
+            <Users className="h-3.5 w-3.5" />
+            Cohorts
           </TabsTrigger>
           <TabsTrigger value="ai" className="rounded-xl text-xs font-semibold gap-1.5 data-[state=active]:shadow-md">
             <Brain className="h-3.5 w-3.5" />
@@ -659,7 +794,7 @@ const Finance = () => {
 
         {/* TAB 1: EXECUTIVE P&L */}
         <TabsContent value="executive" className="space-y-6">
-          <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 grid-cols-2 lg:grid-cols-5">
             <div className="neu-raised-neon p-5">
               <div className="flex items-center gap-2 text-muted-foreground mb-2">
                 <DollarSign className="h-4 w-4 icon-recessed" />
@@ -685,12 +820,22 @@ const Finance = () => {
             <div className="neu-raised-neon p-5">
               <div className="flex items-center gap-2 text-muted-foreground mb-2">
                 <TrendingUp className="h-4 w-4 icon-recessed" />
-                <span className="text-[10px] font-medium uppercase tracking-wider">Profit</span>
+                <span className="text-[10px] font-medium uppercase tracking-wider">Contribution Margin</span>
               </div>
               <p className={`text-2xl font-bold ${pnl.realProfit >= 0 ? "text-mint" : "text-destructive"}`}>
                 ₹{pnl.realProfit.toLocaleString("en-IN")}
               </p>
               <p className={`text-[10px] font-medium ${pnl.realProfit >= 0 ? "text-mint/70" : "text-destructive/70"}`}>{profitMargin} margin</p>
+            </div>
+            <div className="neu-raised-neon p-5">
+              <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                <TrendingUp className="h-4 w-4 icon-recessed" />
+                <span className="text-[10px] font-medium uppercase tracking-wider">MER</span>
+              </div>
+              <p className={`text-2xl font-bold ${mer >= 2 ? "text-mint" : mer >= 1 ? "text-foreground" : "text-destructive"}`}>
+                {mer > 0 ? `${mer.toFixed(2)}x` : "—"}
+              </p>
+              <p className="text-[10px] text-muted-foreground">Revenue ÷ Total Ad Spend</p>
             </div>
           </div>
 
@@ -735,44 +880,75 @@ const Finance = () => {
             </CardContent>
           </Card>
 
+          {/* Monthly Breakdown with Deep Dive */}
           <Card className="neu-raised-neon">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-semibold">Monthly Breakdown</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-neon-border/20">
-                      <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wider text-xs">Month</th>
-                      <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Revenue</th>
-                      <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Ad Spend</th>
-                      <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">ROAS</th>
-                      <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Net Profit</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {momChartData.filter((m) => m.revenue > 0 || m.spend > 0).map((m) => (
-                      <tr key={m.month} className="border-b border-neon-border/10 last:border-0">
-                        <td className="px-4 py-2.5 font-medium text-foreground">{m.month}</td>
-                        <td className="px-4 py-2.5 text-right text-mint font-semibold">₹{m.revenue.toLocaleString("en-IN")}</td>
-                        <td className="px-4 py-2.5 text-right text-destructive font-semibold">₹{m.spend.toLocaleString("en-IN")}</td>
-                        <td className="px-4 py-2.5 text-right">
-                          {m.spend > 0 ? (
-                            <Badge variant={m.roas >= 2 ? "default" : m.roas >= 1 ? "secondary" : "destructive"} className="rounded-full text-xs">{m.roas.toFixed(2)}x</Badge>
-                          ) : <span className="text-muted-foreground">—</span>}
-                        </td>
-                        <td className={`px-4 py-2.5 text-right font-semibold ${m.profit >= 0 ? "text-mint" : "text-destructive"}`}>₹{m.profit.toLocaleString("en-IN")}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold">
+                  {drilldownMonth ? `Daily Deep Dive — ${drilldownMonth}` : "Monthly Breakdown"}
+                </CardTitle>
+                {drilldownMonth && (
+                  <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => setDrilldownMonth(null)}>
+                    <ArrowLeft className="h-3.5 w-3.5" /> Back
+                  </Button>
+                )}
               </div>
+            </CardHeader>
+            <CardContent>
+              {drilldownMonth ? (
+                <div className="h-72">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={drilldownDailyData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 14%, 88%)" />
+                      <XAxis dataKey="date" tick={{ fontSize: 9 }} stroke="hsl(215, 15%, 55%)" interval="preserveStartEnd" />
+                      <YAxis tick={{ fontSize: 10 }} stroke="hsl(215, 15%, 55%)" />
+                      <Tooltip contentStyle={tooltipStyle} formatter={(value: number, name: string) => [`₹${value.toLocaleString("en-IN")}`, name === "revenue" ? "Revenue" : "Ad Spend"]} />
+                      <Line type="monotone" dataKey="revenue" stroke="hsl(170, 50%, 55%)" strokeWidth={2} dot={false} name="revenue" />
+                      <Line type="monotone" dataKey="spend" stroke="hsl(0, 70%, 60%)" strokeWidth={2} dot={false} name="spend" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-neon-border/20">
+                        <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wider text-xs">Month</th>
+                        <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Revenue</th>
+                        <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Ad Spend</th>
+                        <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">ROAS</th>
+                        <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Net Profit</th>
+                        <th className="px-4 py-2.5 text-center font-medium text-muted-foreground uppercase tracking-wider text-xs"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {momChartData.filter((m) => m.revenue > 0 || m.spend > 0).map((m) => (
+                        <tr key={m.month} className="border-b border-neon-border/10 last:border-0">
+                          <td className="px-4 py-2.5 font-medium text-foreground">{m.month}</td>
+                          <td className="px-4 py-2.5 text-right text-mint font-semibold">₹{m.revenue.toLocaleString("en-IN")}</td>
+                          <td className="px-4 py-2.5 text-right text-destructive font-semibold">₹{m.spend.toLocaleString("en-IN")}</td>
+                          <td className="px-4 py-2.5 text-right">
+                            {m.spend > 0 ? (
+                              <Badge variant={m.roas >= 2 ? "default" : m.roas >= 1 ? "secondary" : "destructive"} className="rounded-full text-xs">{m.roas.toFixed(2)}x</Badge>
+                            ) : <span className="text-muted-foreground">—</span>}
+                          </td>
+                          <td className={`px-4 py-2.5 text-right font-semibold ${m.profit >= 0 ? "text-mint" : "text-destructive"}`}>₹{m.profit.toLocaleString("en-IN")}</td>
+                          <td className="px-4 py-2.5 text-center">
+                            <Button variant="ghost" size="sm" className="h-6 text-[10px] text-primary" onClick={() => setDrilldownMonth(m.monthKey)}>
+                              Deep Dive
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* TAB 2: AD INTEL */}
+        {/* TAB 2: CREATIVE INTEL */}
         <TabsContent value="ads" className="space-y-6">
           <AdsIntelligence
             adSpend={adSpend as any[]}
@@ -810,6 +986,37 @@ const Finance = () => {
             </div>
           </div>
 
+          {/* Cannibalization Alert */}
+          {cannibalizationAlert && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Cannibalization Warning</AlertTitle>
+              <AlertDescription>{cannibalizationAlert}</AlertDescription>
+            </Alert>
+          )}
+
+          {/* Pareto Chart */}
+          {paretoData.length > 0 && (
+            <Card className="neu-raised-neon">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-semibold">Service Category Pareto</CardTitle>
+              </CardHeader>
+              <CardContent className="h-64 px-2">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={paretoData} barGap={6}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 14%, 88%)" />
+                    <XAxis dataKey="category" tick={{ fontSize: 11 }} stroke="hsl(215, 15%, 55%)" />
+                    <YAxis yAxisId="left" tick={{ fontSize: 10 }} stroke="hsl(215, 15%, 55%)" />
+                    <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} stroke="hsl(215, 15%, 55%)" />
+                    <Tooltip contentStyle={tooltipStyle} formatter={(value: number, name: string) => [name === "revenue" ? `₹${value.toLocaleString("en-IN")}` : value, name === "revenue" ? "Revenue" : "Volume"]} />
+                    <Bar yAxisId="left" dataKey="volume" fill="hsl(186, 60%, 55%)" radius={[8, 8, 0, 0]} name="volume" />
+                    <Line yAxisId="right" type="monotone" dataKey="revenue" stroke="hsl(170, 50%, 55%)" strokeWidth={2} dot name="revenue" />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Top Customers */}
           <Card className="neu-raised-neon">
             <CardHeader className="pb-2">
@@ -843,7 +1050,112 @@ const Finance = () => {
           </Card>
         </TabsContent>
 
-        {/* TAB 4: AI CFO */}
+        {/* TAB 4: COHORTS */}
+        <TabsContent value="cohorts" className="space-y-6">
+          {/* Repeat Rate + Churn Count */}
+          <div className="grid gap-4 grid-cols-2 lg:grid-cols-3">
+            <div className="neu-raised-neon p-5 text-center">
+              <Repeat className="h-5 w-5 mx-auto mb-2 text-primary icon-recessed" />
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Repeat Rate</p>
+              <p className="text-2xl font-bold text-foreground">{opsMetrics.repeatRate.toFixed(1)}%</p>
+              <p className="text-[10px] text-muted-foreground">{opsMetrics.repeatPhones} of {opsMetrics.uniquePhones}</p>
+            </div>
+            <div className="neu-raised-neon p-5 text-center">
+              <UserX className="h-5 w-5 mx-auto mb-2 text-destructive icon-recessed" />
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Churned (45d+)</p>
+              <p className="text-2xl font-bold text-destructive">{churnData.length}</p>
+              <p className="text-[10px] text-muted-foreground">Inactive customers</p>
+            </div>
+            <div className="neu-raised-neon p-5 text-center">
+              <Users className="h-5 w-5 mx-auto mb-2 text-primary icon-recessed" />
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Active Customers</p>
+              <p className="text-2xl font-bold text-foreground">{Math.max(opsMetrics.uniquePhones - churnData.length, 0)}</p>
+            </div>
+          </div>
+
+          {/* Churn List */}
+          <Card className="neu-raised-neon">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <UserX className="h-4 w-4 text-destructive" />
+                Churn List — WhatsApp Remarketing Targets
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto max-h-80 overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-background">
+                    <tr className="border-b border-neon-border/20">
+                      <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wider text-xs">Customer</th>
+                      <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wider text-xs">Phone</th>
+                      <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">Last Order</th>
+                      <th className="px-4 py-2.5 text-right font-medium text-muted-foreground uppercase tracking-wider text-xs">LTV</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {churnData.slice(0, 50).map((c, i) => (
+                      <tr key={i} className="border-b border-neon-border/10 last:border-0">
+                        <td className="px-4 py-2.5 font-medium text-foreground">{c.name}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground font-mono text-xs">{c.phone}</td>
+                        <td className="px-4 py-2.5 text-right text-muted-foreground">{new Date(c.lastDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</td>
+                        <td className="px-4 py-2.5 text-right text-mint font-semibold">₹{Math.round(c.ltv).toLocaleString("en-IN")}</td>
+                      </tr>
+                    ))}
+                    {churnData.length === 0 && (
+                      <tr><td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">No churned customers</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Cohort Heatmap */}
+          <Card className="neu-raised-neon">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold">Revenue Cohort Heatmap</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {cohortData.grid.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">Upload Turns CSV to see cohort data</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs border-collapse">
+                    <thead>
+                      <tr>
+                        <th className="px-2 py-2 text-left font-medium text-muted-foreground">Acq Month</th>
+                        {Array.from({ length: cohortData.maxOffset + 1 }, (_, i) => (
+                          <th key={i} className="px-2 py-2 text-center font-medium text-muted-foreground">M{i}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cohortData.grid.map((row) => (
+                        <tr key={row.acqMonth}>
+                          <td className="px-2 py-1.5 font-medium text-foreground whitespace-nowrap">{row.acqMonth}</td>
+                          {row.cells.map((val, ci) => (
+                            <td
+                              key={ci}
+                              className="px-2 py-1.5 text-center font-mono"
+                              style={{
+                                backgroundColor: getHeatColor(val, cohortMax),
+                                color: val > cohortMax * 0.5 ? "hsl(0, 0%, 100%)" : "hsl(215, 15%, 35%)",
+                              }}
+                            >
+                              {val > 0 ? `₹${(val / 1000).toFixed(0)}k` : "—"}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* TAB 5: AI CFO */}
         <TabsContent value="ai" className="space-y-6">
           <AiAuditor
             turnsRevenue={pnl.turnsRevenue}
@@ -856,6 +1168,9 @@ const Finance = () => {
             selectedAds={selectedAds}
             aov={opsMetrics.aov}
             totalOrders={opsMetrics.totalOrders}
+            mer={mer}
+            categoryData={categoryData}
+            churnCount={churnData.length}
           />
         </TabsContent>
       </Tabs>

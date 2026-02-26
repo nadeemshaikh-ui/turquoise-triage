@@ -18,9 +18,12 @@ type Props = {
   selectedAds?: AdStat[];
   aov?: number;
   totalOrders?: number;
+  mer?: number;
+  categoryData?: Record<string, { volume: number; revenue: number }>;
+  churnCount?: number;
 };
 
-const AiAuditor = ({ turnsRevenue, totalAdSpend, materialCogs, realProfit, profitMargin, topAd, worstAd, selectedAds = [], aov = 0, totalOrders = 0 }: Props) => {
+const AiAuditor = ({ turnsRevenue, totalAdSpend, materialCogs, realProfit, profitMargin, topAd, worstAd, selectedAds = [], aov = 0, totalOrders = 0, mer = 0, categoryData = {}, churnCount = 0 }: Props) => {
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -37,6 +40,9 @@ const AiAuditor = ({ turnsRevenue, totalAdSpend, materialCogs, realProfit, profi
           profitMargin,
           aov,
           totalOrders,
+          mer,
+          categoryData,
+          churnCount,
           topAd: topAd ? { name: topAd.ad_name, cpc: topAd.cpc.toFixed(0), ctr: topAd.ctr.toFixed(2) } : null,
           worstAd: worstAd ? { name: worstAd.ad_name, spend: worstAd.spend.toFixed(0), clicks: worstAd.clicks } : null,
           selectedAds: selectedAds.length > 0 ? selectedAds.map((a) => ({
@@ -57,7 +63,7 @@ const AiAuditor = ({ turnsRevenue, totalAdSpend, materialCogs, realProfit, profi
     }
   };
 
-  // Parse markdown sections (### headers or emoji headers)
+  // Parse markdown sections
   const sections = useMemo(() => {
     if (!analysis) return null;
     const lines = analysis.split("\n");
@@ -65,7 +71,6 @@ const AiAuditor = ({ turnsRevenue, totalAdSpend, materialCogs, realProfit, profi
     let current: { icon: string; title: string; bullets: string[] } | null = null;
 
     for (const line of lines) {
-      // Match ### headers or emoji headers
       const hashMatch = line.match(/^###\s*(📊|🔍|🎯)?\s*(.+)/);
       const emojiMatch = line.match(/^(📊|🔍|🎯)\s*\*\*(.+?)\*\*/);
 
@@ -91,11 +96,11 @@ const AiAuditor = ({ turnsRevenue, totalAdSpend, materialCogs, realProfit, profi
     <div className="space-y-6">
       <div className="text-center space-y-2">
         <h2 className="text-xl font-bold text-foreground">AI CFO Action Plan</h2>
-        <p className="text-sm text-muted-foreground">Elite D2C Growth CFO — Unit Economics & Capital Allocation</p>
+        <p className="text-sm text-muted-foreground">Elite Growth CFO for Restoree — Unit Economics, MER & Cannibalization</p>
       </div>
 
       {/* Quick Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
         <div className="neu-raised p-4 text-center">
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Revenue</p>
           <p className="text-lg font-bold text-foreground">₹{turnsRevenue.toLocaleString("en-IN")}</p>
@@ -105,8 +110,8 @@ const AiAuditor = ({ turnsRevenue, totalAdSpend, materialCogs, realProfit, profi
           <p className="text-lg font-bold text-destructive">₹{totalAdSpend.toLocaleString("en-IN")}</p>
         </div>
         <div className="neu-raised p-4 text-center">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">ROAS</p>
-          <p className="text-lg font-bold text-foreground">{totalAdSpend > 0 ? `${(turnsRevenue / totalAdSpend).toFixed(2)}x` : "—"}</p>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">MER</p>
+          <p className="text-lg font-bold text-foreground">{mer > 0 ? `${mer.toFixed(2)}x` : "—"}</p>
         </div>
         <div className="neu-raised p-4 text-center">
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">AOV</p>
@@ -115,6 +120,10 @@ const AiAuditor = ({ turnsRevenue, totalAdSpend, materialCogs, realProfit, profi
         <div className="neu-raised p-4 text-center">
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Margin</p>
           <p className={`text-lg font-bold ${realProfit >= 0 ? "text-mint" : "text-destructive"}`}>{profitMargin}</p>
+        </div>
+        <div className="neu-raised p-4 text-center">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Churned</p>
+          <p className="text-lg font-bold text-destructive">{churnCount}</p>
         </div>
       </div>
 

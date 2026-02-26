@@ -919,6 +919,7 @@ export type Database = {
           phone: string | null
           qty: number | null
           sanitized_phone: string | null
+          service_details: string | null
         }
         Insert: {
           amount?: number
@@ -932,6 +933,7 @@ export type Database = {
           phone?: string | null
           qty?: number | null
           sanitized_phone?: string | null
+          service_details?: string | null
         }
         Update: {
           amount?: number
@@ -945,6 +947,7 @@ export type Database = {
           phone?: string | null
           qty?: number | null
           sanitized_phone?: string | null
+          service_details?: string | null
         }
         Relationships: [
           {

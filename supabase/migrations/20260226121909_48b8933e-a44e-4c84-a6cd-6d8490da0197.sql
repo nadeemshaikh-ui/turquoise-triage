@@ -1,0 +1,1 @@
+ALTER TABLE turns_sales ADD COLUMN IF NOT EXISTS service_details text;

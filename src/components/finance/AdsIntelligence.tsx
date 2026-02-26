@@ -115,7 +115,6 @@ const AdsIntelligence = ({ adSpend, dateFilter, turnsRevenue, leadsCount = 0, on
     });
   }, [filtered, sortCol, sortDir, leadsCount]);
 
-  // Notify parent of selection changes
   useEffect(() => {
     if (onSelectionChange) {
       const selected = adStats.filter((a) => selectedIds.has(a.ad_id));
@@ -156,17 +155,17 @@ const AdsIntelligence = ({ adSpend, dateFilter, turnsRevenue, leadsCount = 0, on
     }
   }, [filtered, timelineMode]);
 
-  const funnel = useMemo(() => {
-    const totalReach = filtered.reduce((s, a) => s + Number(a.reach || 0), 0);
+  // Horizontal funnel data for BarChart
+  const funnelData = useMemo(() => {
     const totalImpressions = filtered.reduce((s, a) => s + Number(a.impressions || 0), 0);
     const totalClicks = filtered.reduce((s, a) => s + Number(a.clicks || 0), 0);
     return [
-      { stage: "Reach", value: totalReach, icon: Users },
-      { stage: "Impressions", value: totalImpressions, icon: Eye },
-      { stage: "Clicks", value: totalClicks, icon: MousePointerClick },
-      { stage: "Revenue", value: Math.round(turnsRevenue), icon: DollarSign },
+      { stage: "Impressions", value: totalImpressions },
+      { stage: "Clicks", value: totalClicks },
+      { stage: "Leads", value: leadsCount },
+      { stage: "Revenue", value: Math.round(turnsRevenue) },
     ];
-  }, [filtered, turnsRevenue]);
+  }, [filtered, turnsRevenue, leadsCount]);
 
   const getAdDuration = (firstDate: string, lastDate: string) => {
     const diff = Math.ceil((new Date(lastDate).getTime() - new Date(firstDate).getTime()) / (1000 * 60 * 60 * 24));
@@ -183,11 +182,17 @@ const AdsIntelligence = ({ adSpend, dateFilter, turnsRevenue, leadsCount = 0, on
     return <span className="ml-0.5">{sortDir === "desc" ? "↓" : "↑"}</span>;
   };
 
+  const getFreqAlert = (freq: number) => {
+    if (freq > 2.0) return "🔴";
+    if (freq > 1.5) return "🟡";
+    return null;
+  };
+
   if (filtered.length === 0) {
     return (
       <div className="text-center py-12">
         <BarChart3 className="h-8 w-8 mx-auto mb-3 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">Sync Meta data to activate Ad Intelligence</p>
+        <p className="text-sm text-muted-foreground">Sync Meta data to activate Creative Intelligence</p>
       </div>
     );
   }
@@ -266,38 +271,23 @@ const AdsIntelligence = ({ adSpend, dateFilter, turnsRevenue, leadsCount = 0, on
         </CardContent>
       </Card>
 
-      {/* Performance Funnel */}
+      {/* Horizontal Performance Funnel */}
       <Card className="neu-raised-neon">
         <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Performance Funnel</CardTitle></CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-between gap-2">
-            {funnel.map((step, i) => {
-              const Icon = step.icon;
-              const prevValue = i > 0 ? funnel[i - 1].value : null;
-              const dropRate = prevValue && prevValue > 0 ? ((1 - step.value / prevValue) * 100) : null;
-              return (
-                <div key={step.stage} className="flex flex-1 items-center gap-1">
-                  <div className="neu-raised p-3 rounded-2xl flex-1 text-center">
-                    <Icon className="h-4 w-4 mx-auto mb-1 text-primary icon-recessed" />
-                    <p className="text-lg font-bold text-foreground">
-                      {step.stage === "Revenue" ? `₹${step.value.toLocaleString("en-IN")}` : step.value.toLocaleString("en-IN")}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{step.stage}</p>
-                    {dropRate !== null && dropRate > 0 && (
-                      <p className="text-[9px] text-destructive mt-0.5 flex items-center justify-center gap-0.5">
-                        <ArrowDown className="h-2.5 w-2.5" />{dropRate.toFixed(1)}% drop
-                      </p>
-                    )}
-                  </div>
-                  {i < funnel.length - 1 && <div className="w-6 h-0.5 bg-gradient-to-r from-primary/40 to-primary/10 flex-shrink-0" />}
-                </div>
-              );
-            })}
-          </div>
+        <CardContent className="h-48 px-2">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={funnelData} layout="vertical" barSize={28}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 14%, 88%)" />
+              <XAxis type="number" tick={{ fontSize: 10 }} stroke="hsl(215, 15%, 55%)" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)} />
+              <YAxis type="category" dataKey="stage" tick={{ fontSize: 11 }} stroke="hsl(215, 15%, 55%)" width={90} />
+              <Tooltip contentStyle={tooltipStyle} formatter={(value: number, _: string, props: any) => [props.payload.stage === "Revenue" ? `₹${value.toLocaleString("en-IN")}` : value.toLocaleString("en-IN"), props.payload.stage]} />
+              <Bar dataKey="value" fill="hsl(186, 60%, 55%)" radius={[0, 8, 8, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
         </CardContent>
       </Card>
 
-      {/* Ad Performance Table with checkboxes + CPM/CAC/Frequency */}
+      {/* Ad Performance Table with checkboxes + frequency alerts */}
       <Card className="neu-raised-neon">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-semibold">Creative Rollup</CardTitle>
@@ -346,7 +336,10 @@ const AdsIntelligence = ({ adSpend, dateFilter, turnsRevenue, leadsCount = 0, on
                       <span className={a.cpc > 0 && a.cpc < 20 ? "text-mint font-semibold" : "text-foreground"}>{a.cpc > 0 ? `₹${a.cpc.toFixed(0)}` : "—"}</span>
                     </td>
                     <td className="px-3 py-2.5 text-right text-foreground">{a.cpm > 0 ? `₹${a.cpm.toFixed(0)}` : "—"}</td>
-                    <td className="px-3 py-2.5 text-right text-foreground">{a.frequency > 0 ? a.frequency.toFixed(1) : "—"}</td>
+                    <td className="px-3 py-2.5 text-right text-foreground">
+                      {getFreqAlert(a.frequency) && <span className="mr-1">{getFreqAlert(a.frequency)}</span>}
+                      {a.frequency > 0 ? a.frequency.toFixed(1) : "—"}
+                    </td>
                     <td className="px-3 py-2.5 text-right text-muted-foreground text-xs">{getAdDuration(a.firstDate, a.lastDate)}d</td>
                     <td className="px-3 py-2.5 text-center">
                       {a.isHighBurn ? (
