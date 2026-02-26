@@ -363,12 +363,16 @@ const Finance = () => {
       const lines = text.split("\n").filter((l) => l.trim());
       if (lines.length < 2) throw new Error("CSV is empty");
 
-      // Find header row (search-and-skip)
+      // Find header row — aggressively clean every cell before matching
       let headerIdx = -1;
       let headerCols: string[] = [];
+      let delimiter = ",";
       for (let i = 0; i < lines.length; i++) {
-        const cols = parseCSVLine(lines[i]).map((c) => c.toLowerCase().replace(/"/g, ""));
-        if (cols.some((c) => c.includes("date")) && cols.some((c) => c.includes("amount") || c.includes("total") || c.includes("price") || c.includes("value"))) {
+        delimiter = lines[i].includes("\t") ? "\t" : ",";
+        const cols = parseCSVLine(lines[i], delimiter).map((c) => c.replace(/"/g, "").trim().toLowerCase());
+        const hasDate = cols.some((c) => c.includes("date"));
+        const hasAmount = cols.some((c) => c.includes("amount") || c.includes("total") || c.includes("price") || c.includes("value"));
+        if (hasDate && hasAmount) {
           headerIdx = i;
           headerCols = cols;
           break;
@@ -376,26 +380,31 @@ const Finance = () => {
       }
       if (headerIdx < 0) throw new Error("Invalid Turns CSV: must contain Date and Amount/Total columns");
 
-      // Flexible column matching for Turns format
+      console.log("[Turns Parser] Header row:", headerIdx, "Cols:", headerCols, "Delimiter:", delimiter === "\t" ? "TAB" : "COMMA");
+
+      // Explicit column matching — prefer "order creation date" over generic "date"
       const dateCol = headerCols.findIndex((c) => c.includes("order") && c.includes("date")) >= 0
         ? headerCols.findIndex((c) => c.includes("order") && c.includes("date"))
         : headerCols.findIndex((c) => c.includes("date"));
-      const amountCol = headerCols.findIndex((c) => c === "amount" || c.includes("amount") || c.includes("total") || c.includes("price"));
+      const amountCol = headerCols.findIndex((c) => c === "amount" || c.includes("amount") || c.includes("total amount") || c.includes("price"));
       const phoneCol = headerCols.findIndex((c) => c.includes("phone") || c.includes("mobile") || c.includes("contact"));
       const nameCol = headerCols.findIndex((c) => c.includes("customer") || c.includes("name") || c.includes("client"));
       const orderCol = headerCols.findIndex((c) => (c.includes("order") && !c.includes("date")) || c.includes("invoice") || c.includes("ref"));
+
+      console.log("[Turns Parser] Columns — date:", dateCol, "amount:", amountCol, "phone:", phoneCol, "name:", nameCol, "order:", orderCol);
 
       const skipPhrases = ["grand total", "subtotal", "gst", "tds"];
       const rows: { date: string; amount: number; phone: string; sanitized_phone: string; customer_name: string; order_ref: string }[] = [];
 
       for (let i = headerIdx + 1; i < lines.length; i++) {
         const lower = lines[i].toLowerCase().trim();
-        // Only skip summary/footer rows, not data rows that happen to contain "total" in a column name
         if (!lower || skipPhrases.some((p) => lower.startsWith(p) || lower.includes(`\t${p}`) || lower.includes(`,${p}`))) continue;
 
-        const cells = parseCSVLine(lines[i]);
+        const cells = parseCSVLine(lines[i], delimiter);
         const rawDate = (cells[dateCol] || "").replace(/"/g, "").trim();
-        const amount = cleanAmount(cells[amountCol] || "");
+        // Aggressive amount: strip EVERYTHING except digits and decimal
+        const rawAmount = (cells[amountCol] || "").replace(/[^0-9.]/g, "");
+        const amount = parseFloat(rawAmount) || 0;
         if (amount <= 0) continue;
 
         // Parse date flexibly (DD-Mon-YYYY, DD-MM-YYYY, DD/MM/YYYY, YYYY-MM-DD)
