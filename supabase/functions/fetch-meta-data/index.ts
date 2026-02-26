@@ -27,10 +27,7 @@ Deno.serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     const today = new Date();
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(today.getDate() - 30);
-
-    const since = thirtyDaysAgo.toISOString().split("T")[0];
+    const since = "2025-09-01";
     const until = today.toISOString().split("T")[0];
 
     // Fetch ad-level insights with daily breakdown

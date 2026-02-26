@@ -10,21 +10,36 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { totalRevenue, totalAdSpend, materialCogs, realProfit, profitMargin } = await req.json();
+    const { totalRevenue, totalAdSpend, materialCogs, realProfit, profitMargin, topAd, worstAd } = await req.json();
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    const systemPrompt = `You are a luxury business growth strategist specializing in premium restoration services (sneakers, handbags, leather goods). You analyze financial data and provide actionable, specific growth recommendations. Be concise, data-driven, and speak in a confident advisory tone. Format each bullet with an emoji prefix.`;
+    const systemPrompt = `You are a ruthless, no-BS CFO for a luxury restoration business (Restoree). You analyze financial data and output ONLY in the strict format below. No paragraphs. No introductions. No fluff. Be brutally specific with numbers.
 
-    const userPrompt = `Analyze this data for Restoree (Luxury Restoration Business):
+OUTPUT FORMAT (use exactly these 3 headers):
 
-Revenue (from Turns Sales): ₹${totalRevenue?.toLocaleString("en-IN") || 0}
-Meta Ad Spend: ₹${totalAdSpend?.toLocaleString("en-IN") || 0}
+📊 **The Hard Numbers**
+- (bullet 1)
+- (bullet 2)  
+- (bullet 3)
+
+🔍 **What's Broken / What's Working**
+- (bullet 1)
+- (bullet 2)
+
+🎯 **Next Move**
+- (single decisive action, e.g. "Kill Ad X", "Scale Ad Y by 2x", "Pause all spend until ROAS > 2")`;
+
+    const userPrompt = `Revenue: ₹${totalRevenue?.toLocaleString("en-IN") || 0}
+Ad Spend: ₹${totalAdSpend?.toLocaleString("en-IN") || 0}
 Material COGS: ₹${materialCogs?.toLocaleString("en-IN") || 0}
-Real Profit: ₹${realProfit?.toLocaleString("en-IN") || 0}
-Profit Margin: ${profitMargin || "N/A"}
+Profit: ₹${realProfit?.toLocaleString("en-IN") || 0}
+Margin: ${profitMargin || "N/A"}
+ROAS: ${totalAdSpend > 0 ? (totalRevenue / totalAdSpend).toFixed(2) + "x" : "No ad spend"}
+${topAd ? `Best Performing Ad: "${topAd.name}" (CPC: ₹${topAd.cpc}, CTR: ${topAd.ctr}%)` : ""}
+${worstAd ? `Worst Ad: "${worstAd.name}" (Spend: ₹${worstAd.spend}, Clicks: ${worstAd.clicks})` : ""}
 
-Give me exactly 3 bullet points for growth. Each bullet should be specific, actionable, and tied to the numbers above. If revenue is 0, suggest strategies to get first revenue. If ad spend is 0, suggest marketing strategies.`;
+Analyze. Be ruthless. Follow the exact output format.`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
