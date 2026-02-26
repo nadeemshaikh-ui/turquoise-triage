@@ -14,7 +14,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const metaToken = Deno.env.get("META_ACCESS_TOKEN");
+    const metaToken = Deno.env.get("META_ACCESS_TOKEN")?.trim();
     if (!metaToken) {
       return new Response(JSON.stringify({ error: "META_ACCESS_TOKEN not configured" }), {
         status: 500,
