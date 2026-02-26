@@ -13,10 +13,6 @@ export default {
       },
     },
     extend: {
-      fontFamily: {
-        display: ["Playfair Display", "serif"],
-        tech: ["Inter", "system-ui", "sans-serif"],
-      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -61,19 +57,30 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
-        gold: {
-          DEFAULT: "hsl(var(--gold))",
-          foreground: "hsl(var(--gold-foreground))",
+        sage: {
+          DEFAULT: "hsl(var(--sage))",
+          foreground: "hsl(var(--sage-foreground))",
         },
-        "electric-teal": {
-          DEFAULT: "hsl(var(--electric-teal))",
-          foreground: "hsl(var(--electric-teal-foreground))",
+        "dusty-blue": {
+          DEFAULT: "hsl(var(--dusty-blue))",
+          foreground: "hsl(var(--dusty-blue-foreground))",
+        },
+        mint: {
+          DEFAULT: "hsl(var(--mint))",
+          foreground: "hsl(var(--mint-foreground))",
         },
       },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        "neu": "1.5rem",
+        "neu-lg": "2rem",
+      },
+      boxShadow: {
+        "neu": "8px 8px 16px hsl(220 20% 84%), -8px -8px 16px hsl(0 0% 100%)",
+        "neu-sm": "4px 4px 10px hsl(220 20% 84%), -4px -4px 10px hsl(0 0% 100%)",
+        "neu-pressed": "inset 4px 4px 10px hsl(220 20% 84%), inset -4px -4px 10px hsl(0 0% 100%)",
       },
       keyframes: {
         "accordion-down": {

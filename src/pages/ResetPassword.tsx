@@ -16,9 +16,7 @@ const ResetPassword = () => {
 
   useEffect(() => {
     const hash = window.location.hash;
-    if (hash.includes("type=recovery")) {
-      setReady(true);
-    }
+    if (hash.includes("type=recovery")) setReady(true);
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -28,9 +26,7 @@ const ResetPassword = () => {
       return;
     }
     setLoading(true);
-
     const { error } = await supabase.auth.updateUser({ password });
-
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } else {
@@ -42,11 +38,11 @@ const ResetPassword = () => {
 
   if (!ready) {
     return (
-      <div className="flex min-h-screen items-center justify-center p-4">
-        <Card className="w-full max-w-sm glass-card-glow">
+      <div className="flex min-h-screen items-center justify-center bg-background p-4">
+        <Card className="w-full max-w-sm">
           <CardHeader className="text-center">
-            <CardTitle className="font-display">Invalid Link</CardTitle>
-            <CardDescription className="font-tech">This password reset link is invalid or expired.</CardDescription>
+            <CardTitle>Invalid Link</CardTitle>
+            <CardDescription>This password reset link is invalid or expired.</CardDescription>
           </CardHeader>
         </Card>
       </div>
@@ -54,17 +50,17 @@ const ResetPassword = () => {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-4">
-      <Card className="w-full max-w-sm glass-card-glow">
+    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <CardTitle className="font-display">Set New Password</CardTitle>
-          <CardDescription className="font-tech">Enter your new password below</CardDescription>
+          <CardTitle>Set New Password</CardTitle>
+          <CardDescription>Enter your new password below</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-3">
             <div className="space-y-1.5">
-              <Label htmlFor="password" className="font-tech text-xs uppercase tracking-widest text-muted-foreground">New Password</Label>
-              <Input id="password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Min 6 characters" className="bg-input/50 border-primary/20 focus:border-primary/50" />
+              <Label htmlFor="password" className="text-xs uppercase tracking-wider text-muted-foreground">New Password</Label>
+              <Input id="password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Min 6 characters" className="neu-pressed border-none" />
             </div>
           </CardContent>
           <CardFooter>

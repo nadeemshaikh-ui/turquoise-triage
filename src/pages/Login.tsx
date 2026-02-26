@@ -29,24 +29,23 @@ const Login = () => {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-4">
-      <Card className="w-full max-w-sm glass-card-glow">
+    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-display">
-            <span className="text-gold-gradient">Restoree</span>{" "}
-            <span className="text-primary">360</span>
+          <CardTitle className="text-xl font-bold tracking-tight">
+            Restoree <span className="text-primary">360</span>
           </CardTitle>
-          <CardDescription className="font-tech">Sign in to your team account</CardDescription>
+          <CardDescription>Sign in to your team account</CardDescription>
         </CardHeader>
         <form onSubmit={handleLogin}>
           <CardContent className="space-y-3">
             <div className="space-y-1.5">
-              <Label htmlFor="email" className="font-tech text-xs uppercase tracking-widest text-muted-foreground">Email</Label>
-              <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="bg-input/50 border-primary/20 focus:border-primary/50" />
+              <Label htmlFor="email" className="text-xs uppercase tracking-wider text-muted-foreground">Email</Label>
+              <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="neu-pressed border-none" />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="password" className="font-tech text-xs uppercase tracking-widest text-muted-foreground">Password</Label>
-              <Input id="password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="bg-input/50 border-primary/20 focus:border-primary/50" />
+              <Label htmlFor="password" className="text-xs uppercase tracking-wider text-muted-foreground">Password</Label>
+              <Input id="password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="neu-pressed border-none" />
             </div>
           </CardContent>
           <CardFooter className="flex flex-col gap-3">
@@ -54,13 +53,11 @@ const Login = () => {
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Sign In
             </Button>
-            <p className="text-sm text-muted-foreground font-tech">
+            <p className="text-sm text-muted-foreground">
               No account?{" "}
-              <Link to="/signup" className="font-medium text-primary hover:underline">
-                Sign up
-              </Link>
+              <Link to="/signup" className="font-medium text-primary hover:underline">Sign up</Link>
             </p>
-            <Link to="/forgot-password" className="text-xs text-muted-foreground hover:text-primary font-tech">
+            <Link to="/forgot-password" className="text-xs text-muted-foreground hover:text-primary">
               Forgot password?
             </Link>
           </CardFooter>
