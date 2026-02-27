@@ -9,10 +9,11 @@ import { Loader2, ClipboardList, Send } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import SlaIndicator from "@/components/orders/SlaIndicator";
 
-const STATUS_TABS = ["all", "triage", "consult", "quoted", "pending_advance", "workshop", "qc", "delivered"] as const;
+const STATUS_TABS = ["all", "triage", "consult", "quoted", "pending_advance", "workshop", "qc", "delivered", "declined", "refunds"] as const;
 const TAB_LABELS: Record<string, string> = {
   all: "All", triage: "Triage", consult: "Consult", quoted: "Quoted",
   pending_advance: "Advance", workshop: "Workshop", qc: "QC", delivered: "Delivered",
+  declined: "Declined", refunds: "🔴 Refunds",
 };
 
 const statusColor: Record<string, string> = {
@@ -23,6 +24,8 @@ const statusColor: Record<string, string> = {
   workshop: "bg-blue-100 text-blue-800 border-blue-300",
   qc: "bg-purple-100 text-purple-800 border-purple-300",
   delivered: "bg-green-100 text-green-800 border-green-300",
+  declined: "bg-red-100 text-red-800 border-red-300",
+  cancelled: "bg-gray-100 text-gray-800 border-gray-300",
 };
 
 const Orders = () => {
@@ -38,7 +41,13 @@ const Orders = () => {
         .from("orders")
         .select("*")
         .order("created_at", { ascending: false });
-      if (tab !== "all") query = query.eq("status", tab);
+
+      if (tab === "refunds") {
+        query = query.in("status", ["declined", "cancelled"]).gt("advance_paid", 0);
+      } else if (tab !== "all") {
+        query = query.eq("status", tab);
+      }
+
       const { data, error } = await query;
       if (error) throw error;
       return (data || []) as any[];
@@ -53,7 +62,6 @@ const Orders = () => {
     });
   };
 
-  // Batch publishing logic
   const selectedOrders = useMemo(
     () => (orders || []).filter((o: any) => selectedIds.has(o.id)),
     [orders, selectedIds]
@@ -106,7 +114,7 @@ const Orders = () => {
             onClick={() => setTab(t)}
             className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-all ${
               tab === t ? "neu-pressed text-primary" : "text-muted-foreground hover:text-foreground"
-            }`}
+            } ${t === "refunds" ? "text-red-600" : ""}`}
           >
             {TAB_LABELS[t]}
           </button>
@@ -146,39 +154,49 @@ const Orders = () => {
         </div>
       ) : (
         <div className="space-y-2">
-          {orders.map((order: any) => (
-            <div
-              key={order.id}
-              className="flex items-start gap-3 rounded-[var(--radius)] border border-border bg-card p-4 hover:shadow-md transition-shadow"
-            >
-              <Checkbox
-                checked={selectedIds.has(order.id)}
-                onCheckedChange={() => toggleSelect(order.id)}
-                className="mt-1 shrink-0"
-              />
-              <button
-                onClick={() => navigate(`/orders/${order.id}`)}
-                className="flex-1 text-left space-y-1"
+          {orders.map((order: any) => {
+            const hasRefundDue = (order.status === "declined" || order.status === "cancelled") && Number(order.advance_paid) > 0;
+            return (
+              <div
+                key={order.id}
+                className="flex items-start gap-3 rounded-[var(--radius)] border border-border bg-card p-4 hover:shadow-md transition-shadow"
               >
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-foreground">{order.customer_name || "Unknown"}</span>
-                  <Badge variant="outline" className={`text-[10px] rounded-full ${statusColor[order.status] || ""}`}>
-                    {order.status}
-                  </Badge>
-                </div>
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{order.customer_phone}</span>
-                  <span className="font-medium text-foreground">₹{Number(order.total_price || 0).toLocaleString()}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-muted-foreground">
-                    {new Date(order.created_at).toLocaleDateString()}
-                  </span>
-                  <SlaIndicator orderStatus={order.status} consultationStartTime={order.consultation_start_time} />
-                </div>
-              </button>
-            </div>
-          ))}
+                <Checkbox
+                  checked={selectedIds.has(order.id)}
+                  onCheckedChange={() => toggleSelect(order.id)}
+                  className="mt-1 shrink-0"
+                />
+                <button
+                  onClick={() => navigate(`/orders/${order.id}`)}
+                  className="flex-1 text-left space-y-1"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-foreground">{order.customer_name || "Unknown"}</span>
+                    <div className="flex items-center gap-1.5">
+                      {hasRefundDue && (
+                        <Badge className="animate-pulse bg-red-100 text-red-800 border-red-400 text-[10px] rounded-full">
+                          Refund ₹{Number(order.advance_paid).toLocaleString()}
+                        </Badge>
+                      )}
+                      <Badge variant="outline" className={`text-[10px] rounded-full ${statusColor[order.status] || ""}`}>
+                        {order.status}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>{order.customer_phone}</span>
+                    <span className="font-medium text-foreground">₹{Number(order.total_price || 0).toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-muted-foreground">
+                      {new Date(order.created_at).toLocaleDateString()}
+                    </span>
+                    <SlaIndicator orderStatus={order.status} consultationStartTime={order.consultation_start_time} />
+                  </div>
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

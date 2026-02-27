@@ -20,9 +20,10 @@ interface ExpertHuddleProps {
   onAddTask: (task: any) => Promise<void>;
   onUpdateTask: (args: { taskId: string; updates: Record<string, any> }) => Promise<void>;
   canEdit?: boolean;
+  canRemoveTask?: boolean;
 }
 
-const ExpertHuddle = ({ orderId, tasks, onAddTask, onUpdateTask, canEdit = true }: ExpertHuddleProps) => {
+const ExpertHuddle = ({ orderId, tasks, onAddTask, onUpdateTask, canEdit = true, canRemoveTask = true }: ExpertHuddleProps) => {
   const { data: scopeTags } = useQuery({
     queryKey: ["scope-tag-definitions"],
     queryFn: async () => {
@@ -54,6 +55,11 @@ const ExpertHuddle = ({ orderId, tasks, onAddTask, onUpdateTask, canEdit = true 
           🔒 Contract locked — tasks are read-only
         </div>
       )}
+      {canEdit && !canRemoveTask && (
+        <div className="rounded-[calc(var(--radius)/2)] bg-blue-50 border border-blue-200 p-2 text-xs text-blue-800">
+          🔧 Workshop mode — only upselling (adding) allowed. Existing tasks cannot be removed.
+        </div>
+      )}
       {EXPERT_TYPES.map((type) => {
         const task = tasks.find((t) => t.expertType === type);
         const tagsForType = (scopeTags || []).filter((t: any) => t.expert_type === type);
@@ -70,6 +76,7 @@ const ExpertHuddle = ({ orderId, tasks, onAddTask, onUpdateTask, canEdit = true 
             onAddTask={onAddTask}
             onUpdateTask={onUpdateTask}
             canEdit={canEdit}
+            canRemoveTask={canRemoveTask}
           />
         );
       })}
@@ -87,9 +94,10 @@ interface ExpertSectionProps {
   onAddTask: (task: any) => Promise<void>;
   onUpdateTask: (args: { taskId: string; updates: Record<string, any> }) => Promise<void>;
   canEdit: boolean;
+  canRemoveTask: boolean;
 }
 
-const ExpertSection = ({ type, label, task, tags, experts, orderId, onAddTask, onUpdateTask, canEdit }: ExpertSectionProps) => {
+const ExpertSection = ({ type, label, task, tags, experts, orderId, onAddTask, onUpdateTask, canEdit, canRemoveTask }: ExpertSectionProps) => {
   const [open, setOpen] = useState(!!task);
   const [assignedTo, setAssignedTo] = useState(task?.assignedTo || "");
   const [selectedTags, setSelectedTags] = useState<string[]>(task?.scopeTags || []);
@@ -106,9 +114,20 @@ const ExpertSection = ({ type, label, task, tags, experts, orderId, onAddTask, o
 
   const toggleTag = (tagName: string) => {
     if (!canEdit) return;
+    // In scope lockdown mode, only allow adding new tags (not removing existing ones)
+    if (!canRemoveTask && task && task.scopeTags.includes(tagName)) return;
     setSelectedTags((prev) =>
       prev.includes(tagName) ? prev.filter((t) => t !== tagName) : [...prev, tagName]
     );
+  };
+
+  const handlePriceChange = (newPrice: string) => {
+    // In scope lockdown, price cannot be lowered below current task price
+    if (!canRemoveTask && task) {
+      const newVal = Number(newPrice) || 0;
+      if (newVal < task.estimatedPrice) return;
+    }
+    setPrice(newPrice);
   };
 
   const handleSave = async () => {
@@ -152,7 +171,6 @@ const ExpertSection = ({ type, label, task, tags, experts, orderId, onAddTask, o
         </button>
       </CollapsibleTrigger>
       <CollapsibleContent className="mt-2 space-y-3 rounded-[var(--radius)] border border-border bg-card p-4">
-        {/* Expert Assignment */}
         <div className="space-y-1">
           <label className="text-xs font-medium text-muted-foreground">Assigned Expert</label>
           <Select value={assignedTo} onValueChange={setAssignedTo} disabled={!canEdit}>
@@ -169,44 +187,48 @@ const ExpertSection = ({ type, label, task, tags, experts, orderId, onAddTask, o
           </Select>
         </div>
 
-        {/* Scope Tags */}
         <div className="space-y-1">
           <label className="text-xs font-medium text-muted-foreground">Scope Tags</label>
           <div className="flex flex-wrap gap-1.5">
-            {tags.map((tag: any) => (
-              <button
-                key={tag.id}
-                onClick={() => toggleTag(tag.tag_name)}
-                disabled={!canEdit}
-                className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors border ${
-                  selectedTags.includes(tag.tag_name)
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-muted text-muted-foreground border-border hover:border-primary/50"
-                } ${!canEdit ? "opacity-60 cursor-not-allowed" : ""}`}
-              >
-                {tag.tag_name}
-              </button>
-            ))}
+            {tags.map((tag: any) => {
+              const isSelected = selectedTags.includes(tag.tag_name);
+              const isLockedTag = !canRemoveTask && task && task.scopeTags.includes(tag.tag_name);
+              return (
+                <button
+                  key={tag.id}
+                  onClick={() => toggleTag(tag.tag_name)}
+                  disabled={!canEdit || (isLockedTag && isSelected)}
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors border ${
+                    isSelected
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-muted text-muted-foreground border-border hover:border-primary/50"
+                  } ${(!canEdit || (isLockedTag && isSelected)) ? "opacity-60 cursor-not-allowed" : ""}`}
+                >
+                  {tag.tag_name} {isLockedTag && isSelected ? "🔒" : ""}
+                </button>
+              );
+            })}
           </div>
           {scopeDescription && (
             <p className="text-[11px] text-muted-foreground mt-1 italic">{scopeDescription}</p>
           )}
         </div>
 
-        {/* Price */}
         <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">Estimated Price (₹)</label>
+          <label className="text-xs font-medium text-muted-foreground">
+            Estimated Price (₹) {!canRemoveTask && task ? `(min ₹${task.estimatedPrice.toLocaleString()})` : ""}
+          </label>
           <Input
             type="number"
             value={price}
-            onChange={(e) => setPrice(e.target.value)}
+            onChange={(e) => handlePriceChange(e.target.value)}
             placeholder="0"
             className="h-9"
             disabled={!canEdit}
+            min={!canRemoveTask && task ? task.estimatedPrice : undefined}
           />
         </div>
 
-        {/* Notes */}
         <div className="space-y-1">
           <label className="text-xs font-medium text-muted-foreground">Expert Notes</label>
           <Textarea

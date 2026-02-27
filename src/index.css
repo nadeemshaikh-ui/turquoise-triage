@@ -170,3 +170,54 @@
     color: hsl(var(--muted-foreground));
   }
 }
+
+/* Portal Dark Luxury Theme */
+.portal-theme {
+  --portal-bg: 0 0% 4%;
+  --portal-surface: 0 0% 8%;
+  --portal-gold: 37 40% 60%;
+  --portal-gold-dim: 37 30% 40%;
+  --portal-text: 30 15% 90%;
+  --portal-muted: 30 10% 38%;
+  --portal-border: 30 10% 15%;
+}
+
+.portal-theme {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+@layer utilities {
+  .portal-raised {
+    background: hsl(var(--portal-surface));
+    border-radius: 1rem;
+    box-shadow:
+      6px 6px 14px hsl(0 0% 0%),
+      -4px -4px 10px hsl(0 0% 12%);
+    transition: all 300ms ease;
+  }
+
+  .portal-pressed {
+    background: hsl(var(--portal-bg));
+    border-radius: 1rem;
+    box-shadow:
+      inset 3px 3px 8px hsl(0 0% 0%),
+      inset -3px -3px 8px hsl(0 0% 12%);
+    transition: all 300ms ease;
+  }
+
+  .portal-shimmer {
+    background: linear-gradient(
+      110deg,
+      hsl(var(--portal-surface)) 30%,
+      hsl(var(--portal-gold) / 0.08) 50%,
+      hsl(var(--portal-surface)) 70%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2.5s ease-in-out infinite;
+  }
+
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+}
