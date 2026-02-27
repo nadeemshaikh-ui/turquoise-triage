@@ -855,9 +855,12 @@ export type Database = {
           customer_id: string
           customer_name: string | null
           customer_phone: string | null
+          discount_amount: number | null
+          discovery_pending: boolean | null
           health_score: number | null
           id: string
           is_bundle_applied: boolean | null
+          is_gst_applicable: boolean | null
           lead_id: string | null
           maintenance_due: string | null
           notes: string | null
@@ -878,9 +881,12 @@ export type Database = {
           customer_id: string
           customer_name?: string | null
           customer_phone?: string | null
+          discount_amount?: number | null
+          discovery_pending?: boolean | null
           health_score?: number | null
           id?: string
           is_bundle_applied?: boolean | null
+          is_gst_applicable?: boolean | null
           lead_id?: string | null
           maintenance_due?: string | null
           notes?: string | null
@@ -901,9 +907,12 @@ export type Database = {
           customer_id?: string
           customer_name?: string | null
           customer_phone?: string | null
+          discount_amount?: number | null
+          discovery_pending?: boolean | null
           health_score?: number | null
           id?: string
           is_bundle_applied?: boolean | null
+          is_gst_applicable?: boolean | null
           lead_id?: string | null
           maintenance_due?: string | null
           notes?: string | null
@@ -1185,6 +1194,42 @@ export type Database = {
           price_range_max?: number | null
           price_range_min?: number | null
           requires_photos?: boolean
+        }
+        Relationships: []
+      }
+      system_health_logs: {
+        Row: {
+          details: Json | null
+          errors_found: number
+          fixes_applied: number
+          ghost_test_passed: boolean | null
+          id: string
+          notes: string | null
+          rls_test_passed: boolean | null
+          run_at: string
+          run_type: string
+        }
+        Insert: {
+          details?: Json | null
+          errors_found?: number
+          fixes_applied?: number
+          ghost_test_passed?: boolean | null
+          id?: string
+          notes?: string | null
+          rls_test_passed?: boolean | null
+          run_at?: string
+          run_type?: string
+        }
+        Update: {
+          details?: Json | null
+          errors_found?: number
+          fixes_applied?: number
+          ghost_test_passed?: boolean | null
+          id?: string
+          notes?: string | null
+          rls_test_passed?: boolean | null
+          run_at?: string
+          run_type?: string
         }
         Relationships: []
       }
