@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Save } from "lucide-react";
+import { Loader2, Save, Shield } from "lucide-react";
 import type { ExpertTask, OrderDetail } from "@/hooks/useOrderDetail";
 
 interface PricingEngineProps {
@@ -12,17 +12,18 @@ interface PricingEngineProps {
   onSave: (updates: Record<string, any>) => Promise<void>;
   recalcTotalPrice: (tasks: ExpertTask[], tier: string, shipping: number, cleaning: number, bundle: boolean, discount?: number, gst?: boolean) => { subtotal: number; discounted: number; taxAmount: number; total: number };
   canEdit?: boolean;
+  isGodMode?: boolean;
 }
 
-const PricingEngine = ({ order, expertTasks, onSave, recalcTotalPrice, canEdit = true }: PricingEngineProps) => {
+const PricingEngine = ({ order, expertTasks, onSave, recalcTotalPrice, canEdit = true, isGodMode = false }: PricingEngineProps) => {
+  const effectiveCanEdit = isGodMode || canEdit;
+
   const [tier, setTier] = useState(order.packageTier);
   const [shippingFee, setShippingFee] = useState(String(order.shippingFee));
   const [isBundleApplied, setIsBundleApplied] = useState(order.isBundleApplied);
   const [discountAmount, setDiscountAmount] = useState(String(order.discountAmount ?? 0));
   const [discountReason, setDiscountReason] = useState(order.discountReason || "");
   const [isGstApplicable, setIsGstApplicable] = useState(order.isGstApplicable ?? false);
-  const [advancePaid, setAdvancePaid] = useState(String(order.advancePaid ?? 0));
-  const [advanceRequired, setAdvanceRequired] = useState(String(order.advanceRequired ?? 0));
   const [saving, setSaving] = useState(false);
 
   const hasRepairTask = expertTasks.some((t) => t.expertType === "repair");
@@ -37,14 +38,11 @@ const PricingEngine = ({ order, expertTasks, onSave, recalcTotalPrice, canEdit =
   const effectiveCleaning = isElite ? 0 : isBundleApplied ? 299 : 0;
   const warrantyMonths = isElite ? 6 : 3;
   const effectiveDiscount = Number(discountAmount) || 0;
-  const effectiveAdvancePaid = Number(advancePaid) || 0;
 
   const calc = useMemo(
     () => recalcTotalPrice(expertTasks, tier, effectiveShipping, effectiveCleaning, isBundleApplied, effectiveDiscount, isGstApplicable),
     [expertTasks, tier, effectiveShipping, effectiveCleaning, isBundleApplied, effectiveDiscount, isGstApplicable, recalcTotalPrice]
   );
-
-  const balanceRemaining = Math.round((calc.total - effectiveAdvancePaid) * 100) / 100;
 
   const handleSave = async () => {
     setSaving(true);
@@ -61,9 +59,6 @@ const PricingEngine = ({ order, expertTasks, onSave, recalcTotalPrice, canEdit =
         total_price: calc.total,
         tax_amount: calc.taxAmount,
         total_amount_due: calc.total,
-        advance_paid: effectiveAdvancePaid,
-        advance_required: Number(advanceRequired) || 0,
-        balance_remaining: balanceRemaining,
       });
     } finally {
       setSaving(false);
@@ -72,9 +67,16 @@ const PricingEngine = ({ order, expertTasks, onSave, recalcTotalPrice, canEdit =
 
   return (
     <section className="neu-raised-sm p-4 space-y-4">
-      <h2 className="text-sm font-semibold text-foreground">Pricing Engine</h2>
+      <div className="flex items-center gap-2">
+        <h2 className="text-sm font-semibold text-foreground">Pricing Engine</h2>
+        {isGodMode && !canEdit && (
+          <Badge className="text-[9px] bg-amber-100 text-amber-800 border-amber-300 gap-1">
+            <Shield className="h-3 w-3" /> God Mode
+          </Badge>
+        )}
+      </div>
 
-      {!canEdit && (
+      {!effectiveCanEdit && (
         <div className="rounded-[calc(var(--radius)/2)] bg-amber-50 border border-amber-200 p-2.5 text-xs text-amber-800">
           🔒 Contract locked — pricing is read-only
         </div>
@@ -85,15 +87,15 @@ const PricingEngine = ({ order, expertTasks, onSave, recalcTotalPrice, canEdit =
         {["standard", "elite"].map((t) => (
           <button
             key={t}
-            onClick={() => canEdit && setTier(t)}
-            disabled={!canEdit}
+            onClick={() => effectiveCanEdit && setTier(t)}
+            disabled={!effectiveCanEdit}
             className={`flex-1 rounded-[var(--radius)] py-2 text-sm font-medium transition-all ${
               tier === t
                 ? t === "elite"
                   ? "neu-pressed text-amber-700"
                   : "neu-pressed text-primary"
                 : "text-muted-foreground hover:text-foreground"
-            } ${!canEdit ? "opacity-60 cursor-not-allowed" : ""}`}
+            } ${!effectiveCanEdit ? "opacity-60 cursor-not-allowed" : ""}`}
           >
             {t === "elite" ? "✨ Elite" : "Standard"}
           </button>
@@ -103,7 +105,7 @@ const PricingEngine = ({ order, expertTasks, onSave, recalcTotalPrice, canEdit =
       {isElite && (
         <div className="rounded-[calc(var(--radius)/2)] bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800 space-y-1">
           <p className="font-medium">Elite Package Active</p>
-          <p>Shipping: ₹0 · Cleaning: Waived · Warranty: 6 months</p>
+          <p>Shipping: ₹0 · Cleaning: Waived · Warranty: 6 months · 1.4× multiplier</p>
         </div>
       )}
 
@@ -133,7 +135,7 @@ const PricingEngine = ({ order, expertTasks, onSave, recalcTotalPrice, canEdit =
               onChange={(e) => setShippingFee(e.target.value)}
               className="h-8 w-24 text-right text-sm"
               placeholder="0"
-              disabled={!canEdit}
+              disabled={!effectiveCanEdit}
             />
           </div>
         )}
@@ -154,8 +156,8 @@ const PricingEngine = ({ order, expertTasks, onSave, recalcTotalPrice, canEdit =
             <Checkbox
               id="bundle"
               checked={isBundleApplied}
-              onCheckedChange={(checked) => canEdit && setIsBundleApplied(!!checked)}
-              disabled={!canEdit}
+              onCheckedChange={(checked) => effectiveCanEdit && setIsBundleApplied(!!checked)}
+              disabled={!effectiveCanEdit}
             />
             <label htmlFor="bundle" className="text-xs font-medium text-foreground cursor-pointer">
               Apply Repair-Cleaning Bundle (50% Off Cleaning — ₹299)
@@ -170,30 +172,26 @@ const PricingEngine = ({ order, expertTasks, onSave, recalcTotalPrice, canEdit =
         </div>
 
         {/* Discount */}
-        {!isElite && (
-          <>
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-green-600 font-medium text-xs">Discount</span>
-              <Input
-                type="number"
-                value={discountAmount}
-                onChange={(e) => setDiscountAmount(e.target.value)}
-                className="h-8 w-24 text-right text-sm"
-                placeholder="0"
-                disabled={!canEdit}
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <Input
-                value={discountReason}
-                onChange={(e) => setDiscountReason(e.target.value)}
-                className="h-8 text-xs"
-                placeholder="Discount reason..."
-                disabled={!canEdit}
-              />
-            </div>
-          </>
-        )}
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-green-600 font-medium text-xs">Discount</span>
+          <Input
+            type="number"
+            value={discountAmount}
+            onChange={(e) => setDiscountAmount(e.target.value)}
+            className="h-8 w-24 text-right text-sm"
+            placeholder="0"
+            disabled={!effectiveCanEdit}
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <Input
+            value={discountReason}
+            onChange={(e) => setDiscountReason(e.target.value)}
+            className="h-8 text-xs"
+            placeholder="Discount reason..."
+            disabled={!effectiveCanEdit}
+          />
+        </div>
 
         {/* After discount */}
         {effectiveDiscount > 0 && (
@@ -208,8 +206,8 @@ const PricingEngine = ({ order, expertTasks, onSave, recalcTotalPrice, canEdit =
           <Checkbox
             id="gst"
             checked={isGstApplicable}
-            onCheckedChange={(checked) => canEdit && setIsGstApplicable(!!checked)}
-            disabled={!canEdit}
+            onCheckedChange={(checked) => effectiveCanEdit && setIsGstApplicable(!!checked)}
+            disabled={!effectiveCanEdit}
           />
           <label htmlFor="gst" className="text-xs font-medium text-foreground cursor-pointer">
             Apply GST (18%)
@@ -225,33 +223,6 @@ const PricingEngine = ({ order, expertTasks, onSave, recalcTotalPrice, canEdit =
           <span className="text-lg font-bold text-primary">₹{calc.total.toLocaleString()}</span>
         </div>
 
-        {/* Advance Required */}
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-xs text-muted-foreground">Advance Required</span>
-          <Input
-            type="number"
-            value={advanceRequired}
-            onChange={(e) => setAdvanceRequired(e.target.value)}
-            className="h-8 w-24 text-right text-sm"
-            placeholder="0"
-            disabled={!canEdit}
-          />
-        </div>
-
-        {/* Advance Paid */}
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>Advance Paid</span>
-          <span>₹{effectiveAdvancePaid.toLocaleString()}</span>
-        </div>
-
-        {/* Balance Remaining */}
-        <div className="flex items-center justify-between text-xs font-medium">
-          <span className="text-foreground">Balance Remaining</span>
-          <span className={balanceRemaining > 0 ? "text-destructive" : "text-green-600"}>
-            ₹{balanceRemaining.toLocaleString()}
-          </span>
-        </div>
-
         {/* Warranty */}
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span>Warranty</span>
@@ -259,7 +230,7 @@ const PricingEngine = ({ order, expertTasks, onSave, recalcTotalPrice, canEdit =
         </div>
       </div>
 
-      {canEdit && (
+      {effectiveCanEdit && (
         <Button onClick={handleSave} disabled={saving} className="w-full gap-2">
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
           Save Pricing

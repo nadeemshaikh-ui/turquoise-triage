@@ -13,6 +13,7 @@ type CustomerData = {
   campaign: string;
   city: string;
   address: string;
+  expectedItemCount?: number;
 };
 
 type Props = {
@@ -79,6 +80,10 @@ const CustomerDetails = ({ data, onChange, errors, campaigns }: Props) => {
           <div>
             <Label htmlFor="address" className="text-[11px]">Full Address</Label>
             <Input id="address" placeholder="123 MG Road, Bandra West" value={data.address} onChange={(e) => set("address", e.target.value)} className="h-9 text-sm" />
+          </div>
+          <div>
+            <Label htmlFor="expectedItemCount" className="text-[11px]">Expected Item Count *</Label>
+            <Input id="expectedItemCount" type="number" min={1} max={20} placeholder="1" value={String(data.expectedItemCount ?? 1)} onChange={(e) => onChange({ ...data, expectedItemCount: Number(e.target.value) || 1 })} className="h-9 text-sm" />
           </div>
           <div>
             <Label htmlFor="email" className="text-[11px]">Email</Label>

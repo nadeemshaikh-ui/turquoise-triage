@@ -633,6 +633,7 @@ export type Database = {
           custom_service_name: string | null
           custom_service_price: number | null
           customer_id: string
+          expected_item_count: number
           id: string
           is_gold_tier: boolean
           issue_tags: Json | null
@@ -654,6 +655,7 @@ export type Database = {
           custom_service_name?: string | null
           custom_service_price?: number | null
           customer_id: string
+          expected_item_count?: number
           id?: string
           is_gold_tier?: boolean
           issue_tags?: Json | null
@@ -675,6 +677,7 @@ export type Database = {
           custom_service_name?: string | null
           custom_service_price?: number | null
           customer_id?: string
+          expected_item_count?: number
           id?: string
           is_gold_tier?: boolean
           issue_tags?: Json | null
@@ -894,6 +897,8 @@ export type Database = {
           auto_sweetener_type: string | null
           auto_sweetener_value: string | null
           balance_remaining: number | null
+          checked_in_items: Json
+          checkin_confirmed: boolean
           cleaning_fee: number | null
           consultation_start_time: string | null
           created_at: string
@@ -908,6 +913,8 @@ export type Database = {
           discount_amount: number | null
           discount_reason: string | null
           discovery_pending: boolean | null
+          dropoff_slot: string | null
+          expected_item_count: number
           final_qc_video_url: string | null
           health_score: number | null
           id: string
@@ -920,6 +927,7 @@ export type Database = {
           package_tier: string | null
           packing_photo_url: string | null
           payment_declared: boolean | null
+          pickup_slot: string | null
           quote_sent_at: string | null
           quote_valid_until: string | null
           reminder_count: number | null
@@ -942,6 +950,8 @@ export type Database = {
           auto_sweetener_type?: string | null
           auto_sweetener_value?: string | null
           balance_remaining?: number | null
+          checked_in_items?: Json
+          checkin_confirmed?: boolean
           cleaning_fee?: number | null
           consultation_start_time?: string | null
           created_at?: string
@@ -956,6 +966,8 @@ export type Database = {
           discount_amount?: number | null
           discount_reason?: string | null
           discovery_pending?: boolean | null
+          dropoff_slot?: string | null
+          expected_item_count?: number
           final_qc_video_url?: string | null
           health_score?: number | null
           id?: string
@@ -968,6 +980,7 @@ export type Database = {
           package_tier?: string | null
           packing_photo_url?: string | null
           payment_declared?: boolean | null
+          pickup_slot?: string | null
           quote_sent_at?: string | null
           quote_valid_until?: string | null
           reminder_count?: number | null
@@ -990,6 +1003,8 @@ export type Database = {
           auto_sweetener_type?: string | null
           auto_sweetener_value?: string | null
           balance_remaining?: number | null
+          checked_in_items?: Json
+          checkin_confirmed?: boolean
           cleaning_fee?: number | null
           consultation_start_time?: string | null
           created_at?: string
@@ -1004,6 +1019,8 @@ export type Database = {
           discount_amount?: number | null
           discount_reason?: string | null
           discovery_pending?: boolean | null
+          dropoff_slot?: string | null
+          expected_item_count?: number
           final_qc_video_url?: string | null
           health_score?: number | null
           id?: string
@@ -1016,6 +1033,7 @@ export type Database = {
           package_tier?: string | null
           packing_photo_url?: string | null
           payment_declared?: boolean | null
+          pickup_slot?: string | null
           quote_sent_at?: string | null
           quote_valid_until?: string | null
           reminder_count?: number | null
@@ -1379,27 +1397,33 @@ export type Database = {
         Row: {
           company_upi_id: string | null
           created_at: string
+          dropoff_slots: Json
           followup_days: number
           id: string
           initial_reminder_days: number
+          pickup_slots: Json
           updated_at: string
           workshop_capacity: number
         }
         Insert: {
           company_upi_id?: string | null
           created_at?: string
+          dropoff_slots?: Json
           followup_days?: number
           id?: string
           initial_reminder_days?: number
+          pickup_slots?: Json
           updated_at?: string
           workshop_capacity?: number
         }
         Update: {
           company_upi_id?: string | null
           created_at?: string
+          dropoff_slots?: Json
           followup_days?: number
           id?: string
           initial_reminder_days?: number
+          pickup_slots?: Json
           updated_at?: string
           workshop_capacity?: number
         }

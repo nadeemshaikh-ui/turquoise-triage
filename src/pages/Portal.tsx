@@ -3,11 +3,10 @@ import { useParams } from "react-router-dom";
 import { Loader2, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Badge } from "@/components/ui/badge";
 import PortalOrderCard from "@/components/portal/PortalOrderCard";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 
 const Portal = () => {
   const { customerId } = useParams<{ customerId: string }>();
@@ -16,7 +15,6 @@ const Portal = () => {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"active" | "historical">("active");
   const [expired, setExpired] = useState(false);
-  const [declaring, setDeclaring] = useState(false);
 
   // Approval flow state
   const [ack1, setAck1] = useState(false);
@@ -76,20 +74,7 @@ const Portal = () => {
   };
 
   const quotedOrders = (data?.active || []).filter((o: any) => o.status === "quoted");
-  const pendingAdvanceOrders = (data?.active || []).filter((o: any) => o.status === "pending_advance");
-  const anyPaymentDeclared = pendingAdvanceOrders.some((o: any) => o.payment_declared);
-  const totalAdvanceRequired = pendingAdvanceOrders.reduce((sum: number, o: any) => sum + Number(o.advance_required || 0), 0);
   const actionRequired = quotedOrders.length > 0 || (data?.active || []).some((o: any) => o.discovery_pending);
-
-  const handleDeclarePayment = async () => {
-    setDeclaring(true);
-    try {
-      const ids = pendingAdvanceOrders.map((o: any) => o.id);
-      await callAction("declare_payment", { orderIds: ids });
-    } finally {
-      setDeclaring(false);
-    }
-  };
 
   const handleApproveAll = async () => {
     setApproving(true);
@@ -139,7 +124,6 @@ const Portal = () => {
 
   return (
     <div className="portal-theme min-h-screen bg-[hsl(var(--portal-bg))]">
-      {/* Header */}
       <header className="sticky top-0 z-30 backdrop-blur-md border-b border-[hsl(var(--portal-border))] bg-[hsl(var(--portal-bg)/0.9)] px-6 py-5">
         <h1 className="text-2xl font-bold tracking-wide text-[hsl(var(--portal-gold))]">
           Your Wardrobe
@@ -186,6 +170,9 @@ const Portal = () => {
               photos={data?.photos || []}
               discoveries={data?.discoveries || []}
               markers={data?.markers || []}
+              auditLogs={data?.auditLogs || []}
+              systemSettings={data?.systemSettings || {}}
+              onAction={callAction}
               onApproveDiscovery={(id) => callAction("approve_discovery", { discoveryId: id })}
               onDeclineDiscovery={(id) => callAction("decline_discovery", { discoveryId: id })}
               onConfirmAddress={(oid, addr) => callAction("confirm_address", { orderId: oid, address: addr })}
@@ -233,39 +220,6 @@ const Portal = () => {
                 {approving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
                 Approve {quotedOrders.length} Item{quotedOrders.length > 1 ? "s" : ""}
               </Button>
-            </div>
-          )}
-
-          {/* UPI Payment Declaration */}
-          {tab === "active" && pendingAdvanceOrders.length > 0 && (
-            <div className="portal-raised p-5 space-y-3 border border-[hsl(var(--portal-gold)/0.3)]">
-              <div className="text-center">
-                <p className="text-base text-[hsl(var(--portal-muted))]">Total Advance Required</p>
-                <p className="text-3xl font-bold text-[hsl(var(--portal-gold))]">
-                  ₹{totalAdvanceRequired.toLocaleString()}
-                </p>
-              </div>
-              <Button
-                onClick={handleDeclarePayment}
-                disabled={anyPaymentDeclared || declaring}
-                className={`w-full min-h-[48px] gap-2 text-base ${
-                  anyPaymentDeclared
-                    ? "bg-[hsl(var(--portal-surface))] text-[hsl(var(--portal-muted))]"
-                    : "bg-[hsl(var(--portal-gold))] text-[hsl(0_0%_4%)]"
-                }`}
-              >
-                {declaring ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : anyPaymentDeclared ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : null}
-                {anyPaymentDeclared ? "Verifying..." : "I Have Paid"}
-              </Button>
-              {anyPaymentDeclared && (
-                <p className="text-center text-xs text-[hsl(var(--portal-muted))]">
-                  We're verifying your payment. This usually takes a few hours.
-                </p>
-              )}
             </div>
           )}
         </main>

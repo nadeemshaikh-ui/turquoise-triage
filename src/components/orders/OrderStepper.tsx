@@ -1,14 +1,14 @@
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-const STEPS = ["triage", "consult", "quoted", "pending_advance", "workshop", "qc", "delivered"];
+const STEPS = ["pickup_scheduled", "received", "inspection", "in_progress", "qc", "ready", "delivered"];
 const LABELS: Record<string, string> = {
-  triage: "Triage",
-  consult: "Consult",
-  quoted: "Quoted",
-  pending_advance: "Advance",
-  workshop: "Workshop",
+  pickup_scheduled: "Pickup",
+  received: "Received",
+  inspection: "Inspection",
+  in_progress: "In Progress",
   qc: "QC",
+  ready: "Ready",
   delivered: "Delivered",
 };
 

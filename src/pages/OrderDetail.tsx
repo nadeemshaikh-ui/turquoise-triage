@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Loader2, AlertTriangle, Banknote, Info, Ban, XCircle, CheckCircle, CreditCard, Copy, ExternalLink, Send } from "lucide-react";
+import { ArrowLeft, Loader2, AlertTriangle, Info, Ban, XCircle, CheckCircle, CreditCard, Copy, ExternalLink, Send, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrderDetail } from "@/hooks/useOrderDetail";
@@ -22,15 +22,20 @@ import BeforeAfterPhotos from "@/components/orders/BeforeAfterPhotos";
 import DiscoveryDialog from "@/components/orders/DiscoveryDialog";
 
 const statusColor: Record<string, string> = {
-  triage: "bg-primary/15 text-primary border-primary/30",
-  consult: "bg-amber-100 text-amber-800 border-amber-300",
-  quoted: "bg-secondary text-secondary-foreground border-border",
-  pending_advance: "bg-orange-100 text-orange-800 border-orange-300",
-  workshop: "bg-blue-100 text-blue-800 border-blue-300",
+  pickup_scheduled: "bg-primary/15 text-primary border-primary/30",
+  received: "bg-amber-100 text-amber-800 border-amber-300",
+  inspection: "bg-secondary text-secondary-foreground border-border",
+  in_progress: "bg-blue-100 text-blue-800 border-blue-300",
   qc: "bg-purple-100 text-purple-800 border-purple-300",
+  ready: "bg-emerald-100 text-emerald-800 border-emerald-300",
   delivered: "bg-green-100 text-green-800 border-green-300",
   declined: "bg-red-100 text-red-800 border-red-300",
   cancelled: "bg-gray-100 text-gray-800 border-gray-300",
+  // Legacy
+  triage: "bg-primary/15 text-primary border-primary/30",
+  consult: "bg-amber-100 text-amber-800 border-amber-300",
+  quoted: "bg-secondary text-secondary-foreground border-border",
+  workshop: "bg-blue-100 text-blue-800 border-blue-300",
 };
 
 const OrderDetail = () => {
@@ -40,16 +45,14 @@ const OrderDetail = () => {
   const {
     order, tasks, photos, auditLogs, isLoading,
     updateStatus, updateOrder, addExpertTask, updateExpertTask,
-    uploadPhotos, deletePhoto, addDiscovery, logAdvancePaid,
+    uploadPhotos, deletePhoto, addDiscovery,
     markUnfixable, markRefundIssued, rejectPaymentDeclaration, forceCancel,
     recalcTotalPrice, ORDER_STATUS_FLOW,
   } = useOrderDetail(id!);
 
   const [discoveryOpen, setDiscoveryOpen] = useState(false);
-  const [advanceAmount, setAdvanceAmount] = useState("");
-  const [loggingAdvance, setLoggingAdvance] = useState(false);
 
-  // VIP check: count total orders for this customer
+  // VIP check
   const { data: customerOrderCount } = useQuery({
     queryKey: ["customer-order-count", order?.customerId],
     queryFn: async () => {
@@ -67,7 +70,7 @@ const OrderDetail = () => {
     queryFn: async () => {
       const [settingsRes, countRes] = await Promise.all([
         supabase.from("system_settings").select("workshop_capacity").limit(1).single(),
-        supabase.from("orders").select("id", { count: "exact", head: true }).eq("status", "workshop"),
+        supabase.from("orders").select("id", { count: "exact", head: true }).eq("status", "in_progress"),
       ]);
       return {
         capacity: settingsRes.data?.workshop_capacity ?? 20,
@@ -85,31 +88,41 @@ const OrderDetail = () => {
   }
 
   const isLocked = !!(order.customerApprovedAt || order.customerDeclinedAt);
-  const canEdit = isAdmin || !isLocked;
-  const isWorkshopOrQc = order.status === "workshop" || order.status === "qc";
+  const canEdit = isAdmin ? true : !isLocked; // God Mode: admin always edits
+  const isGodMode = isAdmin && isLocked;
+  const isWorkshopOrQc = order.status === "in_progress" || order.status === "qc";
   const isOverCapacity = capacityData && capacityData.activeCount > capacityData.capacity;
   const isVip = (customerOrderCount ?? 0) > 1;
-  const showRefundIssued = (order.status === "declined" || order.status === "cancelled") && order.advancePaid > 0;
+  const isReceivedOrInspection = order.status === "received" || order.status === "inspection";
+
+  // Check-in logic
+  const checkedInItems: string[] = order.checkedInItems || [];
+  const expectedCount = order.expectedItemCount || 1;
+  const checkedCount = checkedInItems.length;
+  const hasCheckinMismatch = checkedCount > 0 && checkedCount !== expectedCount && !order.checkinConfirmed;
 
   const handleAdvance = (nextStatus: string) => {
+    // Block advancing from received to inspection if mismatch and not confirmed
+    if (order.status === "received" && nextStatus === "inspection" && hasCheckinMismatch) {
+      toast({ title: "Check-in mismatch — confirm discrepancy first", variant: "destructive" });
+      return;
+    }
     updateStatus.mutate(nextStatus, {
       onSuccess: () => toast({ title: `Status updated to ${nextStatus}` }),
     });
   };
 
-  const handleLogAdvance = async () => {
-    const amount = Number(advanceAmount);
-    if (!amount || amount <= 0) return;
-    setLoggingAdvance(true);
-    try {
-      await logAdvancePaid.mutateAsync(amount);
-      toast({ title: `₹${amount.toLocaleString()} advance logged. Order moved to workshop.` });
-      setAdvanceAmount("");
-    } catch {
-      toast({ title: "Failed to log advance", variant: "destructive" });
-    } finally {
-      setLoggingAdvance(false);
-    }
+  const handleToggleCheckin = async (itemLabel: string) => {
+    const current = [...checkedInItems];
+    const idx = current.indexOf(itemLabel);
+    if (idx >= 0) current.splice(idx, 1);
+    else current.push(itemLabel);
+    await updateOrder.mutateAsync({ checked_in_items: current });
+  };
+
+  const handleConfirmDiscrepancy = async () => {
+    await updateOrder.mutateAsync({ checkin_confirmed: true });
+    toast({ title: "Discrepancy confirmed by admin" });
   };
 
   return (
@@ -161,16 +174,16 @@ const OrderDetail = () => {
         {/* Contract Lock Banner */}
         {isLocked && (
           <div className="rounded-[var(--radius)] bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800 flex items-center gap-2">
-            🔒 Contract {order.customerApprovedAt ? "approved" : "declined"} by customer — {isAdmin ? "admin override available" : "editing disabled"}
+            🔒 Contract {order.customerApprovedAt ? "approved" : "declined"} by customer — {isAdmin ? "God Mode active" : "editing disabled"}
           </div>
         )}
 
-        {/* Quote Sent Banner with Portal Links */}
+        {/* Quote Sent Banner */}
         {order.quoteSentAt && (
           <div className="rounded-[var(--radius)] bg-green-50 border border-green-200 p-3 text-xs text-green-800 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <Send className="h-4 w-4 shrink-0" />
-              <span>Quote Sent via WhatsApp · {formatDistanceToNow(new Date(order.quoteSentAt), { addSuffix: true })}</span>
+              <span>Quote Sent · {formatDistanceToNow(new Date(order.quoteSentAt), { addSuffix: true })}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <Button
@@ -185,27 +198,19 @@ const OrderDetail = () => {
               >
                 <Copy className="h-3 w-3" /> Copy Link
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1 text-[11px] text-green-700 hover:text-green-900 hover:bg-green-100"
-                onClick={() => window.open(`/portal/${order.customerId}`, "_blank")}
-              >
-                <ExternalLink className="h-3 w-3" /> Open Portal
-              </Button>
             </div>
           </div>
         )}
 
         {/* Payment Declared Banner */}
-        {order.paymentDeclared && order.status === "pending_advance" && (
+        {order.paymentDeclared && order.status === "ready" && (
           <div className="rounded-[var(--radius)] bg-blue-50 border border-blue-200 p-3 text-xs text-blue-800 flex items-center gap-2">
             <CreditCard className="h-4 w-4 shrink-0" />
             Customer has declared payment. Awaiting admin verification.
           </div>
         )}
 
-        {/* Capacity Planning Banner */}
+        {/* Capacity Banner */}
         {isOverCapacity && (
           <div className="rounded-[var(--radius)] bg-blue-50 border border-blue-200 p-3 text-xs text-blue-800 flex items-center gap-2">
             <Info className="h-4 w-4 shrink-0" />
@@ -222,8 +227,51 @@ const OrderDetail = () => {
           canEdit={canEdit}
         />
 
+        {/* Physical Check-In Checklist */}
+        {isReceivedOrInspection && (
+          <section className={`rounded-[var(--radius)] border p-4 space-y-3 ${hasCheckinMismatch ? "border-orange-400 bg-orange-50" : "border-border bg-card"}`}>
+            <div className="flex items-center gap-2">
+              <Package className="h-4 w-4 text-foreground" />
+              <h3 className="text-sm font-semibold text-foreground">Physical Check-In</h3>
+              <span className="text-xs text-muted-foreground">{checkedCount}/{expectedCount} items</span>
+            </div>
+            {hasCheckinMismatch && (
+              <div className="rounded-[calc(var(--radius)/2)] bg-orange-100 border border-orange-300 p-2 text-xs text-orange-800">
+                ⚠️ Item count mismatch! Expected {expectedCount}, checked {checkedCount}. Confirm discrepancy to proceed.
+              </div>
+            )}
+            <div className="space-y-2">
+              {Array.from({ length: expectedCount }, (_, i) => {
+                const label = `Item ${String.fromCharCode(65 + i)}`;
+                const isChecked = checkedInItems.includes(label);
+                return (
+                  <label key={label} className="flex items-center gap-3 cursor-pointer">
+                    <Checkbox
+                      checked={isChecked}
+                      onCheckedChange={() => handleToggleCheckin(label)}
+                    />
+                    <span className={`text-sm ${isChecked ? "text-foreground font-medium" : "text-muted-foreground"}`}>
+                      {label} — {isChecked ? "✓ Received" : "Pending"}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+            {hasCheckinMismatch && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full border-orange-400 text-orange-700 hover:bg-orange-100"
+                onClick={handleConfirmDiscrepancy}
+              >
+                Confirm Discrepancy & Continue
+              </Button>
+            )}
+          </section>
+        )}
+
         {/* Discovery Trigger */}
-        {order.status === "workshop" && canEdit && (
+        {(order.status === "in_progress" || order.status === "qc") && canEdit && (
           <Button
             variant="outline"
             onClick={() => setDiscoveryOpen(true)}
@@ -241,37 +289,7 @@ const OrderDetail = () => {
           </div>
         )}
 
-        {/* Payment Actions for pending_advance */}
-        {order.status === "pending_advance" && canEdit && (
-          <div className="rounded-[var(--radius)] border border-border bg-card p-4 space-y-3">
-            <div className="flex items-center gap-2">
-              <Banknote className="h-4 w-4 text-green-600" />
-              <h3 className="text-sm font-semibold text-foreground">Log Advance Payment</h3>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Advance required: ₹{order.advanceRequired.toLocaleString()} · Balance: ₹{order.balanceRemaining.toLocaleString()}
-            </p>
-            <div className="flex gap-2">
-              <Input
-                type="number"
-                value={advanceAmount}
-                onChange={(e) => setAdvanceAmount(e.target.value)}
-                placeholder="Amount paid..."
-                className="h-9"
-              />
-              <Button
-                onClick={handleLogAdvance}
-                disabled={loggingAdvance || !Number(advanceAmount)}
-                className="gap-2 shrink-0"
-              >
-                {loggingAdvance && <Loader2 className="h-4 w-4 animate-spin" />}
-                Log Payment
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Expert Huddle — scope lockdown in workshop/qc */}
+        {/* Expert Huddle */}
         <ExpertHuddle
           orderId={order.id}
           tasks={tasks}
@@ -279,6 +297,7 @@ const OrderDetail = () => {
           onUpdateTask={(args) => updateExpertTask.mutateAsync(args)}
           canEdit={canEdit}
           canRemoveTask={!isWorkshopOrQc}
+          isGodMode={isGodMode}
         />
 
         <PricingEngine
@@ -287,6 +306,7 @@ const OrderDetail = () => {
           onSave={async (updates) => { await updateOrder.mutateAsync(updates); toast({ title: "Pricing saved" }); }}
           recalcTotalPrice={recalcTotalPrice}
           canEdit={canEdit}
+          isGodMode={isGodMode}
         />
 
         {/* Admin Overrides */}
@@ -301,7 +321,6 @@ const OrderDetail = () => {
           <section className="space-y-2">
             <h2 className="text-sm font-semibold text-foreground">Admin Actions</h2>
             <div className="flex flex-wrap gap-2">
-              {/* Mark Unfixable */}
               {order.status !== "declined" && order.status !== "cancelled" && order.status !== "delivered" && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
@@ -313,7 +332,7 @@ const OrderDetail = () => {
                     <AlertDialogHeader>
                       <AlertDialogTitle>Mark Order as Unfixable?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        This will zero the balance and mark as declined. {order.advancePaid > 0 && `A refund note for ₹${order.advancePaid.toLocaleString()} will be logged.`} Cannot be undone.
+                        This will mark the order as declined. Cannot be undone.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -331,7 +350,6 @@ const OrderDetail = () => {
                 </AlertDialog>
               )}
 
-              {/* Force Cancel */}
               {order.status !== "declined" && order.status !== "cancelled" && order.status !== "delivered" && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
@@ -343,7 +361,7 @@ const OrderDetail = () => {
                     <AlertDialogHeader>
                       <AlertDialogTitle>Force Cancel Order?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        This will cancel the order and clear the SLA timer. {order.advancePaid > 0 && `A refund note for ₹${order.advancePaid.toLocaleString()} will be logged.`}
+                        This will cancel the order and clear the SLA timer.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -355,35 +373,6 @@ const OrderDetail = () => {
                         className="bg-destructive text-destructive-foreground"
                       >
                         Confirm Cancel
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              )}
-
-              {/* Mark Refund Issued */}
-              {showRefundIssued && (
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button size="sm" className="gap-1.5 bg-green-600 hover:bg-green-700 text-white">
-                      <CheckCircle className="h-3.5 w-3.5" /> Mark Refund Issued
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Confirm Refund Issued</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        This confirms ₹{order.advancePaid.toLocaleString()} has been refunded. The refund flag will be cleared.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction
-                        onClick={() => markRefundIssued.mutate(undefined, {
-                          onSuccess: () => toast({ title: "Refund marked as issued." }),
-                        })}
-                      >
-                        Confirm
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
@@ -414,39 +403,21 @@ const OrderDetail = () => {
           isUploading={uploadPhotos.isPending}
         />
 
-        {/* Audit Timeline with refund highlighting */}
+        {/* Audit Timeline */}
         {auditLogs.length > 0 && (
           <section className="space-y-3">
             <h2 className="text-sm font-semibold text-foreground">Audit Trail</h2>
             <div className="space-y-2">
-              {auditLogs.map((log) => {
-                const isRefundRequired = log.reason?.includes("REFUND OF");
-                const isRefundIssued = log.reason?.includes("REFUND ISSUED");
-                const borderClass = isRefundRequired
-                  ? "border-red-500 bg-red-50"
-                  : isRefundIssued
-                  ? "border-green-500 bg-green-50"
-                  : "border-border bg-card";
-
-                return (
-                  <div key={log.id} className={`rounded-[calc(var(--radius)/2)] border p-3 text-xs space-y-1 ${borderClass}`}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-foreground">{log.action}: {log.fieldName}</span>
-                        {isRefundRequired && (
-                          <Badge className="bg-red-100 text-red-800 border-red-300 text-[10px]">Refund Required</Badge>
-                        )}
-                        {isRefundIssued && (
-                          <Badge className="bg-green-100 text-green-800 border-green-300 text-[10px]">Refund Issued</Badge>
-                        )}
-                      </div>
-                      <span className="text-muted-foreground">{formatDistanceToNow(new Date(log.createdAt), { addSuffix: true })}</span>
-                    </div>
-                    <p className="text-muted-foreground">{log.oldValue} → {log.newValue}</p>
-                    <p className="italic text-muted-foreground">"{log.reason}" — {log.adminName}</p>
+              {auditLogs.map((log) => (
+                <div key={log.id} className="rounded-[calc(var(--radius)/2)] border border-border bg-card p-3 text-xs space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-foreground">{log.action}: {log.fieldName}</span>
+                    <span className="text-muted-foreground">{formatDistanceToNow(new Date(log.createdAt), { addSuffix: true })}</span>
                   </div>
-                );
-              })}
+                  <p className="text-muted-foreground">{log.oldValue} → {log.newValue}</p>
+                  <p className="italic text-muted-foreground">"{log.reason}" — {log.adminName}</p>
+                </div>
+              ))}
             </div>
           </section>
         )}

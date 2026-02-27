@@ -23,17 +23,18 @@ Deno.serve(async (req) => {
       const customerId = url.searchParams.get("customerId");
       if (!customerId) {
         return new Response(JSON.stringify({ error: "customerId required" }), {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      const [ordersRes, tasksRes, photosRes, discoveriesRes, markersRes] = await Promise.all([
+      const [ordersRes, tasksRes, photosRes, discoveriesRes, markersRes, settingsRes, auditRes] = await Promise.all([
         supabase.from("orders").select("*").eq("customer_id", customerId).order("created_at", { ascending: false }),
         supabase.from("expert_tasks").select("*"),
         supabase.from("order_photos").select("*"),
         supabase.from("order_discoveries").select("*"),
         supabase.from("photo_markers").select("*"),
+        supabase.from("system_settings").select("company_upi_id, pickup_slots, dropoff_slots").limit(1).single(),
+        supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(200),
       ]);
 
       const orders = ordersRes.data || [];
@@ -43,6 +44,7 @@ Deno.serve(async (req) => {
       const discoveries = (discoveriesRes.data || []).filter((d: any) => orderIds.includes(d.order_id));
       const photoIds = photos.map((p: any) => p.id);
       const markers = (markersRes.data || []).filter((m: any) => photoIds.includes(m.photo_id));
+      const auditLogs = (auditRes.data || []).filter((a: any) => orderIds.includes(a.order_id));
 
       const photosWithUrls = photos.map((p: any) => {
         const { data } = supabase.storage.from("order-photos").getPublicUrl(p.storage_path);
@@ -52,7 +54,9 @@ Deno.serve(async (req) => {
       const active = orders.filter((o: any) => o.status !== "delivered");
       const historical = orders.filter((o: any) => o.status === "delivered");
 
-      return new Response(JSON.stringify({ active, historical, tasks, photos: photosWithUrls, discoveries, markers }), {
+      const systemSettings = settingsRes.data || {};
+
+      return new Response(JSON.stringify({ active, historical, tasks, photos: photosWithUrls, discoveries, markers, auditLogs, systemSettings }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -64,8 +68,7 @@ Deno.serve(async (req) => {
 
       if (!customerId) {
         return new Response(JSON.stringify({ error: "customerId required" }), {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
@@ -94,23 +97,21 @@ Deno.serve(async (req) => {
         const { orderIds, tiers, excludedTaskIds: excludedMap } = body;
         const now = new Date().toISOString();
 
-        // Process each order
         for (const orderId of (orderIds || [])) {
           const selectedTier = tiers?.[orderId] || "standard";
           const excludedIds: string[] = excludedMap?.[orderId] || [];
 
-          // Update order with tier and approval
+          // Update order — approved goes to pickup_scheduled
           await supabase
             .from("orders")
             .update({
               customer_approved_at: now,
-              status: "pending_advance",
+              status: "pickup_scheduled",
               package_tier: selectedTier,
             })
             .eq("id", orderId)
             .eq("customer_id", customerId);
 
-          // Mark excluded optional tasks
           if (excludedIds.length > 0) {
             await supabase
               .from("expert_tasks")
@@ -119,18 +120,12 @@ Deno.serve(async (req) => {
               .eq("order_id", orderId);
           }
 
-          // Recalculate pricing for the order
+          // Recalculate pricing
           const { data: orderTasks } = await supabase
-            .from("expert_tasks")
-            .select("*")
-            .eq("order_id", orderId)
-            .eq("is_completed", false);
-
+            .from("expert_tasks").select("*").eq("order_id", orderId).eq("is_completed", false);
           const { data: orderData } = await supabase
-            .from("orders")
-            .select("shipping_fee, cleaning_fee, discount_amount, is_gst_applicable, is_bundle_applied, advance_paid")
-            .eq("id", orderId)
-            .single();
+            .from("orders").select("shipping_fee, cleaning_fee, discount_amount, is_gst_applicable, is_bundle_applied")
+            .eq("id", orderId).single();
 
           if (orderData && orderTasks) {
             const isElite = selectedTier === "elite";
@@ -150,13 +145,11 @@ Deno.serve(async (req) => {
             const taxable = Math.max(0, subtotal - discount);
             const gst = orderData.is_gst_applicable ? Math.round(taxable * 0.18 * 100) / 100 : 0;
             const total = Math.round((taxable + gst) * 100) / 100;
-            const balance = Math.round((total - Number(orderData.advance_paid || 0)) * 100) / 100;
 
             await supabase.from("orders").update({
               total_price: total,
               tax_amount: gst,
               total_amount_due: total,
-              balance_remaining: balance,
               shipping_fee: shipping,
               cleaning_fee: cleaning,
               warranty_months: isElite ? 6 : 3,
@@ -229,6 +222,38 @@ Deno.serve(async (req) => {
           old_value: null,
           new_value: String(rating),
           reason: feedback || `Customer rated ${rating}/5`,
+        });
+        return new Response(JSON.stringify({ success: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (action === "select_slot") {
+        const { orderId, slotType, slot } = body;
+        const field = slotType === "pickup" ? "pickup_slot" : "dropoff_slot";
+        const { error } = await supabase.from("orders").update({ [field]: slot }).eq("id", orderId).eq("customer_id", customerId);
+        if (error) throw error;
+        return new Response(JSON.stringify({ success: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (action === "request_rework") {
+        const { orderId } = body;
+        // Get the order to link customer
+        const { data: orderData } = await supabase.from("orders").select("customer_id, customer_name, customer_phone").eq("id", orderId).single();
+        if (!orderData) {
+          return new Response(JSON.stringify({ error: "Order not found" }), {
+            status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        // Create a new lead for rework
+        await supabase.from("leads").insert({
+          customer_id: orderData.customer_id,
+          quoted_price: 0,
+          status: "New",
+          notes: `Rework request for order ${orderId}`,
+          tier: "Premium",
         });
         return new Response(JSON.stringify({ success: true }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },

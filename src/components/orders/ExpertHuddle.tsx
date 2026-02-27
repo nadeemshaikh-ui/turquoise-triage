@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronDown, Loader2, Save } from "lucide-react";
+import { ChevronDown, Loader2, Save, Shield } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import type { ExpertTask } from "@/hooks/useOrderDetail";
 
@@ -22,9 +22,13 @@ interface ExpertHuddleProps {
   onUpdateTask: (args: { taskId: string; updates: Record<string, any> }) => Promise<void>;
   canEdit?: boolean;
   canRemoveTask?: boolean;
+  isGodMode?: boolean;
 }
 
-const ExpertHuddle = ({ orderId, tasks, onAddTask, onUpdateTask, canEdit = true, canRemoveTask = true }: ExpertHuddleProps) => {
+const ExpertHuddle = ({ orderId, tasks, onAddTask, onUpdateTask, canEdit = true, canRemoveTask = true, isGodMode = false }: ExpertHuddleProps) => {
+  const effectiveCanEdit = isGodMode || canEdit;
+  const effectiveCanRemove = isGodMode || canRemoveTask;
+
   const { data: scopeTags } = useQuery({
     queryKey: ["scope-tag-definitions"],
     queryFn: async () => {
@@ -50,13 +54,20 @@ const ExpertHuddle = ({ orderId, tasks, onAddTask, onUpdateTask, canEdit = true,
 
   return (
     <section className="space-y-2">
-      <h2 className="text-sm font-semibold text-foreground">Expert Huddle</h2>
-      {!canEdit && (
+      <div className="flex items-center gap-2">
+        <h2 className="text-sm font-semibold text-foreground">Expert Huddle</h2>
+        {isGodMode && !canEdit && (
+          <Badge className="text-[9px] bg-amber-100 text-amber-800 border-amber-300 gap-1">
+            <Shield className="h-3 w-3" /> God Mode
+          </Badge>
+        )}
+      </div>
+      {!effectiveCanEdit && (
         <div className="rounded-[calc(var(--radius)/2)] bg-amber-50 border border-amber-200 p-2 text-xs text-amber-800">
           🔒 Contract locked — tasks are read-only
         </div>
       )}
-      {canEdit && !canRemoveTask && (
+      {effectiveCanEdit && !effectiveCanRemove && (
         <div className="rounded-[calc(var(--radius)/2)] bg-blue-50 border border-blue-200 p-2 text-xs text-blue-800">
           🔧 Workshop mode — only upselling (adding) allowed. Existing tasks cannot be removed.
         </div>
@@ -76,8 +87,8 @@ const ExpertHuddle = ({ orderId, tasks, onAddTask, onUpdateTask, canEdit = true,
             orderId={orderId}
             onAddTask={onAddTask}
             onUpdateTask={onUpdateTask}
-            canEdit={canEdit}
-            canRemoveTask={canRemoveTask}
+            canEdit={effectiveCanEdit}
+            canRemoveTask={effectiveCanRemove}
           />
         );
       })}
@@ -116,7 +127,6 @@ const ExpertSection = ({ type, label, task, tags, experts, orderId, onAddTask, o
 
   const toggleTag = (tagName: string) => {
     if (!canEdit) return;
-    // In scope lockdown mode, only allow adding new tags (not removing existing ones)
     if (!canRemoveTask && task && task.scopeTags.includes(tagName)) return;
     setSelectedTags((prev) =>
       prev.includes(tagName) ? prev.filter((t) => t !== tagName) : [...prev, tagName]
@@ -124,7 +134,6 @@ const ExpertSection = ({ type, label, task, tags, experts, orderId, onAddTask, o
   };
 
   const handlePriceChange = (newPrice: string) => {
-    // In scope lockdown, price cannot be lowered below current task price
     if (!canRemoveTask && task) {
       const newVal = Number(newPrice) || 0;
       if (newVal < task.estimatedPrice) return;
@@ -232,7 +241,6 @@ const ExpertSection = ({ type, label, task, tags, experts, orderId, onAddTask, o
           />
         </div>
 
-        {/* Optional toggle for customer portal */}
         {canEdit && (
           <div className="flex items-center gap-2 rounded-[calc(var(--radius)/2)] border border-dashed border-muted-foreground/30 bg-muted/30 p-2">
             <Checkbox
