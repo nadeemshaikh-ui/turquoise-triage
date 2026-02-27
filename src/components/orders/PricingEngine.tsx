@@ -10,19 +10,20 @@ interface PricingEngineProps {
   order: OrderDetail;
   expertTasks: ExpertTask[];
   onSave: (updates: Record<string, any>) => Promise<void>;
-  recalcTotalPrice: (tasks: ExpertTask[], tier: string, shipping: number, cleaning: number, bundle: boolean) => number;
+  recalcTotalPrice: (tasks: ExpertTask[], tier: string, shipping: number, cleaning: number, bundle: boolean, discount?: number, gst?: boolean) => number;
 }
 
 const PricingEngine = ({ order, expertTasks, onSave, recalcTotalPrice }: PricingEngineProps) => {
   const [tier, setTier] = useState(order.packageTier);
   const [shippingFee, setShippingFee] = useState(String(order.shippingFee));
   const [isBundleApplied, setIsBundleApplied] = useState(order.isBundleApplied);
+  const [discountAmount, setDiscountAmount] = useState(String((order as any).discountAmount ?? 0));
+  const [isGstApplicable, setIsGstApplicable] = useState((order as any).isGstApplicable ?? false);
   const [saving, setSaving] = useState(false);
 
   const hasRepairTask = expertTasks.some((t) => t.expertType === "repair");
   const showBundleOption = tier === "standard" && hasRepairTask;
 
-  // Reset bundle when conditions aren't met
   useEffect(() => {
     if (!showBundleOption) setIsBundleApplied(false);
   }, [showBundleOption]);
@@ -31,10 +32,11 @@ const PricingEngine = ({ order, expertTasks, onSave, recalcTotalPrice }: Pricing
   const effectiveShipping = isElite ? 0 : Number(shippingFee) || 0;
   const effectiveCleaning = isElite ? 0 : isBundleApplied ? 299 : 0;
   const warrantyMonths = isElite ? 6 : 3;
+  const effectiveDiscount = Number(discountAmount) || 0;
 
   const total = useMemo(
-    () => recalcTotalPrice(expertTasks, tier, effectiveShipping, effectiveCleaning, isBundleApplied),
-    [expertTasks, tier, effectiveShipping, effectiveCleaning, isBundleApplied, recalcTotalPrice]
+    () => recalcTotalPrice(expertTasks, tier, effectiveShipping, effectiveCleaning, isBundleApplied, effectiveDiscount, isGstApplicable),
+    [expertTasks, tier, effectiveShipping, effectiveCleaning, isBundleApplied, effectiveDiscount, isGstApplicable, recalcTotalPrice]
   );
 
   const handleSave = async () => {
@@ -46,6 +48,8 @@ const PricingEngine = ({ order, expertTasks, onSave, recalcTotalPrice }: Pricing
         cleaning_fee: effectiveCleaning,
         warranty_months: warrantyMonths,
         is_bundle_applied: isBundleApplied,
+        discount_amount: effectiveDiscount,
+        is_gst_applicable: isGstApplicable,
         total_price: total,
       });
     } finally {
@@ -136,6 +140,32 @@ const PricingEngine = ({ order, expertTasks, onSave, recalcTotalPrice }: Pricing
             </label>
           </div>
         )}
+
+        {/* Discount */}
+        {!isElite && (
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-foreground">Discount</span>
+            <Input
+              type="number"
+              value={discountAmount}
+              onChange={(e) => setDiscountAmount(e.target.value)}
+              className="h-8 w-24 text-right text-sm"
+              placeholder="0"
+            />
+          </div>
+        )}
+
+        {/* GST Toggle */}
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="gst"
+            checked={isGstApplicable}
+            onCheckedChange={(checked) => setIsGstApplicable(!!checked)}
+          />
+          <label htmlFor="gst" className="text-xs font-medium text-foreground cursor-pointer">
+            Apply GST (18%)
+          </label>
+        </div>
 
         {/* Divider + Total */}
         <div className="border-t border-border pt-2 flex items-center justify-between">

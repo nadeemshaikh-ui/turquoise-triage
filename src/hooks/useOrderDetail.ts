@@ -21,6 +21,9 @@ export interface OrderDetail {
   healthScore: number | null;
   maintenanceDue: string | null;
   isBundleApplied: boolean;
+  discountAmount: number;
+  isGstApplicable: boolean;
+  discoveryPending: boolean;
   notes: string | null;
   createdBy: string | null;
   createdAt: string;
@@ -141,6 +144,9 @@ export const useOrderDetail = (orderId: string) => {
         healthScore: row.health_score,
         maintenanceDue: row.maintenance_due,
         isBundleApplied: row.is_bundle_applied || false,
+        discountAmount: Number(row.discount_amount) || 0,
+        isGstApplicable: row.is_gst_applicable || false,
+        discoveryPending: row.discovery_pending || false,
         notes: row.notes,
         createdBy: row.created_by,
         createdAt: row.created_at,
@@ -344,23 +350,27 @@ export const useOrderDetail = (orderId: string) => {
     },
   });
 
-  // Patch 2: Exact pricing formula
+  // Pricing formula with discount & GST support
   const recalcTotalPrice = (
     tasks: ExpertTask[],
     tier: string,
     shippingFee: number,
     cleaningFee: number,
-    isBundleApplied: boolean
+    isBundleApplied: boolean,
+    discountAmount: number = 0,
+    isGstApplicable: boolean = false
   ) => {
+    let taskSum: number;
     if (tier === "elite") {
-      const taskSum = tasks.reduce((sum, t) => sum + t.estimatedPrice, 0);
-      return taskSum; // elite: shipping=0, cleaning=0
+      taskSum = tasks.reduce((sum, t) => sum + t.estimatedPrice, 0);
+    } else {
+      taskSum = tasks
+        .filter(t => !(isBundleApplied && t.expertType === "cleaning"))
+        .reduce((sum, t) => sum + t.estimatedPrice, 0);
     }
-    // Standard
-    const taskSum = tasks
-      .filter(t => !(isBundleApplied && t.expertType === "cleaning"))
-      .reduce((sum, t) => sum + t.estimatedPrice, 0);
-    return taskSum + shippingFee + cleaningFee;
+    const subtotal = tier === "elite" ? taskSum : taskSum + shippingFee + cleaningFee;
+    const discounted = subtotal - discountAmount;
+    return isGstApplicable ? Math.round(discounted * 1.18 * 100) / 100 : discounted;
   };
 
   return {
