@@ -16,6 +16,7 @@ import CampaignsTab from "@/components/admin/CampaignsTab";
 import TeamTab from "@/components/admin/TeamTab";
 import SystemTab from "@/components/admin/SystemTab";
 import DataMigrationTab from "@/components/admin/DataMigrationTab";
+import DiagnosticsTab from "@/components/admin/DiagnosticsTab";
 import { useUserRole } from "@/hooks/useUserRole";
 
 const ICON_OPTIONS = [
@@ -77,6 +78,7 @@ const AdminHub = () => {
           {isSuperAdmin && <TabsTrigger value="team">Team</TabsTrigger>}
           <TabsTrigger value="system">System</TabsTrigger>
           <TabsTrigger value="migration">Data Migration</TabsTrigger>
+          {isSuperAdmin && <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>}
         </TabsList>
 
         {/* CATEGORIES TAB */}
@@ -196,6 +198,13 @@ const AdminHub = () => {
         <TabsContent value="migration">
           <DataMigrationTab />
         </TabsContent>
+
+        {/* DIAGNOSTICS TAB (super_admin only) */}
+        {isSuperAdmin && (
+          <TabsContent value="diagnostics">
+            <DiagnosticsTab />
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* Category Dialog */}
