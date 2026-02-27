@@ -24,6 +24,8 @@ import ResetPassword from "./pages/ResetPassword";
 import NotFound from "./pages/NotFound";
 import Quote from "./pages/Quote";
 import AdminHub from "./pages/AdminHub";
+import Orders from "./pages/Orders";
+import OrderDetail from "./pages/OrderDetail";
 
 const queryClient = new QueryClient();
 
@@ -42,6 +44,7 @@ const App = () => (
             <Route path="/quote/:token" element={<Quote />} />
             <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
               <Route path="/" element={<Index />} />
+              <Route path="/orders" element={<Orders />} />
               <Route path="/customers" element={<Customers />} />
               <Route path="/services" element={<Services />} />
               <Route path="/finance" element={<AdminRoute requiredRole="super_admin"><Finance /></AdminRoute>} />
@@ -52,6 +55,7 @@ const App = () => (
               <Route path="/admin-hub" element={<AdminRoute><AdminHub /></AdminRoute>} />
             </Route>
             <Route path="/leads/:id" element={<ProtectedRoute><LeadDetail /></ProtectedRoute>} />
+            <Route path="/orders/:id" element={<ProtectedRoute><OrderDetail /></ProtectedRoute>} />
             <Route path="/customers/:id" element={<ProtectedRoute><CustomerDetail /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>

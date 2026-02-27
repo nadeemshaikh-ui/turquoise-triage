@@ -35,6 +35,80 @@ export type Database = {
         }
         Relationships: []
       }
+      asset_passport: {
+        Row: {
+          brand: string | null
+          created_at: string
+          customer_id: string
+          id: string
+          item_category: string
+          model: string | null
+          serial_number: string | null
+        }
+        Insert: {
+          brand?: string | null
+          created_at?: string
+          customer_id: string
+          id?: string
+          item_category: string
+          model?: string | null
+          serial_number?: string | null
+        }
+        Update: {
+          brand?: string | null
+          created_at?: string
+          customer_id?: string
+          id?: string
+          item_category?: string
+          model?: string | null
+          serial_number?: string | null
+        }
+        Relationships: []
+      }
+      audit_logs: {
+        Row: {
+          action: string
+          admin_id: string
+          created_at: string
+          field_name: string | null
+          id: string
+          new_value: string | null
+          old_value: string | null
+          order_id: string | null
+          reason: string
+        }
+        Insert: {
+          action: string
+          admin_id: string
+          created_at?: string
+          field_name?: string | null
+          id?: string
+          new_value?: string | null
+          old_value?: string | null
+          order_id?: string | null
+          reason: string
+        }
+        Update: {
+          action?: string
+          admin_id?: string
+          created_at?: string
+          field_name?: string | null
+          id?: string
+          new_value?: string | null
+          old_value?: string | null
+          order_id?: string | null
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_logs_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       automation_logs: {
         Row: {
           created_at: string
@@ -248,6 +322,59 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      expert_tasks: {
+        Row: {
+          assigned_at: string | null
+          assigned_to: string | null
+          completed_at: string | null
+          created_at: string
+          estimated_price: number | null
+          expert_note: string | null
+          expert_type: string
+          id: string
+          is_completed: boolean | null
+          order_id: string
+          scope_description: string | null
+          scope_tags: Json | null
+        }
+        Insert: {
+          assigned_at?: string | null
+          assigned_to?: string | null
+          completed_at?: string | null
+          created_at?: string
+          estimated_price?: number | null
+          expert_note?: string | null
+          expert_type: string
+          id?: string
+          is_completed?: boolean | null
+          order_id: string
+          scope_description?: string | null
+          scope_tags?: Json | null
+        }
+        Update: {
+          assigned_at?: string | null
+          assigned_to?: string | null
+          completed_at?: string | null
+          created_at?: string
+          estimated_price?: number | null
+          expert_note?: string | null
+          expert_type?: string
+          id?: string
+          is_completed?: boolean | null
+          order_id?: string
+          scope_description?: string | null
+          scope_tags?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expert_tasks_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       inventory_items: {
         Row: {
@@ -680,12 +807,138 @@ export type Database = {
         }
         Relationships: []
       }
+      order_photos: {
+        Row: {
+          file_name: string
+          id: string
+          order_id: string
+          photo_type: string
+          storage_path: string
+          uploaded_at: string
+          uploaded_by: string | null
+        }
+        Insert: {
+          file_name: string
+          id?: string
+          order_id: string
+          photo_type?: string
+          storage_path: string
+          uploaded_at?: string
+          uploaded_by?: string | null
+        }
+        Update: {
+          file_name?: string
+          id?: string
+          order_id?: string
+          photo_type?: string
+          storage_path?: string
+          uploaded_at?: string
+          uploaded_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_photos_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      orders: {
+        Row: {
+          asset_id: string | null
+          cleaning_fee: number | null
+          consultation_start_time: string | null
+          created_at: string
+          created_by: string | null
+          customer_id: string
+          customer_name: string | null
+          customer_phone: string | null
+          health_score: number | null
+          id: string
+          is_bundle_applied: boolean | null
+          lead_id: string | null
+          maintenance_due: string | null
+          notes: string | null
+          package_tier: string | null
+          shipping_fee: number | null
+          sla_start: string | null
+          status: string
+          total_price: number | null
+          updated_at: string
+          warranty_months: number | null
+        }
+        Insert: {
+          asset_id?: string | null
+          cleaning_fee?: number | null
+          consultation_start_time?: string | null
+          created_at?: string
+          created_by?: string | null
+          customer_id: string
+          customer_name?: string | null
+          customer_phone?: string | null
+          health_score?: number | null
+          id?: string
+          is_bundle_applied?: boolean | null
+          lead_id?: string | null
+          maintenance_due?: string | null
+          notes?: string | null
+          package_tier?: string | null
+          shipping_fee?: number | null
+          sla_start?: string | null
+          status?: string
+          total_price?: number | null
+          updated_at?: string
+          warranty_months?: number | null
+        }
+        Update: {
+          asset_id?: string | null
+          cleaning_fee?: number | null
+          consultation_start_time?: string | null
+          created_at?: string
+          created_by?: string | null
+          customer_id?: string
+          customer_name?: string | null
+          customer_phone?: string | null
+          health_score?: number | null
+          id?: string
+          is_bundle_applied?: boolean | null
+          lead_id?: string | null
+          maintenance_due?: string | null
+          notes?: string | null
+          package_tier?: string | null
+          shipping_fee?: number | null
+          sla_start?: string | null
+          status?: string
+          total_price?: number | null
+          updated_at?: string
+          warranty_months?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orders_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "asset_passport"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
           created_at: string
           display_name: string
           email: string | null
+          expert_type: string | null
           id: string
           updated_at: string
           user_id: string
@@ -695,6 +948,7 @@ export type Database = {
           created_at?: string
           display_name?: string
           email?: string | null
+          expert_type?: string | null
           id?: string
           updated_at?: string
           user_id: string
@@ -704,6 +958,7 @@ export type Database = {
           created_at?: string
           display_name?: string
           email?: string | null
+          expert_type?: string | null
           id?: string
           updated_at?: string
           user_id?: string
@@ -797,6 +1052,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      scope_tag_definitions: {
+        Row: {
+          expert_type: string
+          id: string
+          is_active: boolean | null
+          service_description: string
+          sort_order: number | null
+          tag_name: string
+        }
+        Insert: {
+          expert_type: string
+          id?: string
+          is_active?: boolean | null
+          service_description: string
+          sort_order?: number | null
+          tag_name: string
+        }
+        Update: {
+          expert_type?: string
+          id?: string
+          is_active?: boolean | null
+          service_description?: string
+          sort_order?: number | null
+          tag_name?: string
+        }
+        Relationships: []
       }
       service_categories: {
         Row: {
