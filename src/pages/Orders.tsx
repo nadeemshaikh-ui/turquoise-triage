@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, ClipboardList, Send } from "lucide-react";
+import { Loader2, ClipboardList, Send, Eye } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import SlaIndicator from "@/components/orders/SlaIndicator";
 
@@ -193,6 +193,16 @@ const Orders = () => {
                     </span>
                     <SlaIndicator orderStatus={order.status} consultationStartTime={order.consultation_start_time} />
                   </div>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    window.open(`/portal/${order.customer_id}`, "_blank");
+                  }}
+                  className="shrink-0 mt-1 p-1.5 rounded-lg hover:bg-accent transition-colors"
+                  title="Open Customer Portal"
+                >
+                  <Eye className="h-4 w-4" style={{ color: "#C9A96E" }} />
                 </button>
               </div>
             );
