@@ -125,6 +125,26 @@ const OrderDetail = () => {
               {isVip && (
                 <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-[10px]">⭐ VIP</Badge>
               )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  const portalUrl = `${window.location.origin}/portal/${order.customerId}`;
+                  navigator.clipboard.writeText(portalUrl);
+                  toast({ title: "Portal link copied!" });
+                }}
+              >
+                <Copy className="h-3 w-3" /> Copy Link
+              </Button>
+              <Button
+                size="sm"
+                className="h-7 gap-1 text-[11px] border-none"
+                style={{ backgroundColor: "#C9A96E", color: "#0A0A0A" }}
+                onClick={() => window.open(`/portal/${order.customerId}`, "_blank")}
+              >
+                <ExternalLink className="h-3 w-3" /> Open Portal
+              </Button>
             </div>
             <p className="truncate text-sm text-muted-foreground">{order.customerPhone}</p>
           </div>
