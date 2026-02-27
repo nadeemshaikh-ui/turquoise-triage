@@ -1,114 +1,231 @@
 
 
-# Admin Settings: Team Expert Management + System Health Diagnostics
+# Self-Healing QA Engine with 3 Zenith OS Upgrades
 
 ## Overview
 
-Add two new admin components to the existing Admin Hub, accessible only to `super_admin` users:
-
-1. **Expert Type Management** -- extend the existing TeamTab with an `expert_type` dropdown
-2. **System Health Check** -- a new "Diagnostics" tab with 4 automated checks and surgical auto-resolve
-
-No database migrations needed -- `profiles.expert_type` column already exists.
+Upgrade the existing Diagnostics tab into a fully autonomous Self-Healing QA Engine with Ghost Order E2E simulation, RLS security verification, a nightly healing edge function on a cron schedule, and a healing logs dashboard. Includes the 3 critical Zenith OS upgrades: GST-aware Ghost Test, SLA Discovery Pause, and Batch Phone Integrity Check.
 
 ---
 
-## 1. Extend TeamTab with Expert Type Column
+## Pre-requisite: Database Migration
 
-**File: `src/components/admin/TeamTab.tsx`**
-
-Add a 5th column "Expert Type" between "Current Role" and "Change Role":
-
-- Dropdown with options: `executive`, `cleaning`, `repair`, `colour`, `none` (maps to null in DB)
-- On change, immediately update `profiles.expert_type` for that user
-- Show current value as a colored badge
-- Uses the existing `supabase.from("profiles").update({ expert_type }).eq("user_id", userId)` pattern
-- The profiles table RLS allows users to update their own profile, but since super_admin is doing this for others, we need to also fetch and update via the admin pattern (existing policy allows SELECT for all authenticated users; UPDATE is restricted to own profile)
-
-**RLS consideration**: The current `profiles` UPDATE policy only allows `auth.uid() = user_id`. We need a migration to add an admin override policy so super_admins can update other users' expert_type.
-
-**Database Migration** (small):
+### New columns on `orders` table
 ```sql
-CREATE POLICY "Admins can update any profile"
-ON public.profiles FOR UPDATE TO authenticated
-USING (has_role(auth.uid(), 'admin'::app_role) OR has_role(auth.uid(), 'super_admin'::app_role))
-WITH CHECK (has_role(auth.uid(), 'admin'::app_role) OR has_role(auth.uid(), 'super_admin'::app_role));
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_amount numeric DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_gst_applicable boolean DEFAULT false;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS discovery_pending boolean DEFAULT false;
+```
+
+### New table: `system_health_logs`
+```sql
+CREATE TABLE public.system_health_logs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  run_at timestamptz NOT NULL DEFAULT now(),
+  run_type text NOT NULL DEFAULT 'nightly',
+  errors_found integer NOT NULL DEFAULT 0,
+  fixes_applied integer NOT NULL DEFAULT 0,
+  ghost_test_passed boolean DEFAULT null,
+  rls_test_passed boolean DEFAULT null,
+  notes text,
+  details jsonb DEFAULT '{}'
+);
+-- RLS: authenticated can SELECT and INSERT
+-- Enable realtime
 ```
 
 ---
 
-## 2. New Diagnostics Tab Component
+## Step 1: Ghost Order E2E Simulation (Zenith Upgrade 1)
 
-**New File: `src/components/admin/DiagnosticsTab.tsx`**
+Added to `DiagnosticsTab.tsx` as Check E.
 
-A professional diagnostic panel with a "Run Diagnostics" button that executes 4 checks sequentially with a progress bar.
+### Simulation Steps:
+1. Create dummy `asset_passport` (customer_id = current user, item_category = '_ghost_test', brand = '_diag')
+2. Create dummy `orders` (linked to ghost asset, package_tier = 'standard', shipping_fee = 100, cleaning_fee = 299, discount_amount = 50, is_gst_applicable = true)
+3. Create dummy `expert_tasks` (order_id = ghost order, expert_type = 'repair', estimated_price = 500)
+4. **Pricing Verification with GST**:
+   - Subtotal = SUM(tasks) + shipping + cleaning = 500 + 100 + 299 = 899
+   - After discount = 899 - 50 = 849
+   - With GST (18%) = 849 * 1.18 = 1001.82
+   - Verify this exact value matches the expected calculation
+5. Upload a tiny text file to `order-photos` bucket
+6. **Cleanup**: Delete storage file, then delete order (cascades tasks/photos), then delete asset passport
+7. If ANY step fails or the math doesn't match exactly, flag as **CRITICAL CODE ERROR** with the failed step
 
-### Check A: Math Integrity
-- Fetch all orders where `status` is NOT `delivered` (active orders)
-- For each order, fetch its `expert_tasks`
-- Recalculate `total_price` using the exact Phase 1 formula:
-  ```
-  if (tier === 'elite'): total = SUM(all task prices)
-  if (tier === 'standard'): total = SUM(task prices, excluding cleaning if bundle active) + shipping_fee + cleaning_fee
-  ```
-- Flag any order where DB `total_price` differs from calculated value
-- Store: `orderId`, `customerName`, `dbPrice`, `calculatedPrice`, `diff`
-
-### Check B: Orphan Check
-- Query orders where `asset_id IS NULL`
-- Query expert_tasks using a left join pattern: fetch all tasks, then check which have no matching order (or simply query `expert_tasks` and cross-reference with orders)
-- Flag orphaned orders and orphaned tasks separately
-
-### Check C: SLA Integrity
-- Query orders where `status = 'consult'` AND `consultation_start_time IS NULL`
-- Flag with order ID and customer name
-
-### Check D: Storage Check
-- Attempt to list files in the `order-photos` bucket (limit 1) to verify read access
-- Attempt to upload and immediately delete a tiny test file to verify write access
-- Report success/failure
-
-### UI Layout
-- "Run Diagnostics" button at top with animated progress bar (0% -> 25% -> 50% -> 75% -> 100% as each check completes)
-- Results displayed in 4 cards, each with a status icon:
-  - Green checkmark if no issues found
-  - Red alert icon with count of issues if problems detected
-- Each card expandable to show the flagged items in a table
-- If ANY errors found, show a prominent "Resolve All" button at the bottom
-
-### Auto-Resolve Logic (on "Resolve All" click)
-
-**Math Errors**: For each flagged order, update `orders.total_price` to the calculated value using the exact formula.
-
-**SLA Errors**: For each flagged order, set `consultation_start_time = updated_at` from the order record (NOT `now()`).
-
-**Orphaned Orders (missing asset_id)**: For each, insert a new `asset_passport` record with `customer_id` from the order, `item_category = 'Unknown'`, `brand = null`. Then update `orders.asset_id` to the new passport ID.
-
-**Orphaned Expert Tasks (no matching order)**: Delete them directly.
-
-Show a confirmation dialog before resolving, then execute all fixes with a loading spinner. Display toast with summary of fixes applied.
+### Result type:
+```typescript
+type GhostResult = {
+  passed: boolean;
+  failedStep?: string;
+  error?: string;
+  expectedTotal?: number;
+  calculatedTotal?: number;
+}
+```
 
 ---
 
-## 3. Wire Into Admin Hub
+## Step 2: RLS Security Integrity Check
 
-**File: `src/pages/AdminHub.tsx`**
+Added to `DiagnosticsTab.tsx` as Check F.
 
-- Import `DiagnosticsTab`
-- Add a new tab trigger "Diagnostics" visible only to `isSuperAdmin` (same pattern as Team tab)
-- Add corresponding `TabsContent`
+1. Create a separate Supabase client using the anon key with NO auth session
+2. Attempt to query `audit_logs` using this unauthenticated client
+3. If rows are returned, flag as **CRITICAL: RLS BYPASS DETECTED**
+4. If properly blocked (error or empty), mark as **PASS**
+
+```typescript
+import { createClient } from '@supabase/supabase-js';
+const anonClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const { data, error } = await anonClient.from('audit_logs').select('id').limit(1);
+// data with rows = FAIL, error or empty = PASS
+```
+
+---
+
+## Step 3: Batch Phone Integrity Check (Zenith Upgrade 3)
+
+Added to the existing Orphan Check diagnostic (Check B) as a sub-section.
+
+### Logic:
+- Query all orders, grouped by `customer_id`
+- For each customer with multiple orders, check if `customer_phone` values are inconsistent
+- Flag any customer where orders have differing phone numbers, as this breaks the Multi-Item Wardrobe portal view
+
+### Result type:
+```typescript
+type PhoneMismatch = {
+  customerId: string;
+  customerName: string;
+  phones: string[];  // distinct phone values
+  orderCount: number;
+}
+```
+
+Displayed as a third sub-section inside the Orphan Check DiagCard: "Phone Mismatches (same customer, different phones)"
+
+### Auto-Resolve for Phone Mismatches:
+Not auto-resolved (requires human decision on which phone is correct). Displayed as a warning-only item that does not count toward the "fixable" total.
+
+---
+
+## Step 4: Nightly Data Healer Edge Function (Zenith Upgrade 2)
+
+### File: `supabase/functions/nightly-data-healer/index.ts`
+
+Uses the service role key to perform healing operations.
+
+### Healing Logic (4 checks):
+
+**A. Math Integrity**: Recalculates total_price for all non-delivered orders using:
+```
+subtotal = SUM(tasks, excluding cleaning if bundle) + shipping + cleaning
+discounted = subtotal - discount_amount
+final = is_gst_applicable ? discounted * 1.18 : discounted
+```
+Overwrites mismatched `total_price`.
+
+**B. Orphan Healing**: Creates "Unknown" asset passports for orders missing `asset_id`. Deletes orphaned `expert_tasks` with no matching order.
+
+**C. SLA Healing (Zenith Upgrade 2 - Discovery Pause)**:
+- Only patches orders where `status = 'consult'` AND `consultation_start_time IS NULL` AND `discovery_pending = false`
+- Orders with `discovery_pending = true` are SKIPPED (they are waiting for approval)
+- Patches using the order's `updated_at` timestamp
+
+**D. Phone Mismatch Detection**: Logs inconsistencies but does NOT auto-fix (human decision required).
+
+### Logging:
+Inserts results into `system_health_logs` with `run_type = 'nightly'`, `errors_found`, `fixes_applied`, and a `details` JSONB breakdown.
+
+### Config:
+```toml
+[functions.nightly-data-healer]
+verify_jwt = false
+```
+
+### Cron Schedule (2:00 AM daily):
+Uses `pg_cron` + `pg_net` to call the edge function. Configured via the insert tool (not migration) since it contains project-specific URLs/keys.
+
+```sql
+SELECT cron.schedule(
+  'nightly-data-healer',
+  '0 2 * * *',
+  $$ SELECT net.http_post(...) $$
+);
+```
+
+---
+
+## Step 5: DiagnosticsTab UI Overhaul
+
+### Updated Progress: 8 steps (each ~12.5%)
+1. Math Integrity (existing)
+2. Orphan Check + Phone Batch Integrity (existing + new sub-check)
+3. SLA Integrity (existing, updated to skip discovery_pending)
+4. Storage Check (existing)
+5. Ghost Order E2E (new)
+6. RLS Security (new)
+
+Progress bar now goes through 6 major checks at ~16.6% each.
+
+### New DiagCards:
+- **Ghost Order E2E** (icon: `TestTube2`): Shows PASS/FAIL. If failed, shows the step that broke and expected vs calculated total.
+- **RLS Security** (icon: `ShieldCheck`): Shows PASS/FAIL for RLS verification.
+
+### Updated Orphan DiagCard:
+Third sub-section: "Phone Mismatches" table showing customer name, distinct phone numbers, and order count. Displayed as amber warning (not auto-fixable).
+
+### Updated SLA Check:
+Frontend SLA diagnostic also skips orders where `discovery_pending = true`, matching the edge function behavior.
+
+### New Section: Autonomous Healing Logs
+Below the manual diagnostics, separated by a divider:
+- Title: "Autonomous Healing Logs"
+- Fetches latest 20 rows from `system_health_logs` ordered by `run_at DESC`
+- Table columns: Date/Time, Type (nightly/manual), Errors Found, Fixes Applied, Ghost Test, RLS Test, Notes
+- Color-coded rows: green (0 errors), amber (errors found + fixed), red (ghost/rls test failed)
+- "Run Manual Heal" button that invokes the `nightly-data-healer` edge function on-demand with `run_type = 'manual'`, then refreshes the logs table
 
 ---
 
 ## Files Summary
 
 ### New files (1):
-1. `src/components/admin/DiagnosticsTab.tsx` -- System health checks + auto-resolve
+1. `supabase/functions/nightly-data-healer/index.ts` -- Autonomous healing edge function with discovery_pending awareness
 
 ### Modified files (2):
-1. `src/components/admin/TeamTab.tsx` -- Add expert_type dropdown column
-2. `src/pages/AdminHub.tsx` -- Add Diagnostics tab (super_admin only)
+1. `src/components/admin/DiagnosticsTab.tsx` -- Ghost Order E2E, RLS check, phone batch integrity, healing logs section, discovery_pending-aware SLA check
+2. `src/components/orders/PricingEngine.tsx` -- Updated formula to include discount_amount and GST calculation
 
-### Database (1 migration):
-- Add RLS policy for admins/super_admins to update any profile's expert_type
+### Database:
+1. Migration: Add `discount_amount`, `is_gst_applicable`, `discovery_pending` columns to `orders`. Create `system_health_logs` table with RLS.
+2. Insert (non-migration): Enable `pg_cron` + `pg_net`, schedule nightly cron job.
+
+### Config:
+1. `supabase/config.toml` -- Add `nightly-data-healer` function entry (auto-managed)
+
+---
+
+## Technical Notes
+
+### Updated Pricing Formula (everywhere):
+```
+subtotal = SUM(expert_tasks.estimated_price [exclude cleaning if bundle]) + shipping_fee + cleaning_fee
+discounted = subtotal - discount_amount
+total_price = is_gst_applicable ? round(discounted * 1.18, 2) : discounted
+```
+
+This formula must be consistent across:
+- `useOrderDetail.ts` `recalcTotalPrice()` function
+- `PricingEngine.tsx` display and save
+- `DiagnosticsTab.tsx` Math Integrity check
+- `nightly-data-healer` edge function
+- Ghost Order E2E verification
+
+### Discovery Pending Guard:
+The `discovery_pending` boolean on orders acts as a pause flag. When true:
+- SLA timer should not be auto-patched by the healer
+- The SLA diagnostic should not flag it as an error
+- This prevents the system from overwriting timestamps on orders awaiting expert discovery approval
 
