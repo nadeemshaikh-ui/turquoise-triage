@@ -1,231 +1,179 @@
 
 
-# Self-Healing QA Engine with 3 Zenith OS Upgrades
+# Sub-Phase 2A: Database Architecture + Math Engine + Admin Cockpit
 
 ## Overview
 
-Upgrade the existing Diagnostics tab into a fully autonomous Self-Healing QA Engine with Ghost Order E2E simulation, RLS security verification, a nightly healing edge function on a cron schedule, and a healing logs dashboard. Includes the 3 critical Zenith OS upgrades: GST-aware Ghost Test, SLA Discovery Pause, and Batch Phone Integrity Check.
+This sub-phase establishes the database foundation, updates the pricing math engine with the strict 5-step formula, and adds 6 admin cockpit enhancements to the Order Detail and Orders pages. Sub-Phases 2B (Portal) and 2C (Cron/Drip) will follow separately.
 
 ---
 
-## Pre-requisite: Database Migration
+## 1. Database Migration
+
+### New Tables
+
+**photo_markers** -- damage pin annotations on order photos
+```text
+id uuid PK
+photo_id uuid FK -> order_photos(id) ON DELETE CASCADE
+x_coordinate decimal NOT NULL
+y_coordinate decimal NOT NULL
+label text
+created_at timestamptz default now()
+```
+
+**order_discoveries** -- extra damage found during workshop
+```text
+id uuid PK
+order_id uuid FK -> orders(id) ON DELETE CASCADE
+description text NOT NULL
+extra_price numeric default 0
+approved_at timestamptz (nullable)
+created_at timestamptz default now()
+```
+
+**system_settings** -- operational configuration (single row)
+```text
+id uuid PK
+workshop_capacity int default 20
+initial_reminder_days int default 3
+followup_days int default 7
+created_at timestamptz default now()
+updated_at timestamptz default now()
+```
+Seed one default row. RLS: authenticated SELECT, admin-only UPDATE.
 
 ### New columns on `orders` table
-```sql
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_amount numeric DEFAULT 0;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_gst_applicable boolean DEFAULT false;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS discovery_pending boolean DEFAULT false;
-```
 
-### New table: `system_health_logs`
-```sql
-CREATE TABLE public.system_health_logs (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  run_at timestamptz NOT NULL DEFAULT now(),
-  run_type text NOT NULL DEFAULT 'nightly',
-  errors_found integer NOT NULL DEFAULT 0,
-  fixes_applied integer NOT NULL DEFAULT 0,
-  ghost_test_passed boolean DEFAULT null,
-  rls_test_passed boolean DEFAULT null,
-  notes text,
-  details jsonb DEFAULT '{}'
-);
--- RLS: authenticated can SELECT and INSERT
--- Enable realtime
-```
+Financial:
+- `total_amount_due` numeric default 0
+- `advance_paid` numeric default 0
+- `balance_remaining` numeric default 0
+- `advance_required` numeric default 0
+- `discount_reason` text
+- `tax_amount` numeric default 0
 
----
+Automation:
+- `auto_sweetener_type` text (nullable)
+- `auto_sweetener_value` text (nullable)
+- `quote_sent_at` timestamptz
+- `quote_valid_until` timestamptz
+- `reminder_count` int default 0
 
-## Step 1: Ghost Order E2E Simulation (Zenith Upgrade 1)
+Metadata:
+- `unique_asset_signature` text
+- `customer_approved_at` timestamptz
+- `customer_declined_at` timestamptz
+- `decline_reason` text
+- `delivery_address_confirmed_at` timestamptz
+- `slider_before_photo_id` uuid
+- `slider_after_photo_id` uuid
+- `final_qc_video_url` text
 
-Added to `DiagnosticsTab.tsx` as Check E.
+Also add `pending_advance` to the OrderStepper status flow.
 
-### Simulation Steps:
-1. Create dummy `asset_passport` (customer_id = current user, item_category = '_ghost_test', brand = '_diag')
-2. Create dummy `orders` (linked to ghost asset, package_tier = 'standard', shipping_fee = 100, cleaning_fee = 299, discount_amount = 50, is_gst_applicable = true)
-3. Create dummy `expert_tasks` (order_id = ghost order, expert_type = 'repair', estimated_price = 500)
-4. **Pricing Verification with GST**:
-   - Subtotal = SUM(tasks) + shipping + cleaning = 500 + 100 + 299 = 899
-   - After discount = 899 - 50 = 849
-   - With GST (18%) = 849 * 1.18 = 1001.82
-   - Verify this exact value matches the expected calculation
-5. Upload a tiny text file to `order-photos` bucket
-6. **Cleanup**: Delete storage file, then delete order (cascades tasks/photos), then delete asset passport
-7. If ANY step fails or the math doesn't match exactly, flag as **CRITICAL CODE ERROR** with the failed step
-
-### Result type:
-```typescript
-type GhostResult = {
-  passed: boolean;
-  failedStep?: string;
-  error?: string;
-  expectedTotal?: number;
-  calculatedTotal?: number;
-}
-```
+RLS: `photo_markers` and `order_discoveries` get authenticated ALL. `system_settings` gets authenticated SELECT + admin UPDATE.
 
 ---
 
-## Step 2: RLS Security Integrity Check
+## 2. Math Engine Update (Strict 5-Step Formula)
 
-Added to `DiagnosticsTab.tsx` as Check F.
+Update `recalcTotalPrice` in `useOrderDetail.ts` and the `PricingEngine.tsx` display:
 
-1. Create a separate Supabase client using the anon key with NO auth session
-2. Attempt to query `audit_logs` using this unauthenticated client
-3. If rows are returned, flag as **CRITICAL: RLS BYPASS DETECTED**
-4. If properly blocked (error or empty), mark as **PASS**
-
-```typescript
-import { createClient } from '@supabase/supabase-js';
-const anonClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-const { data, error } = await anonClient.from('audit_logs').select('id').limit(1);
-// data with rows = FAIL, error or empty = PASS
+```text
+1. Subtotal = SUM(tasks [exclude cleaning if bundle]) + shipping_fee + cleaning_fee
+2. Discounted = MAX(0, Subtotal - discount_amount)
+3. Tax = is_gst_applicable ? ROUND(Discounted * 0.18, 2) : 0
+4. Total (total_amount_due) = Discounted + Tax
+5. Balance = Total - advance_paid
 ```
+
+Changes from current logic:
+- Add `MAX(0, ...)` floor on discount to prevent negative totals
+- Compute and store `tax_amount` as a separate field
+- Store `total_amount_due` and `balance_remaining` as separate persisted columns
+- `PricingEngine.tsx` save also writes `tax_amount`, `total_amount_due`, `balance_remaining`, `discount_reason`
+
+Update `nightly-data-healer` edge function to use the same MAX(0) + separate tax formula.
+
+### PricingEngine UI Enhancement
+
+Show full breakdown rows: Subtotal, Discount (with green label + reason field), Tax (18% GST), Total Due, Advance Paid, Balance Remaining. Add `discount_reason` text input.
 
 ---
 
-## Step 3: Batch Phone Integrity Check (Zenith Upgrade 3)
+## 3. Admin Cockpit Enhancements (OrderDetail + Orders)
 
-Added to the existing Orphan Check diagnostic (Check B) as a sub-section.
+### 3a. Batch Publishing (Orders.tsx)
+- Add a checkbox to each order row
+- When 2+ orders for the same customer are selected, show a "Publish Batch" button
+- On click: sets each selected order's `status = 'quoted'`, `quote_sent_at = now()`, and `quote_valid_until = now() + 7 days`
+- Displays the portal link `/portal/:phone_last4` (prep for Sub-Phase 2B)
 
-### Logic:
-- Query all orders, grouped by `customer_id`
-- For each customer with multiple orders, check if `customer_phone` values are inconsistent
-- Flag any customer where orders have differing phone numbers, as this breaks the Multi-Item Wardrobe portal view
+### 3b. Marker Editor (BeforeAfterPhotos.tsx)
+- When an admin clicks a "Before" photo, enter "marker mode" overlay
+- Click on the photo to drop a pin (saves `x_coordinate`, `y_coordinate`, `label` to `photo_markers`)
+- Existing pins render as numbered gold circles; click a pin to delete it
+- Fetch markers for each photo via a query on `photo_markers` filtered by `photo_id`
 
-### Result type:
-```typescript
-type PhoneMismatch = {
-  customerId: string;
-  customerName: string;
-  phones: string[];  // distinct phone values
-  orderCount: number;
-}
-```
+### 3c. Discovery Trigger (OrderDetail.tsx)
+- New "Add Discovery" button visible when `status === 'workshop'`
+- Opens a dialog with `description` (text) and `extra_price` (number) inputs
+- On submit: inserts into `order_discoveries`, sets `discovery_pending = true` on the order
+- SLA timer pauses (existing logic already handles `discovery_pending`)
 
-Displayed as a third sub-section inside the Orphan Check DiagCard: "Phone Mismatches (same customer, different phones)"
+### 3d. Payment Actions (OrderDetail.tsx)
+- "Log Advance Paid" button visible when `status === 'pending_advance'`
+- Input for amount paid
+- On submit: updates `advance_paid += amount`, recalculates `balance_remaining`, sets `status = 'workshop'`, stamps `sla_start = now()`
 
-### Auto-Resolve for Phone Mismatches:
-Not auto-resolved (requires human decision on which phone is correct). Displayed as a warning-only item that does not count toward the "fixable" total.
+### 3e. Contract Lock (OrderDetail.tsx)
+- If `customer_approved_at` or `customer_declined_at` is set, disable pricing/task editing for non-admin users
+- Pass `canEdit` boolean as prop to `PricingEngine`, `ExpertHuddle`, and `OrderStepper`
 
----
-
-## Step 4: Nightly Data Healer Edge Function (Zenith Upgrade 2)
-
-### File: `supabase/functions/nightly-data-healer/index.ts`
-
-Uses the service role key to perform healing operations.
-
-### Healing Logic (4 checks):
-
-**A. Math Integrity**: Recalculates total_price for all non-delivered orders using:
-```
-subtotal = SUM(tasks, excluding cleaning if bundle) + shipping + cleaning
-discounted = subtotal - discount_amount
-final = is_gst_applicable ? discounted * 1.18 : discounted
-```
-Overwrites mismatched `total_price`.
-
-**B. Orphan Healing**: Creates "Unknown" asset passports for orders missing `asset_id`. Deletes orphaned `expert_tasks` with no matching order.
-
-**C. SLA Healing (Zenith Upgrade 2 - Discovery Pause)**:
-- Only patches orders where `status = 'consult'` AND `consultation_start_time IS NULL` AND `discovery_pending = false`
-- Orders with `discovery_pending = true` are SKIPPED (they are waiting for approval)
-- Patches using the order's `updated_at` timestamp
-
-**D. Phone Mismatch Detection**: Logs inconsistencies but does NOT auto-fix (human decision required).
-
-### Logging:
-Inserts results into `system_health_logs` with `run_type = 'nightly'`, `errors_found`, `fixes_applied`, and a `details` JSONB breakdown.
-
-### Config:
-```toml
-[functions.nightly-data-healer]
-verify_jwt = false
-```
-
-### Cron Schedule (2:00 AM daily):
-Uses `pg_cron` + `pg_net` to call the edge function. Configured via the insert tool (not migration) since it contains project-specific URLs/keys.
-
-```sql
-SELECT cron.schedule(
-  'nightly-data-healer',
-  '0 2 * * *',
-  $$ SELECT net.http_post(...) $$
-);
-```
+### 3f. Capacity Planning (OrderDetail.tsx)
+- Fetch `system_settings.workshop_capacity` and count of orders with `status = 'workshop'`
+- If active count > capacity, show an info banner: "High demand -- estimated +4 days delivery buffer"
+- Displayed above the OrderStepper
 
 ---
 
-## Step 5: DiagnosticsTab UI Overhaul
+## 4. OrderStepper Status Flow Update
 
-### Updated Progress: 8 steps (each ~12.5%)
-1. Math Integrity (existing)
-2. Orphan Check + Phone Batch Integrity (existing + new sub-check)
-3. SLA Integrity (existing, updated to skip discovery_pending)
-4. Storage Check (existing)
-5. Ghost Order E2E (new)
-6. RLS Security (new)
+Add `pending_advance` between `quoted` and `workshop`:
+```text
+triage -> consult -> quoted -> pending_advance -> workshop -> qc -> delivered
+```
 
-Progress bar now goes through 6 major checks at ~16.6% each.
+Update the `STEPS` array and `LABELS` map in `OrderStepper.tsx`. Add color entry in `OrderDetail.tsx` statusColor map.
 
-### New DiagCards:
-- **Ghost Order E2E** (icon: `TestTube2`): Shows PASS/FAIL. If failed, shows the step that broke and expected vs calculated total.
-- **RLS Security** (icon: `ShieldCheck`): Shows PASS/FAIL for RLS verification.
+---
 
-### Updated Orphan DiagCard:
-Third sub-section: "Phone Mismatches" table showing customer name, distinct phone numbers, and order count. Displayed as amber warning (not auto-fixable).
+## 5. useOrderDetail Hook Updates
 
-### Updated SLA Check:
-Frontend SLA diagnostic also skips orders where `discovery_pending = true`, matching the edge function behavior.
-
-### New Section: Autonomous Healing Logs
-Below the manual diagnostics, separated by a divider:
-- Title: "Autonomous Healing Logs"
-- Fetches latest 20 rows from `system_health_logs` ordered by `run_at DESC`
-- Table columns: Date/Time, Type (nightly/manual), Errors Found, Fixes Applied, Ghost Test, RLS Test, Notes
-- Color-coded rows: green (0 errors), amber (errors found + fixed), red (ghost/rls test failed)
-- "Run Manual Heal" button that invokes the `nightly-data-healer` edge function on-demand with `run_type = 'manual'`, then refreshes the logs table
+- Add new fields to `OrderDetail` interface: `totalAmountDue`, `advancePaid`, `balanceRemaining`, `advanceRequired`, `discountReason`, `taxAmount`, `autoSweetenerType`, `autoSweetenerValue`, `quoteSentAt`, `quoteValidUntil`, `reminderCount`, `uniqueAssetSignature`, `customerApprovedAt`, `customerDeclinedAt`, `declineReason`, `deliveryAddressConfirmedAt`, `sliderBeforePhotoId`, `sliderAfterPhotoId`, `finalQcVideoUrl`
+- Map all new DB columns in the query mapper
+- Update `recalcTotalPrice` to the strict 5-step formula
+- Add new mutations: `addDiscovery`, `logAdvancePaid`
+- Update `ORDER_STATUS_FLOW` to include `pending_advance`
 
 ---
 
 ## Files Summary
 
 ### New files (1):
-1. `supabase/functions/nightly-data-healer/index.ts` -- Autonomous healing edge function with discovery_pending awareness
+1. `src/components/orders/DiscoveryDialog.tsx` -- Dialog for adding workshop discoveries
 
-### Modified files (2):
-1. `src/components/admin/DiagnosticsTab.tsx` -- Ghost Order E2E, RLS check, phone batch integrity, healing logs section, discovery_pending-aware SLA check
-2. `src/components/orders/PricingEngine.tsx` -- Updated formula to include discount_amount and GST calculation
+### Modified files (6):
+1. `src/hooks/useOrderDetail.ts` -- New interface fields, 5-step math, new mutations, updated status flow
+2. `src/components/orders/PricingEngine.tsx` -- Full breakdown UI, discount_reason, tax_amount display, canEdit prop
+3. `src/components/orders/BeforeAfterPhotos.tsx` -- Marker overlay on before photos (click-to-pin, click-to-delete)
+4. `src/components/orders/OrderStepper.tsx` -- Add `pending_advance` step, accept `canEdit` prop
+5. `src/pages/OrderDetail.tsx` -- Discovery trigger, payment actions, contract lock, capacity planning banner
+6. `src/pages/Orders.tsx` -- Batch selection checkboxes + Publish Batch button
+7. `src/components/orders/ExpertHuddle.tsx` -- Accept `canEdit` prop to disable editing when contract locked
+8. `supabase/functions/nightly-data-healer/index.ts` -- Updated math formula with MAX(0) + separate tax
 
 ### Database:
-1. Migration: Add `discount_amount`, `is_gst_applicable`, `discovery_pending` columns to `orders`. Create `system_health_logs` table with RLS.
-2. Insert (non-migration): Enable `pg_cron` + `pg_net`, schedule nightly cron job.
-
-### Config:
-1. `supabase/config.toml` -- Add `nightly-data-healer` function entry (auto-managed)
-
----
-
-## Technical Notes
-
-### Updated Pricing Formula (everywhere):
-```
-subtotal = SUM(expert_tasks.estimated_price [exclude cleaning if bundle]) + shipping_fee + cleaning_fee
-discounted = subtotal - discount_amount
-total_price = is_gst_applicable ? round(discounted * 1.18, 2) : discounted
-```
-
-This formula must be consistent across:
-- `useOrderDetail.ts` `recalcTotalPrice()` function
-- `PricingEngine.tsx` display and save
-- `DiagnosticsTab.tsx` Math Integrity check
-- `nightly-data-healer` edge function
-- Ghost Order E2E verification
-
-### Discovery Pending Guard:
-The `discovery_pending` boolean on orders acts as a pause flag. When true:
-- SLA timer should not be auto-patched by the healer
-- The SLA diagnostic should not flag it as an error
-- This prevents the system from overwriting timestamps on orders awaiting expert discovery approval
+1. Migration: 3 new tables (`photo_markers`, `order_discoveries`, `system_settings`) + ~18 new columns on `orders` + RLS policies + seed `system_settings` default row
 
