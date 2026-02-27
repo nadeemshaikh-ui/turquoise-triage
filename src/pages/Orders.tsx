@@ -5,27 +5,33 @@ import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, ClipboardList, Send, Eye } from "lucide-react";
+import { Loader2, ClipboardList, Send, Eye, MessageSquare } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import SlaIndicator from "@/components/orders/SlaIndicator";
 
-const STATUS_TABS = ["all", "triage", "consult", "quoted", "pending_advance", "workshop", "qc", "delivered", "declined", "refunds"] as const;
+const STATUS_TABS = ["all", "pickup_scheduled", "received", "inspection", "in_progress", "qc", "ready", "delivered", "declined"] as const;
 const TAB_LABELS: Record<string, string> = {
-  all: "All", triage: "Triage", consult: "Consult", quoted: "Quoted",
-  pending_advance: "Advance", workshop: "Workshop", qc: "QC", delivered: "Delivered",
-  declined: "Declined", refunds: "🔴 Refunds",
+  all: "All", pickup_scheduled: "Pickup", received: "Received", inspection: "Inspection",
+  in_progress: "In Progress", qc: "QC", ready: "Ready", delivered: "Delivered",
+  declined: "Declined",
 };
 
 const statusColor: Record<string, string> = {
+  pickup_scheduled: "bg-primary/15 text-primary border-primary/30",
+  received: "bg-amber-100 text-amber-800 border-amber-300",
+  inspection: "bg-secondary text-secondary-foreground border-border",
+  in_progress: "bg-blue-100 text-blue-800 border-blue-300",
+  qc: "bg-purple-100 text-purple-800 border-purple-300",
+  ready: "bg-emerald-100 text-emerald-800 border-emerald-300",
+  delivered: "bg-green-100 text-green-800 border-green-300",
+  declined: "bg-red-100 text-red-800 border-red-300",
+  cancelled: "bg-gray-100 text-gray-800 border-gray-300",
+  // Legacy statuses for backwards compat
   triage: "bg-primary/15 text-primary border-primary/30",
   consult: "bg-amber-100 text-amber-800 border-amber-300",
   quoted: "bg-secondary text-secondary-foreground border-border",
   pending_advance: "bg-orange-100 text-orange-800 border-orange-300",
   workshop: "bg-blue-100 text-blue-800 border-blue-300",
-  qc: "bg-purple-100 text-purple-800 border-purple-300",
-  delivered: "bg-green-100 text-green-800 border-green-300",
-  declined: "bg-red-100 text-red-800 border-red-300",
-  cancelled: "bg-gray-100 text-gray-800 border-gray-300",
 };
 
 const Orders = () => {
@@ -42,9 +48,7 @@ const Orders = () => {
         .select("*")
         .order("created_at", { ascending: false });
 
-      if (tab === "refunds") {
-        query = query.in("status", ["declined", "cancelled"]).gt("advance_paid", 0);
-      } else if (tab !== "all") {
+      if (tab !== "all") {
         query = query.eq("status", tab);
       }
 
@@ -80,7 +84,7 @@ const Orders = () => {
   const batchPublish = useMutation({
     mutationFn: async () => {
       const now = new Date().toISOString();
-      const validUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const validUntil = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
       for (const o of selectedOrders) {
         await supabase.from("orders").update({
           status: "quoted",
@@ -99,6 +103,43 @@ const Orders = () => {
     },
   });
 
+  // Quote expiry highlighting
+  const getQuoteExpiryBorder = (order: any) => {
+    if (order.status !== "quoted" || !order.quote_sent_at) return "";
+    const hoursSinceQuote = (Date.now() - new Date(order.quote_sent_at).getTime()) / (1000 * 60 * 60);
+    if (hoursSinceQuote > 48) return "border-l-4 border-l-red-500";
+    if (hoursSinceQuote > 24) return "border-l-4 border-l-amber-400";
+    return "";
+  };
+
+  // Check-in mismatch highlighting
+  const getCheckinBorder = (order: any) => {
+    if (order.status !== "received" || order.checkin_confirmed) return "";
+    const checked = (order.checked_in_items || []).length;
+    const expected = order.expected_item_count || 1;
+    if (checked !== expected && checked > 0) return "border-l-4 border-l-orange-500";
+    return "";
+  };
+
+  // Sort: pin >72h quoted orders to top
+  const sortedOrders = useMemo(() => {
+    if (!orders) return [];
+    return [...orders].sort((a, b) => {
+      const aPin = a.status === "quoted" && a.quote_sent_at && (Date.now() - new Date(a.quote_sent_at).getTime()) > 72 * 60 * 60 * 1000;
+      const bPin = b.status === "quoted" && b.quote_sent_at && (Date.now() - new Date(b.quote_sent_at).getTime()) > 72 * 60 * 60 * 1000;
+      if (aPin && !bPin) return -1;
+      if (!aPin && bPin) return 1;
+      return 0;
+    });
+  }, [orders]);
+
+  const openWhatsAppReminder = (order: any) => {
+    const phone = order.customer_phone?.replace(/\D/g, "") || "";
+    const portalUrl = `${window.location.origin}/portal/${order.customer_id}`;
+    const message = `Hi ${order.customer_name || "there"}! Just checking in on your Restoree 360 quote. You can review and approve it here: ${portalUrl}`;
+    window.open(`https://wa.me/91${phone}?text=${encodeURIComponent(message)}`, "_blank");
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
@@ -114,7 +155,7 @@ const Orders = () => {
             onClick={() => setTab(t)}
             className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-all ${
               tab === t ? "neu-pressed text-primary" : "text-muted-foreground hover:text-foreground"
-            } ${t === "refunds" ? "text-red-600" : ""}`}
+            }`}
           >
             {TAB_LABELS[t]}
           </button>
@@ -148,18 +189,20 @@ const Orders = () => {
         <div className="flex justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
-      ) : !orders?.length ? (
+      ) : !sortedOrders?.length ? (
         <div className="rounded-[var(--radius)] border border-dashed border-border bg-muted/30 p-8 text-center">
           <p className="text-sm text-muted-foreground">No orders found.</p>
         </div>
       ) : (
         <div className="space-y-2">
-          {orders.map((order: any) => {
-            const hasRefundDue = (order.status === "declined" || order.status === "cancelled") && Number(order.advance_paid) > 0;
+          {sortedOrders.map((order: any) => {
+            const expiryBorder = getQuoteExpiryBorder(order);
+            const checkinBorder = getCheckinBorder(order);
+            const isExpiredQuote = order.status === "quoted" && order.quote_valid_until && new Date(order.quote_valid_until) < new Date();
             return (
               <div
                 key={order.id}
-                className="flex items-start gap-3 rounded-[var(--radius)] border border-border bg-card p-4 hover:shadow-md transition-shadow"
+                className={`flex items-start gap-3 rounded-[var(--radius)] border border-border bg-card p-4 hover:shadow-md transition-shadow ${expiryBorder} ${checkinBorder}`}
               >
                 <Checkbox
                   checked={selectedIds.has(order.id)}
@@ -173,9 +216,9 @@ const Orders = () => {
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-semibold text-foreground">{order.customer_name || "Unknown"}</span>
                     <div className="flex items-center gap-1.5">
-                      {hasRefundDue && (
-                        <Badge className="animate-pulse bg-red-100 text-red-800 border-red-400 text-[10px] rounded-full">
-                          Refund ₹{Number(order.advance_paid).toLocaleString()}
+                      {isExpiredQuote && (
+                        <Badge className="bg-red-100 text-red-800 border-red-400 text-[10px] rounded-full">
+                          Quote Expired
                         </Badge>
                       )}
                       <Badge variant="outline" className={`text-[10px] rounded-full ${statusColor[order.status] || ""}`}>
@@ -194,16 +237,30 @@ const Orders = () => {
                     <SlaIndicator orderStatus={order.status} consultationStartTime={order.consultation_start_time} />
                   </div>
                 </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    window.open(`/portal/${order.customer_id}`, "_blank");
-                  }}
-                  className="shrink-0 mt-1 p-1.5 rounded-lg hover:bg-accent transition-colors"
-                  title="Open Customer Portal"
-                >
-                  <Eye className="h-4 w-4" style={{ color: "#C9A96E" }} />
-                </button>
+                <div className="flex flex-col gap-1 shrink-0">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      window.open(`/portal/${order.customer_id}`, "_blank");
+                    }}
+                    className="p-1.5 rounded-lg hover:bg-accent transition-colors"
+                    title="Open Customer Portal"
+                  >
+                    <Eye className="h-4 w-4" style={{ color: "#C9A96E" }} />
+                  </button>
+                  {order.status === "quoted" && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openWhatsAppReminder(order);
+                      }}
+                      className="p-1.5 rounded-lg hover:bg-accent transition-colors"
+                      title="Send WhatsApp Reminder"
+                    >
+                      <MessageSquare className="h-4 w-4 text-green-600" />
+                    </button>
+                  )}
+                </div>
               </div>
             );
           })}

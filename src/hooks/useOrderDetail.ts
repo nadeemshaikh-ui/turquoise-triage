@@ -28,11 +28,8 @@ export interface OrderDetail {
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
-  // Phase 2A fields
   totalAmountDue: number;
   advancePaid: number;
-  balanceRemaining: number;
-  advanceRequired: number;
   discountReason: string | null;
   taxAmount: number;
   autoSweetenerType: string | null;
@@ -48,10 +45,15 @@ export interface OrderDetail {
   sliderBeforePhotoId: string | null;
   sliderAfterPhotoId: string | null;
   finalQcVideoUrl: string | null;
-  // Phase 2B fields
   paymentDeclared: boolean;
   packingPhotoUrl: string | null;
   isLoyaltyVip: boolean;
+  // New fields
+  expectedItemCount: number;
+  checkedInItems: any[];
+  checkinConfirmed: boolean;
+  pickupSlot: string | null;
+  dropoffSlot: string | null;
   asset?: {
     id: string;
     itemCategory: string;
@@ -97,7 +99,7 @@ export interface AuditLogItem {
   adminName?: string;
 }
 
-const ORDER_STATUS_FLOW = ["triage", "consult", "quoted", "pending_advance", "workshop", "qc", "delivered"];
+const ORDER_STATUS_FLOW = ["pickup_scheduled", "received", "inspection", "in_progress", "qc", "ready", "delivered"];
 
 export const useOrderDetail = (orderId: string) => {
   const queryClient = useQueryClient();
@@ -177,8 +179,6 @@ export const useOrderDetail = (orderId: string) => {
         updatedAt: row.updated_at,
         totalAmountDue: Number(row.total_amount_due) || 0,
         advancePaid: Number(row.advance_paid) || 0,
-        balanceRemaining: Number(row.balance_remaining) || 0,
-        advanceRequired: Number(row.advance_required) || 0,
         discountReason: row.discount_reason,
         taxAmount: Number(row.tax_amount) || 0,
         autoSweetenerType: row.auto_sweetener_type,
@@ -194,10 +194,15 @@ export const useOrderDetail = (orderId: string) => {
         sliderBeforePhotoId: row.slider_before_photo_id,
         sliderAfterPhotoId: row.slider_after_photo_id,
         finalQcVideoUrl: row.final_qc_video_url,
-        // Phase 2B
         paymentDeclared: row.payment_declared || false,
         packingPhotoUrl: row.packing_photo_url || null,
         isLoyaltyVip: row.is_loyalty_vip || false,
+        // New fields
+        expectedItemCount: row.expected_item_count || 1,
+        checkedInItems: (row.checked_in_items as any[]) || [],
+        checkinConfirmed: row.checkin_confirmed || false,
+        pickupSlot: row.pickup_slot || null,
+        dropoffSlot: row.dropoff_slot || null,
         asset,
       };
     },
@@ -307,10 +312,7 @@ export const useOrderDetail = (orderId: string) => {
   const updateStatus = useMutation({
     mutationFn: async (newStatus: string) => {
       const updates: any = { status: newStatus };
-      if (newStatus === "consult") {
-        updates.consultation_start_time = new Date().toISOString();
-      }
-      if (newStatus === "workshop") {
+      if (newStatus === "in_progress") {
         updates.sla_start = new Date().toISOString();
       }
       const { error } = await supabase
@@ -418,47 +420,16 @@ export const useOrderDetail = (orderId: string) => {
     },
   });
 
-  // Log Advance Paid — also resets payment_declared
-  const logAdvancePaid = useMutation({
-    mutationFn: async (amount: number) => {
-      const currentAdvance = orderQuery.data?.advancePaid || 0;
-      const newAdvance = currentAdvance + amount;
-      const totalDue = orderQuery.data?.totalAmountDue || 0;
-      const newBalance = totalDue - newAdvance;
-      const { error } = await supabase
-        .from("orders")
-        .update({
-          advance_paid: newAdvance,
-          balance_remaining: newBalance,
-          status: "workshop",
-          sla_start: new Date().toISOString(),
-          payment_declared: false,
-        })
-        .eq("id", orderId);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["order", orderId] });
-      queryClient.invalidateQueries({ queryKey: ["orders"] });
-    },
-  });
-
   // Mark Unfixable (DOA)
   const markUnfixable = useMutation({
     mutationFn: async () => {
       const currentStatus = orderQuery.data?.status || "unknown";
-      const advancePaid = orderQuery.data?.advancePaid || 0;
 
       const { error: updateError } = await supabase
         .from("orders")
-        .update({ status: "declined", balance_remaining: 0 })
+        .update({ status: "declined" })
         .eq("id", orderId);
       if (updateError) throw updateError;
-
-      let reason = "Item marked unfixable. Balance cleared.";
-      if (advancePaid > 0) {
-        reason += ` - CO-OWNER ACTION REQUIRED: REFUND OF ₹${advancePaid.toLocaleString()} DUE.`;
-      }
 
       const { error: auditError } = await supabase.from("audit_logs").insert({
         order_id: orderId,
@@ -467,7 +438,7 @@ export const useOrderDetail = (orderId: string) => {
         field_name: "Status",
         old_value: currentStatus,
         new_value: "declined",
-        reason,
+        reason: "Item marked unfixable.",
       });
       if (auditError) throw auditError;
     },
@@ -481,24 +452,16 @@ export const useOrderDetail = (orderId: string) => {
   // Mark Refund Issued
   const markRefundIssued = useMutation({
     mutationFn: async () => {
-      const advancePaid = orderQuery.data?.advancePaid || 0;
-
       const { error: auditError } = await supabase.from("audit_logs").insert({
         order_id: orderId,
         admin_id: user!.id,
         action: "system_note",
         field_name: "Refund",
-        old_value: `₹${advancePaid.toLocaleString()}`,
-        new_value: "₹0",
-        reason: `REFUND ISSUED: ₹${advancePaid.toLocaleString()} returned to customer.`,
+        old_value: null,
+        new_value: "Issued",
+        reason: "Refund marked as issued by admin.",
       });
       if (auditError) throw auditError;
-
-      const { error: updateError } = await supabase
-        .from("orders")
-        .update({ advance_paid: 0 })
-        .eq("id", orderId);
-      if (updateError) throw updateError;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["order", orderId] });
@@ -537,18 +500,12 @@ export const useOrderDetail = (orderId: string) => {
   const forceCancel = useMutation({
     mutationFn: async () => {
       const currentStatus = orderQuery.data?.status || "unknown";
-      const advancePaid = orderQuery.data?.advancePaid || 0;
 
       const { error: updateError } = await supabase
         .from("orders")
         .update({ status: "cancelled", sla_start: null })
         .eq("id", orderId);
       if (updateError) throw updateError;
-
-      let reason = "Order force cancelled by admin.";
-      if (advancePaid > 0) {
-        reason += ` - CO-OWNER ACTION REQUIRED: REFUND OF ₹${advancePaid.toLocaleString()} DUE.`;
-      }
 
       const { error: auditError } = await supabase.from("audit_logs").insert({
         order_id: orderId,
@@ -557,7 +514,7 @@ export const useOrderDetail = (orderId: string) => {
         field_name: "Status",
         old_value: currentStatus,
         new_value: "cancelled",
-        reason,
+        reason: "Order force cancelled by admin.",
       });
       if (auditError) throw auditError;
     },
@@ -568,7 +525,7 @@ export const useOrderDetail = (orderId: string) => {
     },
   });
 
-  // Strict 5-step pricing formula (stable ref via useCallback)
+  // Strict pricing formula (stable ref via useCallback)
   const recalcTotalPrice = useCallback((
     tasks: ExpertTask[],
     tier: string,
@@ -580,13 +537,13 @@ export const useOrderDetail = (orderId: string) => {
   ) => {
     let taskSum: number;
     if (tier === "elite") {
-      taskSum = tasks.reduce((sum, t) => sum + t.estimatedPrice, 0);
+      taskSum = tasks.reduce((sum, t) => sum + t.estimatedPrice, 0) * 1.4;
     } else {
       taskSum = tasks
         .filter(t => !(isBundleApplied && t.expertType === "cleaning"))
         .reduce((sum, t) => sum + t.estimatedPrice, 0);
     }
-    const subtotal = tier === "elite" ? taskSum : taskSum + shippingFee + cleaningFee;
+    const subtotal = taskSum + shippingFee + cleaningFee;
     const discounted = Math.max(0, subtotal - discountAmount);
     const taxAmount = isGstApplicable ? Math.round(discounted * 0.18 * 100) / 100 : 0;
     const total = Math.round((discounted + taxAmount) * 100) / 100;
@@ -606,7 +563,6 @@ export const useOrderDetail = (orderId: string) => {
     uploadPhotos,
     deletePhoto,
     addDiscovery,
-    logAdvancePaid,
     markUnfixable,
     markRefundIssued,
     rejectPaymentDeclaration,

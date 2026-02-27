@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 
 interface DamagePin {
@@ -18,19 +18,14 @@ const PortalPhotoViewer = ({ photos, markers = [] }: PortalPhotoViewerProps) => 
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: false });
   const [activeIndex, setActiveIndex] = useState(0);
 
-  // Track active slide
-  useState(() => {
+  // Properly track active slide via useEffect
+  useEffect(() => {
     if (!emblaApi) return;
     const onSelect = () => setActiveIndex(emblaApi.selectedScrollSnap());
     emblaApi.on("select", onSelect);
+    onSelect();
     return () => { emblaApi.off("select", onSelect); };
-  });
-
-  // Re-attach listener when api becomes available
-  if (emblaApi) {
-    emblaApi.off("select", () => {});
-    emblaApi.on("select", () => setActiveIndex(emblaApi.selectedScrollSnap()));
-  }
+  }, [emblaApi]);
 
   if (photos.length === 0) return null;
 
