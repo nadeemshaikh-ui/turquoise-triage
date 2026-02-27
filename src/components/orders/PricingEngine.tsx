@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -269,4 +269,4 @@ const PricingEngine = ({ order, expertTasks, onSave, recalcTotalPrice, canEdit =
   );
 };
 
-export default PricingEngine;
+export default React.memo(PricingEngine);

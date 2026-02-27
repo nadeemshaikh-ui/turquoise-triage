@@ -1,37 +1,109 @@
 import { useState, useRef, useCallback } from "react";
+import useEmblaCarousel from "embla-carousel-react";
 
 interface DamagePin {
   id: string;
   x: number;
   y: number;
   label: string | null;
+  photoId?: string;
 }
 
 interface PortalPhotoViewerProps {
-  photoUrl: string;
+  photos: { id: string; url: string }[];
   markers?: DamagePin[];
 }
 
-const PortalPhotoViewer = ({ photoUrl, markers = [] }: PortalPhotoViewerProps) => {
+const PortalPhotoViewer = ({ photos, markers = [] }: PortalPhotoViewerProps) => {
+  const [emblaRef, emblaApi] = useEmblaCarousel({ loop: false });
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  // Track active slide
+  useState(() => {
+    if (!emblaApi) return;
+    const onSelect = () => setActiveIndex(emblaApi.selectedScrollSnap());
+    emblaApi.on("select", onSelect);
+    return () => { emblaApi.off("select", onSelect); };
+  });
+
+  // Re-attach listener when api becomes available
+  if (emblaApi) {
+    emblaApi.off("select", () => {});
+    emblaApi.on("select", () => setActiveIndex(emblaApi.selectedScrollSnap()));
+  }
+
+  if (photos.length === 0) return null;
+
+  const activePhoto = photos[activeIndex];
+  const activeMarkers = activePhoto
+    ? markers.filter((m) => m.photoId === activePhoto.id)
+    : [];
+
   return (
-    <div className="relative w-full overflow-hidden rounded-xl">
-      <img src={photoUrl} alt="Order photo" className="w-full object-cover" />
-      {markers.map((m, i) => (
-        <div
-          key={m.id}
-          className="absolute w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold"
-          style={{
-            left: `${m.x}%`,
-            top: `${m.y}%`,
-            transform: "translate(-50%, -50%)",
-            background: "hsl(37 40% 60%)",
-            color: "hsl(0 0% 4%)",
-            boxShadow: "0 0 8px hsl(37 40% 60% / 0.5)",
-          }}
-        >
-          {i + 1}
+    <div className="space-y-2">
+      <div className="relative w-full overflow-hidden rounded-xl">
+        <div ref={emblaRef} className="overflow-hidden">
+          <div className="flex" style={{ scrollSnapType: "x mandatory" }}>
+            {photos.map((photo, i) => (
+              <div
+                key={photo.id}
+                className="relative flex-[0_0_100%] min-w-0"
+                style={{ scrollSnapAlign: "start" }}
+              >
+                <img src={photo.url} alt={`Photo ${i + 1}`} className="w-full object-cover rounded-xl" />
+                {/* Markers for this specific photo */}
+                {i === activeIndex && activeMarkers.map((m, mi) => (
+                  <div
+                    key={m.id}
+                    className="absolute w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold"
+                    style={{
+                      left: `${m.x}%`,
+                      top: `${m.y}%`,
+                      transform: "translate(-50%, -50%)",
+                      background: "hsl(37 40% 60%)",
+                      color: "hsl(215 25% 33%)",
+                      boxShadow: "0 0 8px hsl(37 40% 60% / 0.5)",
+                    }}
+                  >
+                    {mi + 1}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
         </div>
-      ))}
+      </div>
+
+      {/* Dot indicators */}
+      {photos.length > 1 && (
+        <div className="flex justify-center gap-1.5">
+          {photos.map((_, i) => (
+            <button
+              key={i}
+              onClick={() => emblaApi?.scrollTo(i)}
+              className={`w-2 h-2 rounded-full transition-all ${
+                i === activeIndex
+                  ? "bg-[hsl(var(--portal-gold))] w-4"
+                  : "bg-[hsl(var(--portal-border))]"
+              }`}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Pin legend */}
+      {activeMarkers.length > 0 && (
+        <div className="space-y-1 px-1">
+          {activeMarkers.map((m, i) => (
+            <div key={m.id} className="flex items-center gap-2 text-xs text-[hsl(var(--portal-muted))]">
+              <span className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold bg-[hsl(var(--portal-gold)/0.2)] text-[hsl(var(--portal-gold))]">
+                {i + 1}
+              </span>
+              <span>{m.label || "Damage point"}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
@@ -62,35 +134,27 @@ export const BeforeAfterSlider = ({ beforeUrl, afterUrl }: { beforeUrl: string; 
       onTouchEnd={handleEnd}
       onMouseLeave={handleEnd}
     >
-      {/* After (full) */}
       <img src={afterUrl} alt="After" className="absolute inset-0 w-full h-full object-cover" />
-      {/* Before (clipped) */}
       <div className="absolute inset-0 overflow-hidden" style={{ width: `${position}%` }}>
         <img src={beforeUrl} alt="Before" className="absolute inset-0 w-full h-full object-cover" style={{ minWidth: containerRef.current?.offsetWidth || "100%" }} />
       </div>
-      {/* Divider line */}
       <div
-        className="absolute top-0 bottom-0 w-0.5 cursor-ew-resize"
-        style={{ left: `${position}%`, background: "hsl(37 40% 60%)" }}
+        className="absolute top-0 bottom-0 w-0.5 cursor-ew-resize bg-[hsl(var(--portal-gold))]"
+        style={{ left: `${position}%` }}
         onMouseDown={handleStart}
         onTouchStart={handleStart}
       >
         <div
-          className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
-          style={{
-            background: "hsl(37 40% 60%)",
-            color: "hsl(0 0% 4%)",
-            boxShadow: "0 0 12px hsl(37 40% 60% / 0.5)",
-          }}
+          className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold bg-[hsl(var(--portal-gold))] text-[hsl(215_25%_33%)]"
+          style={{ boxShadow: "0 0 12px hsl(37 40% 60% / 0.5)" }}
         >
           ↔
         </div>
       </div>
-      {/* Labels */}
-      <span className="absolute top-3 left-3 text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ background: "hsl(0 0% 4% / 0.7)", color: "hsl(37 40% 60%)" }}>
+      <span className="absolute top-3 left-3 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[hsl(215_25%_33%/0.7)] text-[hsl(var(--portal-gold))]">
         BEFORE
       </span>
-      <span className="absolute top-3 right-3 text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ background: "hsl(0 0% 4% / 0.7)", color: "hsl(37 40% 60%)" }}>
+      <span className="absolute top-3 right-3 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[hsl(215_25%_33%/0.7)] text-[hsl(var(--portal-gold))]">
         AFTER
       </span>
     </div>

@@ -38,32 +38,21 @@ Deno.serve(async (req) => {
 
       const orders = ordersRes.data || [];
       const orderIds = orders.map((o: any) => o.id);
-
-      // Filter related data to only this customer's orders
       const tasks = (tasksRes.data || []).filter((t: any) => orderIds.includes(t.order_id));
       const photos = (photosRes.data || []).filter((p: any) => orderIds.includes(p.order_id));
       const discoveries = (discoveriesRes.data || []).filter((d: any) => orderIds.includes(d.order_id));
       const photoIds = photos.map((p: any) => p.id);
       const markers = (markersRes.data || []).filter((m: any) => photoIds.includes(m.photo_id));
 
-      // Generate public URLs for photos
       const photosWithUrls = photos.map((p: any) => {
         const { data } = supabase.storage.from("order-photos").getPublicUrl(p.storage_path);
         return { ...p, url: data.publicUrl };
       });
 
-      // Split orders
       const active = orders.filter((o: any) => o.status !== "delivered");
       const historical = orders.filter((o: any) => o.status === "delivered");
 
-      return new Response(JSON.stringify({
-        active,
-        historical,
-        tasks,
-        photos: photosWithUrls,
-        discoveries,
-        markers,
-      }), {
+      return new Response(JSON.stringify({ active, historical, tasks, photos: photosWithUrls, discoveries, markers }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -84,47 +73,96 @@ Deno.serve(async (req) => {
         const { orderIds } = body;
         if (!orderIds?.length) {
           return new Response(JSON.stringify({ error: "orderIds required" }), {
-            status: 400,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-
-        // Validate ownership
-        const { data: owned } = await supabase
-          .from("orders")
-          .select("id")
-          .eq("customer_id", customerId)
-          .in("id", orderIds);
-
+        const { data: owned } = await supabase.from("orders").select("id").eq("customer_id", customerId).in("id", orderIds);
         const ownedIds = (owned || []).map((o: any) => o.id);
         if (ownedIds.length !== orderIds.length) {
           return new Response(JSON.stringify({ error: "Invalid order IDs" }), {
-            status: 403,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-
-        const { error } = await supabase
-          .from("orders")
-          .update({ payment_declared: true })
-          .in("id", ownedIds);
-
+        const { error } = await supabase.from("orders").update({ payment_declared: true }).in("id", ownedIds);
         if (error) throw error;
-
         return new Response(JSON.stringify({ success: true, updated: ownedIds.length }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
       if (action === "approve") {
-        const { orderIds } = body;
+        const { orderIds, tiers, excludedTaskIds: excludedMap } = body;
         const now = new Date().toISOString();
-        const { error } = await supabase
-          .from("orders")
-          .update({ customer_approved_at: now, status: "pending_advance" })
-          .eq("customer_id", customerId)
-          .in("id", orderIds || []);
-        if (error) throw error;
+
+        // Process each order
+        for (const orderId of (orderIds || [])) {
+          const selectedTier = tiers?.[orderId] || "standard";
+          const excludedIds: string[] = excludedMap?.[orderId] || [];
+
+          // Update order with tier and approval
+          await supabase
+            .from("orders")
+            .update({
+              customer_approved_at: now,
+              status: "pending_advance",
+              package_tier: selectedTier,
+            })
+            .eq("id", orderId)
+            .eq("customer_id", customerId);
+
+          // Mark excluded optional tasks
+          if (excludedIds.length > 0) {
+            await supabase
+              .from("expert_tasks")
+              .update({ is_completed: true, expert_note: "Excluded by customer on portal" })
+              .in("id", excludedIds)
+              .eq("order_id", orderId);
+          }
+
+          // Recalculate pricing for the order
+          const { data: orderTasks } = await supabase
+            .from("expert_tasks")
+            .select("*")
+            .eq("order_id", orderId)
+            .eq("is_completed", false);
+
+          const { data: orderData } = await supabase
+            .from("orders")
+            .select("shipping_fee, cleaning_fee, discount_amount, is_gst_applicable, is_bundle_applied, advance_paid")
+            .eq("id", orderId)
+            .single();
+
+          if (orderData && orderTasks) {
+            const isElite = selectedTier === "elite";
+            const isBundled = orderData.is_bundle_applied && !isElite;
+            let taskSum: number;
+            if (isElite) {
+              taskSum = orderTasks.reduce((s: number, t: any) => s + Number(t.estimated_price || 0), 0) * 1.4;
+            } else {
+              taskSum = orderTasks
+                .filter((t: any) => !(isBundled && t.expert_type === "cleaning"))
+                .reduce((s: number, t: any) => s + Number(t.estimated_price || 0), 0);
+            }
+            const shipping = isElite ? 0 : Number(orderData.shipping_fee || 0);
+            const cleaning = isElite ? 0 : (isBundled ? 299 : 0);
+            const subtotal = taskSum + shipping + cleaning;
+            const discount = Number(orderData.discount_amount || 0);
+            const taxable = Math.max(0, subtotal - discount);
+            const gst = orderData.is_gst_applicable ? Math.round(taxable * 0.18 * 100) / 100 : 0;
+            const total = Math.round((taxable + gst) * 100) / 100;
+            const balance = Math.round((total - Number(orderData.advance_paid || 0)) * 100) / 100;
+
+            await supabase.from("orders").update({
+              total_price: total,
+              tax_amount: gst,
+              total_amount_due: total,
+              balance_remaining: balance,
+              shipping_fee: shipping,
+              cleaning_fee: cleaning,
+              warranty_months: isElite ? 6 : 3,
+            }).eq("id", orderId);
+          }
+        }
 
         return new Response(JSON.stringify({ success: true }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -140,7 +178,6 @@ Deno.serve(async (req) => {
           .eq("customer_id", customerId)
           .in("id", orderIds || []);
         if (error) throw error;
-
         return new Response(JSON.stringify({ success: true }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -150,16 +187,10 @@ Deno.serve(async (req) => {
         const { discoveryId } = body;
         const now = new Date().toISOString();
         const { data: disc } = await supabase
-          .from("order_discoveries")
-          .update({ approved_at: now })
-          .eq("id", discoveryId)
-          .select("order_id")
-          .single();
-
+          .from("order_discoveries").update({ approved_at: now }).eq("id", discoveryId).select("order_id").single();
         if (disc) {
           await supabase.from("orders").update({ discovery_pending: false }).eq("id", disc.order_id);
         }
-
         return new Response(JSON.stringify({ success: true }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -168,15 +199,10 @@ Deno.serve(async (req) => {
       if (action === "decline_discovery") {
         const { discoveryId } = body;
         const { data: disc } = await supabase
-          .from("order_discoveries")
-          .select("order_id")
-          .eq("id", discoveryId)
-          .single();
-
+          .from("order_discoveries").select("order_id").eq("id", discoveryId).single();
         if (disc) {
           await supabase.from("orders").update({ discovery_pending: false }).eq("id", disc.order_id);
         }
-
         return new Response(JSON.stringify({ success: true }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -185,16 +211,9 @@ Deno.serve(async (req) => {
       if (action === "confirm_address") {
         const { orderId, address } = body;
         const now = new Date().toISOString();
-        const { error } = await supabase
-          .from("orders")
-          .update({ delivery_address_confirmed_at: now })
-          .eq("id", orderId)
-          .eq("customer_id", customerId);
+        const { error } = await supabase.from("orders").update({ delivery_address_confirmed_at: now }).eq("id", orderId).eq("customer_id", customerId);
         if (error) throw error;
-
-        // Also update customer address
         await supabase.from("customers").update({ address }).eq("id", customerId);
-
         return new Response(JSON.stringify({ success: true }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -202,36 +221,31 @@ Deno.serve(async (req) => {
 
       if (action === "submit_rating") {
         const { orderId, rating, feedback } = body;
-        // Store as audit log for now
         await supabase.from("audit_logs").insert({
           order_id: orderId,
-          admin_id: customerId, // using customerId as proxy
+          admin_id: customerId,
           action: "customer_rating",
           field_name: "Rating",
           old_value: null,
           new_value: String(rating),
           reason: feedback || `Customer rated ${rating}/5`,
         });
-
         return new Response(JSON.stringify({ success: true }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
       return new Response(JSON.stringify({ error: "Unknown action" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     return new Response(JSON.stringify({ error: "Method not allowed" }), {
-      status: 405,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
     return new Response(JSON.stringify({ error: err.message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });

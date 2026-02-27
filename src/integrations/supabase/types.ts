@@ -334,6 +334,7 @@ export type Database = {
           expert_type: string
           id: string
           is_completed: boolean | null
+          is_optional: boolean
           order_id: string
           scope_description: string | null
           scope_tags: Json | null
@@ -348,6 +349,7 @@ export type Database = {
           expert_type: string
           id?: string
           is_completed?: boolean | null
+          is_optional?: boolean
           order_id: string
           scope_description?: string | null
           scope_tags?: Json | null
@@ -362,6 +364,7 @@ export type Database = {
           expert_type?: string
           id?: string
           is_completed?: boolean | null
+          is_optional?: boolean
           order_id?: string
           scope_description?: string | null
           scope_tags?: Json | null

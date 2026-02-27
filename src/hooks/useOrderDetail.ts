@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -71,6 +71,7 @@ export interface ExpertTask {
   estimatedPrice: number;
   expertNote: string | null;
   isCompleted: boolean;
+  isOptional: boolean;
   assignedAt: string;
   completedAt: string | null;
   assignedName?: string;
@@ -233,6 +234,7 @@ export const useOrderDetail = (orderId: string) => {
         estimatedPrice: Number(t.estimated_price) || 0,
         expertNote: t.expert_note,
         isCompleted: t.is_completed || false,
+        isOptional: (t as any).is_optional || false,
         assignedAt: t.assigned_at || t.created_at,
         completedAt: t.completed_at,
         assignedName: t.assigned_to ? profileMap[t.assigned_to] || "Staff" : undefined,
@@ -566,8 +568,8 @@ export const useOrderDetail = (orderId: string) => {
     },
   });
 
-  // Strict 5-step pricing formula
-  const recalcTotalPrice = (
+  // Strict 5-step pricing formula (stable ref via useCallback)
+  const recalcTotalPrice = useCallback((
     tasks: ExpertTask[],
     tier: string,
     shippingFee: number,
@@ -589,7 +591,7 @@ export const useOrderDetail = (orderId: string) => {
     const taxAmount = isGstApplicable ? Math.round(discounted * 0.18 * 100) / 100 : 0;
     const total = Math.round((discounted + taxAmount) * 100) / 100;
     return { subtotal, discounted, taxAmount, total };
-  };
+  }, []);
 
   return {
     order: orderQuery.data,
