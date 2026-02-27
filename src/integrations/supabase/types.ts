@@ -807,6 +807,41 @@ export type Database = {
         }
         Relationships: []
       }
+      order_discoveries: {
+        Row: {
+          approved_at: string | null
+          created_at: string
+          description: string
+          extra_price: number
+          id: string
+          order_id: string
+        }
+        Insert: {
+          approved_at?: string | null
+          created_at?: string
+          description: string
+          extra_price?: number
+          id?: string
+          order_id: string
+        }
+        Update: {
+          approved_at?: string | null
+          created_at?: string
+          description?: string
+          extra_price?: number
+          id?: string
+          order_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_discoveries_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_photos: {
         Row: {
           file_name: string
@@ -847,16 +882,27 @@ export type Database = {
       }
       orders: {
         Row: {
+          advance_paid: number | null
+          advance_required: number | null
           asset_id: string | null
+          auto_sweetener_type: string | null
+          auto_sweetener_value: string | null
+          balance_remaining: number | null
           cleaning_fee: number | null
           consultation_start_time: string | null
           created_at: string
           created_by: string | null
+          customer_approved_at: string | null
+          customer_declined_at: string | null
           customer_id: string
           customer_name: string | null
           customer_phone: string | null
+          decline_reason: string | null
+          delivery_address_confirmed_at: string | null
           discount_amount: number | null
+          discount_reason: string | null
           discovery_pending: boolean | null
+          final_qc_video_url: string | null
           health_score: number | null
           id: string
           is_bundle_applied: boolean | null
@@ -865,24 +911,43 @@ export type Database = {
           maintenance_due: string | null
           notes: string | null
           package_tier: string | null
+          quote_sent_at: string | null
+          quote_valid_until: string | null
+          reminder_count: number | null
           shipping_fee: number | null
           sla_start: string | null
+          slider_after_photo_id: string | null
+          slider_before_photo_id: string | null
           status: string
+          tax_amount: number | null
+          total_amount_due: number | null
           total_price: number | null
+          unique_asset_signature: string | null
           updated_at: string
           warranty_months: number | null
         }
         Insert: {
+          advance_paid?: number | null
+          advance_required?: number | null
           asset_id?: string | null
+          auto_sweetener_type?: string | null
+          auto_sweetener_value?: string | null
+          balance_remaining?: number | null
           cleaning_fee?: number | null
           consultation_start_time?: string | null
           created_at?: string
           created_by?: string | null
+          customer_approved_at?: string | null
+          customer_declined_at?: string | null
           customer_id: string
           customer_name?: string | null
           customer_phone?: string | null
+          decline_reason?: string | null
+          delivery_address_confirmed_at?: string | null
           discount_amount?: number | null
+          discount_reason?: string | null
           discovery_pending?: boolean | null
+          final_qc_video_url?: string | null
           health_score?: number | null
           id?: string
           is_bundle_applied?: boolean | null
@@ -891,24 +956,43 @@ export type Database = {
           maintenance_due?: string | null
           notes?: string | null
           package_tier?: string | null
+          quote_sent_at?: string | null
+          quote_valid_until?: string | null
+          reminder_count?: number | null
           shipping_fee?: number | null
           sla_start?: string | null
+          slider_after_photo_id?: string | null
+          slider_before_photo_id?: string | null
           status?: string
+          tax_amount?: number | null
+          total_amount_due?: number | null
           total_price?: number | null
+          unique_asset_signature?: string | null
           updated_at?: string
           warranty_months?: number | null
         }
         Update: {
+          advance_paid?: number | null
+          advance_required?: number | null
           asset_id?: string | null
+          auto_sweetener_type?: string | null
+          auto_sweetener_value?: string | null
+          balance_remaining?: number | null
           cleaning_fee?: number | null
           consultation_start_time?: string | null
           created_at?: string
           created_by?: string | null
+          customer_approved_at?: string | null
+          customer_declined_at?: string | null
           customer_id?: string
           customer_name?: string | null
           customer_phone?: string | null
+          decline_reason?: string | null
+          delivery_address_confirmed_at?: string | null
           discount_amount?: number | null
+          discount_reason?: string | null
           discovery_pending?: boolean | null
+          final_qc_video_url?: string | null
           health_score?: number | null
           id?: string
           is_bundle_applied?: boolean | null
@@ -917,10 +1001,18 @@ export type Database = {
           maintenance_due?: string | null
           notes?: string | null
           package_tier?: string | null
+          quote_sent_at?: string | null
+          quote_valid_until?: string | null
+          reminder_count?: number | null
           shipping_fee?: number | null
           sla_start?: string | null
+          slider_after_photo_id?: string | null
+          slider_before_photo_id?: string | null
           status?: string
+          tax_amount?: number | null
+          total_amount_due?: number | null
           total_price?: number | null
+          unique_asset_signature?: string | null
           updated_at?: string
           warranty_months?: number | null
         }
@@ -937,6 +1029,41 @@ export type Database = {
             columns: ["lead_id"]
             isOneToOne: false
             referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      photo_markers: {
+        Row: {
+          created_at: string
+          id: string
+          label: string | null
+          photo_id: string
+          x_coordinate: number
+          y_coordinate: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label?: string | null
+          photo_id: string
+          x_coordinate: number
+          y_coordinate: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string | null
+          photo_id?: string
+          x_coordinate?: number
+          y_coordinate?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "photo_markers_photo_id_fkey"
+            columns: ["photo_id"]
+            isOneToOne: false
+            referencedRelation: "order_photos"
             referencedColumns: ["id"]
           },
         ]
@@ -1230,6 +1357,33 @@ export type Database = {
           rls_test_passed?: boolean | null
           run_at?: string
           run_type?: string
+        }
+        Relationships: []
+      }
+      system_settings: {
+        Row: {
+          created_at: string
+          followup_days: number
+          id: string
+          initial_reminder_days: number
+          updated_at: string
+          workshop_capacity: number
+        }
+        Insert: {
+          created_at?: string
+          followup_days?: number
+          id?: string
+          initial_reminder_days?: number
+          updated_at?: string
+          workshop_capacity?: number
+        }
+        Update: {
+          created_at?: string
+          followup_days?: number
+          id?: string
+          initial_reminder_days?: number
+          updated_at?: string
+          workshop_capacity?: number
         }
         Relationships: []
       }

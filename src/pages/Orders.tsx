@@ -1,21 +1,25 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, ClipboardList } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Loader2, ClipboardList, Send } from "lucide-react";
+import { toast } from "@/hooks/use-toast";
 import SlaIndicator from "@/components/orders/SlaIndicator";
 
-const STATUS_TABS = ["all", "triage", "consult", "quoted", "workshop", "qc", "delivered"] as const;
+const STATUS_TABS = ["all", "triage", "consult", "quoted", "pending_advance", "workshop", "qc", "delivered"] as const;
 const TAB_LABELS: Record<string, string> = {
   all: "All", triage: "Triage", consult: "Consult", quoted: "Quoted",
-  workshop: "Workshop", qc: "QC", delivered: "Delivered",
+  pending_advance: "Advance", workshop: "Workshop", qc: "QC", delivered: "Delivered",
 };
 
 const statusColor: Record<string, string> = {
   triage: "bg-primary/15 text-primary border-primary/30",
   consult: "bg-amber-100 text-amber-800 border-amber-300",
   quoted: "bg-secondary text-secondary-foreground border-border",
+  pending_advance: "bg-orange-100 text-orange-800 border-orange-300",
   workshop: "bg-blue-100 text-blue-800 border-blue-300",
   qc: "bg-purple-100 text-purple-800 border-purple-300",
   delivered: "bg-green-100 text-green-800 border-green-300",
@@ -23,7 +27,9 @@ const statusColor: Record<string, string> = {
 
 const Orders = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [tab, setTab] = useState<string>("all");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const { data: orders, isLoading } = useQuery({
     queryKey: ["orders", tab],
@@ -36,6 +42,52 @@ const Orders = () => {
       const { data, error } = await query;
       if (error) throw error;
       return (data || []) as any[];
+    },
+  });
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  // Batch publishing logic
+  const selectedOrders = useMemo(
+    () => (orders || []).filter((o: any) => selectedIds.has(o.id)),
+    [orders, selectedIds]
+  );
+
+  const canBatchPublish = useMemo(() => {
+    if (selectedOrders.length < 2) return false;
+    const phones = new Set(selectedOrders.map((o: any) => o.customer_phone).filter(Boolean));
+    return phones.size === 1;
+  }, [selectedOrders]);
+
+  const batchPhone = canBatchPublish
+    ? selectedOrders[0]?.customer_phone?.replace(/\D/g, "").slice(-4)
+    : null;
+
+  const batchPublish = useMutation({
+    mutationFn: async () => {
+      const now = new Date().toISOString();
+      const validUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      for (const o of selectedOrders) {
+        await supabase.from("orders").update({
+          status: "quoted",
+          quote_sent_at: now,
+          quote_valid_until: validUntil,
+        }).eq("id", o.id);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      setSelectedIds(new Set());
+      toast({
+        title: `Batch published! Portal link: /portal/${batchPhone}`,
+        description: `${selectedOrders.length} orders set to quoted`,
+      });
     },
   });
 
@@ -61,6 +113,29 @@ const Orders = () => {
         ))}
       </div>
 
+      {/* Batch Publish Bar */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center justify-between rounded-[var(--radius)] border border-border bg-card p-3">
+          <span className="text-xs text-muted-foreground">{selectedIds.size} selected</span>
+          <div className="flex items-center gap-2">
+            {canBatchPublish && (
+              <Button
+                size="sm"
+                onClick={() => batchPublish.mutate()}
+                disabled={batchPublish.isPending}
+                className="gap-1.5"
+              >
+                {batchPublish.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                Publish Batch → /portal/{batchPhone}
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
+              Clear
+            </Button>
+          </div>
+        </div>
+      )}
+
       {isLoading ? (
         <div className="flex justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -72,28 +147,37 @@ const Orders = () => {
       ) : (
         <div className="space-y-2">
           {orders.map((order: any) => (
-            <button
+            <div
               key={order.id}
-              onClick={() => navigate(`/orders/${order.id}`)}
-              className="w-full text-left rounded-[var(--radius)] border border-border bg-card p-4 hover:shadow-md transition-shadow space-y-1"
+              className="flex items-start gap-3 rounded-[var(--radius)] border border-border bg-card p-4 hover:shadow-md transition-shadow"
             >
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-foreground">{order.customer_name || "Unknown"}</span>
-                <Badge variant="outline" className={`text-[10px] rounded-full ${statusColor[order.status] || ""}`}>
-                  {order.status}
-                </Badge>
-              </div>
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>{order.customer_phone}</span>
-                <span className="font-medium text-foreground">₹{Number(order.total_price || 0).toLocaleString()}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-muted-foreground">
-                  {new Date(order.created_at).toLocaleDateString()}
-                </span>
-                <SlaIndicator orderStatus={order.status} consultationStartTime={order.consultation_start_time} />
-              </div>
-            </button>
+              <Checkbox
+                checked={selectedIds.has(order.id)}
+                onCheckedChange={() => toggleSelect(order.id)}
+                className="mt-1 shrink-0"
+              />
+              <button
+                onClick={() => navigate(`/orders/${order.id}`)}
+                className="flex-1 text-left space-y-1"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-foreground">{order.customer_name || "Unknown"}</span>
+                  <Badge variant="outline" className={`text-[10px] rounded-full ${statusColor[order.status] || ""}`}>
+                    {order.status}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{order.customer_phone}</span>
+                  <span className="font-medium text-foreground">₹{Number(order.total_price || 0).toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">
+                    {new Date(order.created_at).toLocaleDateString()}
+                  </span>
+                  <SlaIndicator orderStatus={order.status} consultationStartTime={order.consultation_start_time} />
+                </div>
+              </button>
+            </div>
           ))}
         </div>
       )}

@@ -1,12 +1,12 @@
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 
-const STEPS = ["triage", "consult", "quoted", "workshop", "qc", "delivered"];
+const STEPS = ["triage", "consult", "quoted", "pending_advance", "workshop", "qc", "delivered"];
 const LABELS: Record<string, string> = {
   triage: "Triage",
   consult: "Consult",
   quoted: "Quoted",
+  pending_advance: "Advance",
   workshop: "Workshop",
   qc: "QC",
   delivered: "Delivered",
@@ -16,9 +16,10 @@ interface OrderStepperProps {
   currentStatus: string;
   onAdvance: (nextStatus: string) => void;
   isPending: boolean;
+  canEdit?: boolean;
 }
 
-const OrderStepper = ({ currentStatus, onAdvance, isPending }: OrderStepperProps) => {
+const OrderStepper = ({ currentStatus, onAdvance, isPending, canEdit = true }: OrderStepperProps) => {
   const currentIdx = STEPS.indexOf(currentStatus);
   const nextStatus = currentIdx < STEPS.length - 1 ? STEPS[currentIdx + 1] : null;
 
@@ -38,7 +39,7 @@ const OrderStepper = ({ currentStatus, onAdvance, isPending }: OrderStepperProps
           );
         })}
       </div>
-      {nextStatus && (
+      {nextStatus && canEdit && (
         <Button
           onClick={() => onAdvance(nextStatus)}
           disabled={isPending}

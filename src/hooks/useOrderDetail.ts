@@ -28,6 +28,26 @@ export interface OrderDetail {
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
+  // Phase 2A new fields
+  totalAmountDue: number;
+  advancePaid: number;
+  balanceRemaining: number;
+  advanceRequired: number;
+  discountReason: string | null;
+  taxAmount: number;
+  autoSweetenerType: string | null;
+  autoSweetenerValue: string | null;
+  quoteSentAt: string | null;
+  quoteValidUntil: string | null;
+  reminderCount: number;
+  uniqueAssetSignature: string | null;
+  customerApprovedAt: string | null;
+  customerDeclinedAt: string | null;
+  declineReason: string | null;
+  deliveryAddressConfirmedAt: string | null;
+  sliderBeforePhotoId: string | null;
+  sliderAfterPhotoId: string | null;
+  finalQcVideoUrl: string | null;
   asset?: {
     id: string;
     itemCategory: string;
@@ -72,7 +92,7 @@ export interface AuditLogItem {
   adminName?: string;
 }
 
-const ORDER_STATUS_FLOW = ["triage", "consult", "quoted", "workshop", "qc", "delivered"];
+const ORDER_STATUS_FLOW = ["triage", "consult", "quoted", "pending_advance", "workshop", "qc", "delivered"];
 
 export const useOrderDetail = (orderId: string) => {
   const queryClient = useQueryClient();
@@ -151,6 +171,26 @@ export const useOrderDetail = (orderId: string) => {
         createdBy: row.created_by,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
+        // Phase 2A new fields
+        totalAmountDue: Number(row.total_amount_due) || 0,
+        advancePaid: Number(row.advance_paid) || 0,
+        balanceRemaining: Number(row.balance_remaining) || 0,
+        advanceRequired: Number(row.advance_required) || 0,
+        discountReason: row.discount_reason,
+        taxAmount: Number(row.tax_amount) || 0,
+        autoSweetenerType: row.auto_sweetener_type,
+        autoSweetenerValue: row.auto_sweetener_value,
+        quoteSentAt: row.quote_sent_at,
+        quoteValidUntil: row.quote_valid_until,
+        reminderCount: row.reminder_count || 0,
+        uniqueAssetSignature: row.unique_asset_signature,
+        customerApprovedAt: row.customer_approved_at,
+        customerDeclinedAt: row.customer_declined_at,
+        declineReason: row.decline_reason,
+        deliveryAddressConfirmedAt: row.delivery_address_confirmed_at,
+        sliderBeforePhotoId: row.slider_before_photo_id,
+        sliderAfterPhotoId: row.slider_after_photo_id,
+        finalQcVideoUrl: row.final_qc_video_url,
         asset,
       };
     },
@@ -256,13 +296,14 @@ export const useOrderDetail = (orderId: string) => {
     enabled: !!orderId,
   });
 
-  // Patch 4: updateStatus sets consultation_start_time when transitioning to consult
   const updateStatus = useMutation({
     mutationFn: async (newStatus: string) => {
       const updates: any = { status: newStatus };
-      // Patch 4: set consultation_start_time when moving to consult
       if (newStatus === "consult") {
         updates.consultation_start_time = new Date().toISOString();
+      }
+      if (newStatus === "workshop") {
+        updates.sla_start = new Date().toISOString();
       }
       const { error } = await supabase
         .from("orders")
@@ -350,7 +391,49 @@ export const useOrderDetail = (orderId: string) => {
     },
   });
 
-  // Pricing formula with discount & GST support
+  // Add Discovery mutation
+  const addDiscovery = useMutation({
+    mutationFn: async ({ description, extraPrice }: { description: string; extraPrice: number }) => {
+      const { error: discError } = await supabase
+        .from("order_discoveries")
+        .insert({ order_id: orderId, description, extra_price: extraPrice });
+      if (discError) throw discError;
+      const { error: orderError } = await supabase
+        .from("orders")
+        .update({ discovery_pending: true })
+        .eq("id", orderId);
+      if (orderError) throw orderError;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["order", orderId] });
+    },
+  });
+
+  // Log Advance Paid mutation
+  const logAdvancePaid = useMutation({
+    mutationFn: async (amount: number) => {
+      const currentAdvance = orderQuery.data?.advancePaid || 0;
+      const newAdvance = currentAdvance + amount;
+      const totalDue = orderQuery.data?.totalAmountDue || 0;
+      const newBalance = totalDue - newAdvance;
+      const { error } = await supabase
+        .from("orders")
+        .update({
+          advance_paid: newAdvance,
+          balance_remaining: newBalance,
+          status: "workshop",
+          sla_start: new Date().toISOString(),
+        })
+        .eq("id", orderId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["order", orderId] });
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+    },
+  });
+
+  // Strict 5-step pricing formula
   const recalcTotalPrice = (
     tasks: ExpertTask[],
     tier: string,
@@ -369,8 +452,10 @@ export const useOrderDetail = (orderId: string) => {
         .reduce((sum, t) => sum + t.estimatedPrice, 0);
     }
     const subtotal = tier === "elite" ? taskSum : taskSum + shippingFee + cleaningFee;
-    const discounted = subtotal - discountAmount;
-    return isGstApplicable ? Math.round(discounted * 1.18 * 100) / 100 : discounted;
+    const discounted = Math.max(0, subtotal - discountAmount);
+    const taxAmount = isGstApplicable ? Math.round(discounted * 0.18 * 100) / 100 : 0;
+    const total = Math.round((discounted + taxAmount) * 100) / 100;
+    return { subtotal, discounted, taxAmount, total };
   };
 
   return {
@@ -385,6 +470,8 @@ export const useOrderDetail = (orderId: string) => {
     updateExpertTask,
     uploadPhotos,
     deletePhoto,
+    addDiscovery,
+    logAdvancePaid,
     recalcTotalPrice,
     ORDER_STATUS_FLOW,
   };
