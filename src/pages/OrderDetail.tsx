@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Loader2, AlertTriangle, Banknote, Info, Ban, XCircle, CheckCircle, CreditCard } from "lucide-react";
+import { ArrowLeft, Loader2, AlertTriangle, Banknote, Info, Ban, XCircle, CheckCircle, CreditCard, Copy, ExternalLink, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -142,6 +142,38 @@ const OrderDetail = () => {
         {isLocked && (
           <div className="rounded-[var(--radius)] bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800 flex items-center gap-2">
             🔒 Contract {order.customerApprovedAt ? "approved" : "declined"} by customer — {isAdmin ? "admin override available" : "editing disabled"}
+          </div>
+        )}
+
+        {/* Quote Sent Banner with Portal Links */}
+        {order.quoteSentAt && (
+          <div className="rounded-[var(--radius)] bg-green-50 border border-green-200 p-3 text-xs text-green-800 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Send className="h-4 w-4 shrink-0" />
+              <span>Quote Sent via WhatsApp · {formatDistanceToNow(new Date(order.quoteSentAt), { addSuffix: true })}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 text-[11px] text-green-700 hover:text-green-900 hover:bg-green-100"
+                onClick={() => {
+                  const portalUrl = `${window.location.origin}/portal/${order.customerId}`;
+                  navigator.clipboard.writeText(portalUrl);
+                  toast({ title: "Portal link copied!" });
+                }}
+              >
+                <Copy className="h-3 w-3" /> Copy Link
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 text-[11px] text-green-700 hover:text-green-900 hover:bg-green-100"
+                onClick={() => window.open(`/portal/${order.customerId}`, "_blank")}
+              >
+                <ExternalLink className="h-3 w-3" /> Open Portal
+              </Button>
+            </div>
           </div>
         )}
 
