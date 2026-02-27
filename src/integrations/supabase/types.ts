@@ -812,6 +812,7 @@ export type Database = {
           approved_at: string | null
           created_at: string
           description: string
+          discovery_photo_url: string | null
           extra_price: number
           id: string
           order_id: string
@@ -820,6 +821,7 @@ export type Database = {
           approved_at?: string | null
           created_at?: string
           description: string
+          discovery_photo_url?: string | null
           extra_price?: number
           id?: string
           order_id: string
@@ -828,6 +830,7 @@ export type Database = {
           approved_at?: string | null
           created_at?: string
           description?: string
+          discovery_photo_url?: string | null
           extra_price?: number
           id?: string
           order_id?: string
@@ -907,10 +910,13 @@ export type Database = {
           id: string
           is_bundle_applied: boolean | null
           is_gst_applicable: boolean | null
+          is_loyalty_vip: boolean | null
           lead_id: string | null
           maintenance_due: string | null
           notes: string | null
           package_tier: string | null
+          packing_photo_url: string | null
+          payment_declared: boolean | null
           quote_sent_at: string | null
           quote_valid_until: string | null
           reminder_count: number | null
@@ -952,10 +958,13 @@ export type Database = {
           id?: string
           is_bundle_applied?: boolean | null
           is_gst_applicable?: boolean | null
+          is_loyalty_vip?: boolean | null
           lead_id?: string | null
           maintenance_due?: string | null
           notes?: string | null
           package_tier?: string | null
+          packing_photo_url?: string | null
+          payment_declared?: boolean | null
           quote_sent_at?: string | null
           quote_valid_until?: string | null
           reminder_count?: number | null
@@ -997,10 +1006,13 @@ export type Database = {
           id?: string
           is_bundle_applied?: boolean | null
           is_gst_applicable?: boolean | null
+          is_loyalty_vip?: boolean | null
           lead_id?: string | null
           maintenance_due?: string | null
           notes?: string | null
           package_tier?: string | null
+          packing_photo_url?: string | null
+          payment_declared?: boolean | null
           quote_sent_at?: string | null
           quote_valid_until?: string | null
           reminder_count?: number | null
@@ -1362,6 +1374,7 @@ export type Database = {
       }
       system_settings: {
         Row: {
+          company_upi_id: string | null
           created_at: string
           followup_days: number
           id: string
@@ -1370,6 +1383,7 @@ export type Database = {
           workshop_capacity: number
         }
         Insert: {
+          company_upi_id?: string | null
           created_at?: string
           followup_days?: number
           id?: string
@@ -1378,6 +1392,7 @@ export type Database = {
           workshop_capacity?: number
         }
         Update: {
+          company_upi_id?: string | null
           created_at?: string
           followup_days?: number
           id?: string

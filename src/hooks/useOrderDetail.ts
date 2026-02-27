@@ -28,7 +28,7 @@ export interface OrderDetail {
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
-  // Phase 2A new fields
+  // Phase 2A fields
   totalAmountDue: number;
   advancePaid: number;
   balanceRemaining: number;
@@ -48,6 +48,10 @@ export interface OrderDetail {
   sliderBeforePhotoId: string | null;
   sliderAfterPhotoId: string | null;
   finalQcVideoUrl: string | null;
+  // Phase 2B fields
+  paymentDeclared: boolean;
+  packingPhotoUrl: string | null;
+  isLoyaltyVip: boolean;
   asset?: {
     id: string;
     itemCategory: string;
@@ -127,7 +131,6 @@ export const useOrderDetail = (orderId: string) => {
       if (error) throw error;
       const row = data as any;
 
-      // Fetch asset if linked
       let asset = null;
       if (row.asset_id) {
         const { data: assetData } = await supabase
@@ -171,7 +174,6 @@ export const useOrderDetail = (orderId: string) => {
         createdBy: row.created_by,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
-        // Phase 2A new fields
         totalAmountDue: Number(row.total_amount_due) || 0,
         advancePaid: Number(row.advance_paid) || 0,
         balanceRemaining: Number(row.balance_remaining) || 0,
@@ -191,6 +193,10 @@ export const useOrderDetail = (orderId: string) => {
         sliderBeforePhotoId: row.slider_before_photo_id,
         sliderAfterPhotoId: row.slider_after_photo_id,
         finalQcVideoUrl: row.final_qc_video_url,
+        // Phase 2B
+        paymentDeclared: row.payment_declared || false,
+        packingPhotoUrl: row.packing_photo_url || null,
+        isLoyaltyVip: row.is_loyalty_vip || false,
         asset,
       };
     },
@@ -391,12 +397,13 @@ export const useOrderDetail = (orderId: string) => {
     },
   });
 
-  // Add Discovery mutation
   const addDiscovery = useMutation({
-    mutationFn: async ({ description, extraPrice }: { description: string; extraPrice: number }) => {
+    mutationFn: async ({ description, extraPrice, discoveryPhotoUrl }: { description: string; extraPrice: number; discoveryPhotoUrl?: string }) => {
+      const insertData: any = { order_id: orderId, description, extra_price: extraPrice };
+      if (discoveryPhotoUrl) insertData.discovery_photo_url = discoveryPhotoUrl;
       const { error: discError } = await supabase
         .from("order_discoveries")
-        .insert({ order_id: orderId, description, extra_price: extraPrice });
+        .insert(insertData);
       if (discError) throw discError;
       const { error: orderError } = await supabase
         .from("orders")
@@ -409,7 +416,7 @@ export const useOrderDetail = (orderId: string) => {
     },
   });
 
-  // Log Advance Paid mutation
+  // Log Advance Paid — also resets payment_declared
   const logAdvancePaid = useMutation({
     mutationFn: async (amount: number) => {
       const currentAdvance = orderQuery.data?.advancePaid || 0;
@@ -423,6 +430,7 @@ export const useOrderDetail = (orderId: string) => {
           balance_remaining: newBalance,
           status: "workshop",
           sla_start: new Date().toISOString(),
+          payment_declared: false,
         })
         .eq("id", orderId);
       if (error) throw error;
@@ -430,6 +438,131 @@ export const useOrderDetail = (orderId: string) => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["order", orderId] });
       queryClient.invalidateQueries({ queryKey: ["orders"] });
+    },
+  });
+
+  // Mark Unfixable (DOA)
+  const markUnfixable = useMutation({
+    mutationFn: async () => {
+      const currentStatus = orderQuery.data?.status || "unknown";
+      const advancePaid = orderQuery.data?.advancePaid || 0;
+
+      const { error: updateError } = await supabase
+        .from("orders")
+        .update({ status: "declined", balance_remaining: 0 })
+        .eq("id", orderId);
+      if (updateError) throw updateError;
+
+      let reason = "Item marked unfixable. Balance cleared.";
+      if (advancePaid > 0) {
+        reason += ` - CO-OWNER ACTION REQUIRED: REFUND OF ₹${advancePaid.toLocaleString()} DUE.`;
+      }
+
+      const { error: auditError } = await supabase.from("audit_logs").insert({
+        order_id: orderId,
+        admin_id: user!.id,
+        action: "system_note",
+        field_name: "Status",
+        old_value: currentStatus,
+        new_value: "declined",
+        reason,
+      });
+      if (auditError) throw auditError;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["order", orderId] });
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["audit-logs", orderId] });
+    },
+  });
+
+  // Mark Refund Issued
+  const markRefundIssued = useMutation({
+    mutationFn: async () => {
+      const advancePaid = orderQuery.data?.advancePaid || 0;
+
+      const { error: auditError } = await supabase.from("audit_logs").insert({
+        order_id: orderId,
+        admin_id: user!.id,
+        action: "system_note",
+        field_name: "Refund",
+        old_value: `₹${advancePaid.toLocaleString()}`,
+        new_value: "₹0",
+        reason: `REFUND ISSUED: ₹${advancePaid.toLocaleString()} returned to customer.`,
+      });
+      if (auditError) throw auditError;
+
+      const { error: updateError } = await supabase
+        .from("orders")
+        .update({ advance_paid: 0 })
+        .eq("id", orderId);
+      if (updateError) throw updateError;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["order", orderId] });
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["audit-logs", orderId] });
+    },
+  });
+
+  // Reject Payment Declaration
+  const rejectPaymentDeclaration = useMutation({
+    mutationFn: async () => {
+      const { error: updateError } = await supabase
+        .from("orders")
+        .update({ payment_declared: false })
+        .eq("id", orderId);
+      if (updateError) throw updateError;
+
+      const { error: auditError } = await supabase.from("audit_logs").insert({
+        order_id: orderId,
+        admin_id: user!.id,
+        action: "system_note",
+        field_name: "Payment",
+        old_value: "declared",
+        new_value: "rejected",
+        reason: "Payment declaration rejected. Portal button re-enabled.",
+      });
+      if (auditError) throw auditError;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["order", orderId] });
+      queryClient.invalidateQueries({ queryKey: ["audit-logs", orderId] });
+    },
+  });
+
+  // Force Cancel
+  const forceCancel = useMutation({
+    mutationFn: async () => {
+      const currentStatus = orderQuery.data?.status || "unknown";
+      const advancePaid = orderQuery.data?.advancePaid || 0;
+
+      const { error: updateError } = await supabase
+        .from("orders")
+        .update({ status: "cancelled", sla_start: null })
+        .eq("id", orderId);
+      if (updateError) throw updateError;
+
+      let reason = "Order force cancelled by admin.";
+      if (advancePaid > 0) {
+        reason += ` - CO-OWNER ACTION REQUIRED: REFUND OF ₹${advancePaid.toLocaleString()} DUE.`;
+      }
+
+      const { error: auditError } = await supabase.from("audit_logs").insert({
+        order_id: orderId,
+        admin_id: user!.id,
+        action: "system_note",
+        field_name: "Status",
+        old_value: currentStatus,
+        new_value: "cancelled",
+        reason,
+      });
+      if (auditError) throw auditError;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["order", orderId] });
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["audit-logs", orderId] });
     },
   });
 
@@ -472,6 +605,10 @@ export const useOrderDetail = (orderId: string) => {
     deletePhoto,
     addDiscovery,
     logAdvancePaid,
+    markUnfixable,
+    markRefundIssued,
+    rejectPaymentDeclaration,
+    forceCancel,
     recalcTotalPrice,
     ORDER_STATUS_FLOW,
   };

@@ -26,6 +26,7 @@ import Quote from "./pages/Quote";
 import AdminHub from "./pages/AdminHub";
 import Orders from "./pages/Orders";
 import OrderDetail from "./pages/OrderDetail";
+import Portal from "./pages/Portal";
 
 const queryClient = new QueryClient();
 
@@ -42,6 +43,7 @@ const App = () => (
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/quote/:token" element={<Quote />} />
+            <Route path="/portal/:customerId" element={<Portal />} />
             <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
               <Route path="/" element={<Index />} />
               <Route path="/orders" element={<Orders />} />
