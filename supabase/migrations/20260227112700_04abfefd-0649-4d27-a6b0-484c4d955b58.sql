@@ -1,0 +1,1 @@
+ALTER TABLE public.expert_tasks ADD COLUMN is_optional boolean NOT NULL DEFAULT false;

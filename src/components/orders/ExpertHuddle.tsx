@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -104,6 +105,7 @@ const ExpertSection = ({ type, label, task, tags, experts, orderId, onAddTask, o
   const [price, setPrice] = useState(String(task?.estimatedPrice || ""));
   const [note, setNote] = useState(task?.expertNote || "");
   const [saving, setSaving] = useState(false);
+  const [isOptional, setIsOptional] = useState(task?.isOptional ?? false);
 
   const scopeDescription = selectedTags
     .map((tag) => {
@@ -140,6 +142,7 @@ const ExpertSection = ({ type, label, task, tags, experts, orderId, onAddTask, o
         scope_description: scopeDescription || null,
         estimated_price: Number(price) || 0,
         expert_note: note || null,
+        is_optional: isOptional,
       };
 
       if (task) {
@@ -228,6 +231,20 @@ const ExpertSection = ({ type, label, task, tags, experts, orderId, onAddTask, o
             min={!canRemoveTask && task ? task.estimatedPrice : undefined}
           />
         </div>
+
+        {/* Optional toggle for customer portal */}
+        {canEdit && (
+          <div className="flex items-center gap-2 rounded-[calc(var(--radius)/2)] border border-dashed border-muted-foreground/30 bg-muted/30 p-2">
+            <Checkbox
+              id={`optional-${type}`}
+              checked={isOptional}
+              onCheckedChange={(checked) => setIsOptional(!!checked)}
+            />
+            <label htmlFor={`optional-${type}`} className="text-[11px] text-muted-foreground cursor-pointer">
+              Mark as Optional (customer can exclude on portal)
+            </label>
+          </div>
+        )}
 
         <div className="space-y-1">
           <label className="text-xs font-medium text-muted-foreground">Expert Notes</label>
