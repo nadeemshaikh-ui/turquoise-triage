@@ -24,10 +24,10 @@ Deno.serve(async (req) => {
     let fixesApplied = 0;
     const details: Record<string, any> = {};
 
-    // ── A. Math Integrity ──
+    // ── A. Math Integrity (Strict 5-Step Formula) ──
     const { data: activeOrders } = await supabase
       .from("orders")
-      .select("id, total_price, shipping_fee, cleaning_fee, package_tier, is_bundle_applied, discount_amount, is_gst_applicable")
+      .select("id, total_price, shipping_fee, cleaning_fee, package_tier, is_bundle_applied, discount_amount, is_gst_applicable, total_amount_due, tax_amount, advance_paid, balance_remaining")
       .neq("status", "delivered");
 
     const mathFixes: string[] = [];
@@ -44,6 +44,7 @@ Deno.serve(async (req) => {
         const isBundleApplied = order.is_bundle_applied ?? false;
         const discountAmount = Number(order.discount_amount) || 0;
         const isGst = order.is_gst_applicable ?? false;
+        const advancePaid = Number(order.advance_paid) || 0;
 
         let taskSum: number;
         if (isElite) {
@@ -58,15 +59,20 @@ Deno.serve(async (req) => {
           ? taskSum
           : taskSum + (Number(order.shipping_fee) || 0) + (Number(order.cleaning_fee) || 0);
 
-        const discounted = subtotal - discountAmount;
-        const calculated = isGst
-          ? Math.round(discounted * 1.18 * 100) / 100
-          : discounted;
+        const discounted = Math.max(0, subtotal - discountAmount);
+        const taxAmount = isGst ? Math.round(discounted * 0.18 * 100) / 100 : 0;
+        const total = Math.round((discounted + taxAmount) * 100) / 100;
+        const balance = Math.round((total - advancePaid) * 100) / 100;
 
         const dbPrice = Number(order.total_price) || 0;
-        if (Math.abs(dbPrice - calculated) > 0.01) {
+        if (Math.abs(dbPrice - total) > 0.01) {
           errorsFound++;
-          await supabase.from("orders").update({ total_price: calculated }).eq("id", order.id);
+          await supabase.from("orders").update({
+            total_price: total,
+            tax_amount: taxAmount,
+            total_amount_due: total,
+            balance_remaining: balance,
+          }).eq("id", order.id);
           fixesApplied++;
           mathFixes.push(order.id);
         }
@@ -119,7 +125,6 @@ Deno.serve(async (req) => {
 
     const slaFixes: string[] = [];
     for (const order of slaOrders || []) {
-      // Skip orders with discovery_pending = true
       if (order.discovery_pending === true) continue;
       errorsFound++;
       await supabase

@@ -19,9 +19,10 @@ interface ExpertHuddleProps {
   tasks: ExpertTask[];
   onAddTask: (task: any) => Promise<void>;
   onUpdateTask: (args: { taskId: string; updates: Record<string, any> }) => Promise<void>;
+  canEdit?: boolean;
 }
 
-const ExpertHuddle = ({ orderId, tasks, onAddTask, onUpdateTask }: ExpertHuddleProps) => {
+const ExpertHuddle = ({ orderId, tasks, onAddTask, onUpdateTask, canEdit = true }: ExpertHuddleProps) => {
   const { data: scopeTags } = useQuery({
     queryKey: ["scope-tag-definitions"],
     queryFn: async () => {
@@ -48,6 +49,11 @@ const ExpertHuddle = ({ orderId, tasks, onAddTask, onUpdateTask }: ExpertHuddleP
   return (
     <section className="space-y-2">
       <h2 className="text-sm font-semibold text-foreground">Expert Huddle</h2>
+      {!canEdit && (
+        <div className="rounded-[calc(var(--radius)/2)] bg-amber-50 border border-amber-200 p-2 text-xs text-amber-800">
+          🔒 Contract locked — tasks are read-only
+        </div>
+      )}
       {EXPERT_TYPES.map((type) => {
         const task = tasks.find((t) => t.expertType === type);
         const tagsForType = (scopeTags || []).filter((t: any) => t.expert_type === type);
@@ -63,6 +69,7 @@ const ExpertHuddle = ({ orderId, tasks, onAddTask, onUpdateTask }: ExpertHuddleP
             orderId={orderId}
             onAddTask={onAddTask}
             onUpdateTask={onUpdateTask}
+            canEdit={canEdit}
           />
         );
       })}
@@ -79,9 +86,10 @@ interface ExpertSectionProps {
   orderId: string;
   onAddTask: (task: any) => Promise<void>;
   onUpdateTask: (args: { taskId: string; updates: Record<string, any> }) => Promise<void>;
+  canEdit: boolean;
 }
 
-const ExpertSection = ({ type, label, task, tags, experts, orderId, onAddTask, onUpdateTask }: ExpertSectionProps) => {
+const ExpertSection = ({ type, label, task, tags, experts, orderId, onAddTask, onUpdateTask, canEdit }: ExpertSectionProps) => {
   const [open, setOpen] = useState(!!task);
   const [assignedTo, setAssignedTo] = useState(task?.assignedTo || "");
   const [selectedTags, setSelectedTags] = useState<string[]>(task?.scopeTags || []);
@@ -97,12 +105,14 @@ const ExpertSection = ({ type, label, task, tags, experts, orderId, onAddTask, o
     .join(". ");
 
   const toggleTag = (tagName: string) => {
+    if (!canEdit) return;
     setSelectedTags((prev) =>
       prev.includes(tagName) ? prev.filter((t) => t !== tagName) : [...prev, tagName]
     );
   };
 
   const handleSave = async () => {
+    if (!canEdit) return;
     setSaving(true);
     try {
       const payload = {
@@ -145,7 +155,7 @@ const ExpertSection = ({ type, label, task, tags, experts, orderId, onAddTask, o
         {/* Expert Assignment */}
         <div className="space-y-1">
           <label className="text-xs font-medium text-muted-foreground">Assigned Expert</label>
-          <Select value={assignedTo} onValueChange={setAssignedTo}>
+          <Select value={assignedTo} onValueChange={setAssignedTo} disabled={!canEdit}>
             <SelectTrigger className="h-9 text-sm">
               <SelectValue placeholder="Select expert..." />
             </SelectTrigger>
@@ -167,11 +177,12 @@ const ExpertSection = ({ type, label, task, tags, experts, orderId, onAddTask, o
               <button
                 key={tag.id}
                 onClick={() => toggleTag(tag.tag_name)}
+                disabled={!canEdit}
                 className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors border ${
                   selectedTags.includes(tag.tag_name)
                     ? "bg-primary text-primary-foreground border-primary"
                     : "bg-muted text-muted-foreground border-border hover:border-primary/50"
-                }`}
+                } ${!canEdit ? "opacity-60 cursor-not-allowed" : ""}`}
               >
                 {tag.tag_name}
               </button>
@@ -191,6 +202,7 @@ const ExpertSection = ({ type, label, task, tags, experts, orderId, onAddTask, o
             onChange={(e) => setPrice(e.target.value)}
             placeholder="0"
             className="h-9"
+            disabled={!canEdit}
           />
         </div>
 
@@ -202,13 +214,16 @@ const ExpertSection = ({ type, label, task, tags, experts, orderId, onAddTask, o
             onChange={(e) => setNote(e.target.value)}
             placeholder="Notes..."
             className="min-h-[60px]"
+            disabled={!canEdit}
           />
         </div>
 
-        <Button onClick={handleSave} disabled={saving} size="sm" className="w-full gap-2">
-          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-          Save {label}
-        </Button>
+        {canEdit && (
+          <Button onClick={handleSave} disabled={saving} size="sm" className="w-full gap-2">
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+            Save {label}
+          </Button>
+        )}
       </CollapsibleContent>
     </Collapsible>
   );
