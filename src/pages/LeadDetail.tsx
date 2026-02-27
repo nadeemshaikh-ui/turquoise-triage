@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Crown, Clock, Phone, Mail, Camera, MessageSquare, CheckCircle2, Loader2, Upload, ImagePlus, Trash2, X, Award } from "lucide-react";
+import { ArrowLeft, Crown, Clock, Phone, Mail, Camera, MessageSquare, CheckCircle2, Loader2, Upload, ImagePlus, Trash2, X, Award, ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
 import { format, formatDistanceToNow } from "date-fns";
 import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 const statusColor: Record<string, string> = {
   New: "bg-primary/15 text-primary border-primary/30",
@@ -28,9 +29,11 @@ const actionIcons: Record<string, typeof CheckCircle2> = {
 const LeadDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { lead, photos, activity, isLoading, updateStatus, addNote, uploadPhotos, deletePhoto, STATUS_FLOW } = useLeadDetail(id!);
   const [note, setNote] = useState("");
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+  const [converting, setConverting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: leadItems } = useQuery({
@@ -98,6 +101,65 @@ const LeadDetail = () => {
     });
     e.target.value = "";
   };
+
+  // Patch 1: Convert to Order with customer_id + item_category + brand matching
+  const handleConvertToOrder = async () => {
+    if (!lead || !leadItems?.length) return;
+    setConverting(true);
+    try {
+      const firstItem = leadItems[0] as any;
+      const category = firstItem.service_categories?.name || "Unknown";
+      const brand = firstItem.brands?.name || null;
+
+      // Patch 1: Match asset by customer_id + item_category + brand
+      let assetId: string | null = null;
+      let query = supabase
+        .from("asset_passport")
+        .select("id")
+        .eq("customer_id", lead.customerId)
+        .eq("item_category", category);
+      if (brand) query = query.eq("brand", brand);
+      const { data: existingAssets } = await query.limit(1);
+
+      if (existingAssets && existingAssets.length > 0) {
+        assetId = existingAssets[0].id;
+      } else {
+        const { data: newAsset, error: assetErr } = await supabase
+          .from("asset_passport")
+          .insert({ customer_id: lead.customerId, item_category: category, brand })
+          .select("id")
+          .single();
+        if (assetErr) throw assetErr;
+        assetId = newAsset.id;
+      }
+
+      // Create the order
+      const { data: newOrder, error: orderErr } = await supabase
+        .from("orders")
+        .insert({
+          lead_id: lead.id,
+          asset_id: assetId,
+          customer_id: lead.customerId,
+          customer_name: lead.customerName,
+          customer_phone: lead.customerPhone,
+          status: "triage",
+          total_price: lead.quotedPrice,
+          created_by: user?.id,
+        })
+        .select("id")
+        .single();
+      if (orderErr) throw orderErr;
+
+      toast({ title: "Order created!" });
+      navigate(`/orders/${newOrder.id}`);
+    } catch (err) {
+      toast({ title: "Failed to create order", variant: "destructive" });
+    } finally {
+      setConverting(false);
+    }
+  };
+
+
 
   return (
     <div className="min-h-screen bg-background">
@@ -224,6 +286,17 @@ const LeadDetail = () => {
             </Button>
           )}
         </section>
+
+        {/* Convert to Order */}
+        <Button
+          onClick={handleConvertToOrder}
+          disabled={converting || !leadItems?.length}
+          variant="outline"
+          className="w-full rounded-[var(--radius)] gap-2 border-primary/30"
+        >
+          {converting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardList className="h-4 w-4" />}
+          Convert to Order
+        </Button>
 
         {/* Photo Gallery */}
         <section className="space-y-3">
