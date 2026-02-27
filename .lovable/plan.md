@@ -1,174 +1,260 @@
 
-
-# Restoree 360: Final Architectural Completion
+# Restoree 360: Phase 1 + Sales Engine + 4 Logic Refinements
 
 ## Overview
 
-This plan covers 6 workstreams across 8 files + 1 database migration. Every change is specified with exact file locations and logic.
+This plan implements the approved Phase 1 (UI/stability/branding), Interactive Sales Engine (tiers, optional tasks, UPI), advance removal, and integrates the 4 new logic refinements: Physical Manifest Check-In, Slot Booking, Luxury Bubble Status Flow, and God-Mode Editor.
 
 ---
 
-## Workstream 1: Branding & Unified Light Theme
+## Database Migrations
 
-### Branding
-- **`src/pages/Portal.tsx` line 132**: Change "Luxury Restoration Portal" to "Restoree 360"
-- **`src/components/portal/PortalOrderCard.tsx` line 72**: Change "Being evaluated by our Elite Artisans" to "Being evaluated by our Restoree 360 artisans"
-- No other "Zenith" or "Restoration Portal" strings exist in the codebase
+### Migration 1: New columns and slot settings
 
-### Light Neumorphic Theme (`src/index.css` lines 174-222)
-Replace `.portal-theme` CSS variables with light palette:
 ```text
---portal-bg:      220 16% 95%     (#F0F2F5)
---portal-surface: 0 0% 100%       (#FFFFFF)
---portal-text:    215 25% 33%     (#2D3748 equivalent)
---portal-muted:   215 15% 55%
---portal-border:  220 14% 88%
---portal-gold:    37 40% 60%      (accent only, stays)
+-- 1. Expected item count on leads
+ALTER TABLE leads ADD COLUMN expected_item_count integer NOT NULL DEFAULT 1;
+
+-- 2. Physical manifest check-in on orders
+ALTER TABLE orders ADD COLUMN expected_item_count integer NOT NULL DEFAULT 1;
+ALTER TABLE orders ADD COLUMN checked_in_items jsonb NOT NULL DEFAULT '[]';
+ALTER TABLE orders ADD COLUMN checkin_confirmed boolean NOT NULL DEFAULT false;
+
+-- 3. Slot booking on orders
+ALTER TABLE orders ADD COLUMN pickup_slot text;
+ALTER TABLE orders ADD COLUMN dropoff_slot text;
+
+-- 4. Logistics slots in system_settings
+ALTER TABLE system_settings ADD COLUMN pickup_slots jsonb NOT NULL DEFAULT '["Morning (10 AM - 12 PM)", "Evening (4 PM - 6 PM)"]';
+ALTER TABLE system_settings ADD COLUMN dropoff_slots jsonb NOT NULL DEFAULT '["Morning (10 AM - 12 PM)", "Evening (4 PM - 6 PM)"]';
 ```
-Update `.portal-raised` to use white/gray neumorphic shadows instead of black shadows. Update `.portal-pressed` and `.portal-shimmer` similarly.
 
-### Remove Inline Dark Styles
-- **`src/pages/Portal.tsx`**: Replace all `style={{ background/color: "hsl(var(--portal-*))" }}` with Tailwind classes using CSS variable syntax like `bg-[hsl(var(--portal-bg))]` or standard classes
-- **`src/components/portal/PortalOrderCard.tsx`**: Same treatment for all inline style attributes across the entire component and sub-components
-
-### Mobile-First Sizing
-- All Portal buttons: `min-h-[48px]`
-- Tab buttons: `min-h-[48px] text-base`
-- Header title: `text-2xl` (24px), subtitle: `text-base` (18px)
-- Card body text: `text-base`, card headers: `text-lg`
-- Star rating buttons: `min-h-[48px] min-w-[48px]`
+No RLS changes needed -- all tables already have authenticated-user policies.
 
 ---
 
-## Workstream 2: Stability & Anti-Flicker
+## Workstream 1: Luxury Bubble Status Flow
 
-### `src/hooks/useOrderDetail.ts` (lines 570-592)
-Wrap `recalcTotalPrice` in `useCallback` with `[]` dependencies. It's a pure math function with no closures, so the reference will be stable across renders. This eliminates the cascade where PricingEngine's `useMemo` (line 42-45) re-fires every render.
+The new linear status path replaces the old one everywhere:
 
-### `src/components/orders/PricingEngine.tsx`
-Wrap the default export in `React.memo`:
+**Old:** `triage -> consult -> quoted -> pending_advance -> workshop -> qc -> delivered`
+
+**New:** `pickup_scheduled -> received -> inspection -> in_progress -> qc -> ready -> delivered`
+
+Note: "Lead" is the pre-order phase (the `leads` table). The order status flow starts at `pickup_scheduled` after conversion from lead.
+
+### Files changed:
+
+**`src/hooks/useOrderDetail.ts`** (line 100)
+- Update `ORDER_STATUS_FLOW` to: `["pickup_scheduled", "received", "inspection", "in_progress", "qc", "ready", "delivered"]`
+- Remove `logAdvancePaid` mutation (lines 422-444) -- advances are eliminated
+- Update `updateStatus` to set `sla_start` when moving to `in_progress` (not `workshop`)
+- Add new fields to `OrderDetail` interface: `expectedItemCount`, `checkedInItems`, `checkinConfirmed`, `pickupSlot`, `dropoffSlot`
+- Map them in the query function
+
+**`src/components/orders/OrderStepper.tsx`**
+- Update `STEPS` array to match new flow
+- Update `LABELS` map: `pickup_scheduled: "Pickup", received: "Received", inspection: "Inspection", in_progress: "In Progress", qc: "QC", ready: "Ready", delivered: "Delivered"`
+
+**`src/pages/Orders.tsx`** (line 12)
+- Update `STATUS_TABS` to: `["all", "pickup_scheduled", "received", "inspection", "in_progress", "qc", "ready", "delivered", "declined", "refunds"]`
+- Update `TAB_LABELS` and `statusColor` maps accordingly
+- Add quote expiry highlighting for orders that were recently quoted (yellow >24h, red >48h borders)
+
+**`src/pages/OrderDetail.tsx`**
+- Remove `pending_advance` payment section (lines 244-272)
+- Remove `logAdvancePaid` usage
+- Update status references throughout
+- Add UPI section for `ready` status (see Workstream 5)
+
+**`src/components/portal/PortalOrderCard.tsx`**
+- Update all status checks: `isTriage` -> check for `pickup_scheduled`, `isWorkshop` -> check for `in_progress` and `qc`, etc.
+- Replace the workshop shimmer text with a horizontal neumorphic progress bar showing: Pickup Scheduled -> Received -> Inspection -> In Progress -> QC -> Ready -> Delivered
+- Active step gets a pulsing gold dot, completed steps are filled gold
+
+**`supabase/functions/serve-portal/index.ts`**
+- Update `approve` action: change target status from `pending_advance` to `pickup_scheduled`
+- Include `system_settings` (company_upi_id, pickup_slots, dropoff_slots) in the `load` response
+- Include `audit_logs` for each order in the `load` response (for History Vault)
+
+---
+
+## Workstream 2: Physical Manifest Check-In
+
+### Intake: Expected Item Count
+**`src/components/intake/NewLeadDialog.tsx`**
+- Add an "Expected Item Count" number input in the CustomerDetails section (after address, before campaign)
+- Store in `customer.expectedItemCount`, default 1
+- Pass to lead insert: `expected_item_count: customer.expectedItemCount`
+- When converting lead to order (in LeadDetail), copy `expected_item_count` to the order
+
+### Admin: Check-In Checklist
+**`src/pages/OrderDetail.tsx`**
+- When order status is `received` or `inspection`, show a "Physical Check-In" card
+- Display N checklist items (Item A, Item B, Item C...) based on `order.expectedItemCount`
+- Each item has a "Received" checkbox that updates `checked_in_items` jsonb array
+- If checked count !== expected count, highlight the order card in orange and show a warning
+- Block the "Move to Inspection" button until admin clicks "Confirm Discrepancy" or all items are checked
+
+### Orders List Highlighting
+**`src/pages/Orders.tsx`**
+- Orders in `received` status where `checkin_confirmed === false` and checked items don't match expected count get an orange left border
+
+---
+
+## Workstream 3: Interactive Slot Booking (Portal)
+
+**`src/components/portal/PortalOrderCard.tsx`**
+- New state: when `status === "pickup_scheduled"` and `!order.pickup_slot`:
+  - Show two selectable neumorphic slot cards (Morning / Evening)
+  - Slots are fetched from `data.systemSettings.pickup_slots` (passed via serve-portal load)
+  - When customer selects, call `callAction("select_slot", { orderId, slotType: "pickup", slot: "Morning..." })`
+  - After selection, show the confirmed slot with a checkmark
+- Same logic for `status === "ready"` and `!order.dropoff_slot` (delivery slot selection)
+
+**`src/pages/Portal.tsx`**
+- Pass `systemSettings` from the loaded data down to PortalOrderCard
+
+**`supabase/functions/serve-portal/index.ts`**
+- Add `select_slot` action handler: updates `pickup_slot` or `dropoff_slot` on the order
+- Add system_settings to the `load` response
+
+---
+
+## Workstream 4: God-Mode Editor
+
+The admin already has full override capabilities via:
+- `AdminOverride` component (OrderDetail lines 293-297) for total_price, shipping_fee, status
+- `ExpertHuddle` with `canEdit={canEdit}` allows adding/editing tasks at any stage
+- `PricingEngine` allows editing all pricing fields
+
+**Refinements needed:**
+
+**`src/pages/OrderDetail.tsx`**
+- Remove the `isLocked` guard that blocks editing when customer has approved (line 87-88)
+- Change to: `const canEdit = isAdmin ? true : !isLocked;` -- Admin always has edit access
+- When admin edits during `in_progress`/`qc`, auto-generate a "Mini-Quote" audit log entry and set `discovery_pending = true` to force portal into "Action Required"
+
+**`src/components/orders/ExpertHuddle.tsx`**
+- When `canRemoveTask` is false (workshop mode), keep the upsell-only restriction for staff
+- But if user `isAdmin`, allow full editing regardless of status -- pass an `isGodMode` prop
+
+**`src/components/orders/PricingEngine.tsx`**
+- Same approach: if admin, always allow editing even when contract is locked
+- Add a visible "God Mode" indicator when admin is overriding a locked order
+
+---
+
+## Workstream 5: Advance Removal and UPI Deep Link
+
+### Remove Advance System
+**`src/hooks/useOrderDetail.ts`**
+- Remove `logAdvancePaid` mutation entirely
+- Keep `advancePaid` field in interface but default to 0 (for backward compat with existing data)
+
+**`src/components/orders/PricingEngine.tsx`**
+- Remove "Advance Required" input (lines 228-239)
+- Remove "Advance Paid" display (lines 241-245)
+- Remove "Balance Remaining" display (lines 247-253)
+- Show only: Total Due as the final number
+
+**`src/pages/OrderDetail.tsx`**
+- Remove the entire "Log Advance Payment" section (lines 244-272)
+- Remove Payment Declared banner reference to `pending_advance`
+
+### UPI Deep Link at Ready Status
+**`src/components/portal/PortalOrderCard.tsx`**
+- New state when `status === "ready"`:
+  - Show total due prominently
+  - Display a UPI deep link button: `upi://pay?pa={upiId}&pn=Restoree360&am={total}&cu=INR`
+  - UPI ID comes from `systemSettings.company_upi_id`
+  - "I Have Paid" button sets `payment_declared = true` via `callAction("declare_payment")`
+  - If `payment_declared` is true, show "Verifying..." disabled state
+
+**`src/pages/Portal.tsx`**
+- Remove the old `pendingAdvanceOrders` section (lines 240-270)
+
+---
+
+## Workstream 6: Stability and Anti-Flicker
+
+**`src/hooks/useOrderDetail.ts`** (line 572)
+- `recalcTotalPrice` is already wrapped in `useCallback([])` -- verified, no change needed
+
+**`src/components/portal/PortalPhotoViewer.tsx`** (lines 22-33)
+- Fix the broken `useState` being used as side effect -- replace with `useEffect`:
 ```text
-export default React.memo(PricingEngine);
+useEffect(() => {
+  if (!emblaApi) return;
+  const onSelect = () => setActiveIndex(emblaApi.selectedScrollSnap());
+  emblaApi.on("select", onSelect);
+  onSelect();
+  return () => { emblaApi.off("select", onSelect); };
+}, [emblaApi]);
 ```
+- Remove the redundant listener attachment on lines 30-33
 
-### `src/components/portal/PortalOrderCard.tsx`
-- Wrap `PortalOrderCard` in `React.memo`
-- Wrap `DiscoveryCard`, `QcReadySection`, and `DeliveredSection` in `React.memo`
-- Use stable keys (`order.id`, `t.id`, `d.id`) for all list renders (already done, will verify)
+**`src/components/orders/PricingEngine.tsx`**
+- Already wrapped in `React.memo` (line 272) -- verified
+
+**`src/components/portal/PortalOrderCard.tsx`**
+- Already wrapped in `React.memo` -- verified
+- Ensure all sub-components maintain stable keys
 
 ---
 
-## Workstream 3: Interactive Sales Engine
+## Workstream 7: Branding and Theme Polish
 
-### Database Migration
-Add `is_optional` boolean column to `expert_tasks`:
-```sql
-ALTER TABLE expert_tasks ADD COLUMN is_optional boolean NOT NULL DEFAULT false;
-```
+**Branding** -- already "Restoree 360" in most places. Verify:
+- `src/pages/Portal.tsx` line 148: "Restoree 360" (done)
+- `src/components/portal/PortalOrderCard.tsx` line 105: "Restoree 360 artisans" (done)
+- `src/components/AppLayout.tsx` lines 53-54: "Restoree 360" (done)
 
-### Admin: Optional Toggle (`src/components/orders/ExpertHuddle.tsx`)
-- Add an "Optional" checkbox in each `ExpertSection` (around line 230, near the price input)
-- When toggled, saves `is_optional` to the `expert_tasks` table via `onUpdateTask`
-- UI: small checkbox labeled "Mark as Optional (customer can exclude)"
+**Theme** -- Light Neumorphic is already applied in `src/index.css` (lines 174-222). No changes needed.
 
-### Portal: Tier Switcher (`src/components/portal/PortalOrderCard.tsx` -- State B)
-When status is `quoted`, show two selectable neumorphic tier cards above the pricing breakdown:
-
-- **Standard**: Current task sum + shipping fee, 15-20 day SLA, 3-month warranty
-- **Elite**: Task sum * 1.4, free shipping, 8-12 day SLA, 6-month warranty
-
-Local state `selectedTier` defaults to `order.package_tier`. Switching recalculates all displayed values using a local `useMemo`. Does NOT save to DB -- the tier is sent on approval.
-
-### Portal: Optional Task Checkboxes (`src/components/portal/PortalOrderCard.tsx` -- State B)
-For each task where `is_optional === true`:
-- Render a checkbox next to the task name (default: checked/included)
-- When unchecked: strike through the line, subtract its price from the total
-- Local state `excludedTaskIds` tracks which optional tasks are unchecked
-
-### Math Fortress (local `useMemo` in PortalOrderCard State B)
-```text
-selectedTasks = orderTasks.filter(t => !t.is_optional || !excludedTaskIds.has(t.id))
-taskSum = tier === 'elite'
-  ? selectedTasks.reduce(sum, t.estimated_price) * 1.4
-  : selectedTasks.filter(notBundledCleaning).reduce(sum, t.estimated_price)
-subtotal = taskSum + (tier === 'elite' ? 0 : shippingFee)
-taxable = max(0, subtotal - discount)
-gst = order.is_gst_applicable ? taxable * 0.18 : 0
-total = taxable + gst
-```
-GST line shown ONLY if `order.is_gst_applicable` is true.
+**Mobile sizing** -- 48px buttons and base text already applied in Portal and PortalOrderCard. Verify during implementation.
 
 ---
 
-## Workstream 4: Multi-Photo Swipe Gallery
+## Workstream 8: Portal VIP Enhancements
 
-### `src/components/portal/PortalPhotoViewer.tsx`
-Replace the single-image viewer with a horizontal swipe carousel:
+### History Vault
+**`src/components/portal/PortalOrderCard.tsx`**
+- Add a collapsible "Activity Timeline" section at the bottom of each order card
+- Data source: `audit_logs` filtered by `order_id` (included in serve-portal load response)
+- Show timestamped entries: "Status changed to inspection", "Quote approved", etc.
+- Default collapsed, expand on tap
 
-- Use `embla-carousel-react` (already installed as `embla-carousel-react ^8.6.0`)
-- Implement `scroll-snap-type: x mandatory` via CSS for native mobile feel
-- Add dot indicators below the carousel showing the active slide
-- **Marker Sync**: Track `activeIndex` state. When the user swipes to a new photo, look up markers for that photo's `photo_id` and render only those pins
-- Props change: accept `photos: { id, url }[]` and `markers: DamagePin[]` (with `photo_id` added to the interface) instead of a single `photoUrl`
-- Keep the `BeforeAfterSlider` export unchanged
+### Rework Request (7-day window)
+**`src/components/portal/PortalOrderCard.tsx`** (Delivered state)
+- Calculate days since delivery
+- If less than 7 days: show "Request Rework" button
+- Calls `callAction("request_rework", { orderId })` which creates a new lead in the system
 
-### `src/components/portal/PortalOrderCard.tsx`
-Update the `PortalPhotoViewer` usage in State B to pass the full `orderPhotos` array and all markers (the viewer will handle filtering by active photo).
+**`supabase/functions/serve-portal/index.ts`**
+- Add `request_rework` action: creates a new lead with notes referencing the original order
 
----
-
-## Workstream 5: Admin & Oversight (Verification)
-
-These are already implemented and functional -- no code changes needed, but will be verified during implementation:
-
-- **Header Buttons** (`src/pages/OrderDetail.tsx` lines 130-146): Gold "Open Portal" and "Copy Link" buttons are present in the last diff
-- **Refund Pulse** (`src/pages/Orders.tsx` lines 12, 45-46, 176-179): "Refunds" tab filters declined/cancelled with `advance_paid > 0`, red pulsing badge shows refund amount
-- **Scope Lock** (`src/components/orders/ExpertHuddle.tsx` lines 58-62, 116-121, 124-131): `canRemoveTask` prop prevents tag removal and price lowering in workshop/qc status
-- **Eye Icon** (`src/pages/Orders.tsx` lines 194-206): Gold Eye icon opens portal in new tab
-
----
-
-## Workstream 6: Approval Flow & Lockdown
-
-### Portal Approval (`src/pages/Portal.tsx` lines 92-99)
-Update `handleApproveAll` to include interactive sales state in the API call:
-```text
-await callAction("approve", {
-  orderIds: ids,
-  tiers: { [orderId]: selectedTier },
-  excludedTaskIds: { [orderId]: [...excludedIds] }
-});
-```
-This requires lifting `selectedTier` and `excludedTaskIds` state from PortalOrderCard up to Portal via callback props.
-
-### Edge Function (`supabase/functions/serve-portal/index.ts` -- approve action, ~line 104)
-Update the `approve` handler to:
-1. Accept `tiers` object (map of orderId to selected tier)
-2. Accept `excludedTaskIds` object (map of orderId to array of task IDs to exclude)
-3. For each order: update `package_tier` to selected tier, recalculate pricing using the same formula
-4. For excluded tasks: mark them as declined (set `is_completed = true` with a note, or delete them)
-
-### Payment Lock (already working)
-- Portal "I Have Paid" button reads `payment_declared` and shows "Verifying..." when true (Portal.tsx lines 237-240)
-- Admin "Payment Not Found" button resets via `rejectPaymentDeclaration` mutation
-- No changes needed
-
-### Post-Approval Lock
-After `customer_approved_at` is set, the tier cards and optional checkboxes should be disabled. Check `order.customer_approved_at` -- if set, render the pricing as read-only (no tier switcher, no checkboxes).
+### PWA Manifest
+- Create `public/manifest.json` with app name "Restoree 360"
+- Update `index.html` with manifest link and iOS meta tags
 
 ---
 
 ## Files Summary
 
-| # | File | Changes |
-|---|------|---------|
-| 0 | **DB Migration** | Add `is_optional boolean` to `expert_tasks` |
-| 1 | `src/hooks/useOrderDetail.ts` | Wrap `recalcTotalPrice` in `useCallback` |
-| 2 | `src/components/orders/PricingEngine.tsx` | `React.memo` wrapper |
-| 3 | `src/index.css` | Light neumorphic portal theme variables and shadow utilities |
-| 4 | `src/pages/Portal.tsx` | Branding, light theme classes, mobile sizing, lift tier/exclusion state, send on approve |
-| 5 | `src/components/portal/PortalOrderCard.tsx` | `React.memo`, light theme, mobile sizing, tier switcher, optional task checkboxes, post-approval lock |
-| 6 | `src/components/portal/PortalPhotoViewer.tsx` | Multi-photo swipe gallery with embla-carousel, dot indicators, marker sync per active photo |
-| 7 | `src/components/orders/ExpertHuddle.tsx` | "Optional" checkbox toggle per task |
-| 8 | `supabase/functions/serve-portal/index.ts` | Accept tier + excluded tasks on approve, recalculate and persist |
-
+| # | File | Key Changes |
+|---|------|-------------|
+| 0 | DB Migration | Add expected_item_count, checked_in_items, checkin_confirmed, pickup_slot, dropoff_slot to orders; expected_item_count to leads; slots to system_settings |
+| 1 | `src/hooks/useOrderDetail.ts` | New status flow, remove logAdvancePaid, add new fields, update status transitions |
+| 2 | `src/components/orders/OrderStepper.tsx` | New 7-step Luxury Bubble flow |
+| 3 | `src/components/orders/PricingEngine.tsx` | Remove advance fields, God-Mode for admin |
+| 4 | `src/components/orders/ExpertHuddle.tsx` | God-Mode prop for admin override |
+| 5 | `src/pages/Orders.tsx` | New status tabs, quote expiry highlighting, manifest mismatch orange border |
+| 6 | `src/pages/OrderDetail.tsx` | Remove advance UI, add check-in checklist, God-Mode editing, UPI at ready |
+| 7 | `src/pages/Portal.tsx` | Remove advance section, pass systemSettings, slot booking flow |
+| 8 | `src/components/portal/PortalOrderCard.tsx` | Progress bar, slot booking cards, UPI deep link, history vault, rework button |
+| 9 | `src/components/portal/PortalPhotoViewer.tsx` | Fix useEffect bug for Embla listener |
+| 10 | `src/components/intake/NewLeadDialog.tsx` | Add Expected Item Count field |
+| 11 | `supabase/functions/serve-portal/index.ts` | New status on approve, select_slot action, request_rework action, include system_settings and audit_logs in load |
+| 12 | `public/manifest.json` | New PWA manifest |
+| 13 | `index.html` | PWA meta tags |
