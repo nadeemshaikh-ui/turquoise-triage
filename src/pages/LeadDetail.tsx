@@ -1,12 +1,14 @@
 import { useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Crown, Clock, Phone, Mail, Camera, MessageSquare, CheckCircle2, Loader2, Upload, ImagePlus, Trash2, X, Award, ClipboardList } from "lucide-react";
+import { ArrowLeft, Crown, Clock, Phone, Mail, Camera, MessageSquare, CheckCircle2, Loader2, Upload, ImagePlus, Trash2, X, Award, ClipboardList, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { useLeadDetail } from "@/hooks/useLeadDetail";
 import { supabase } from "@/integrations/supabase/client";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format, formatDistanceToNow } from "date-fns";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
@@ -29,12 +31,16 @@ const actionIcons: Record<string, typeof CheckCircle2> = {
 const LeadDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { user } = useAuth();
   const { lead, photos, activity, isLoading, updateStatus, addNote, uploadPhotos, deletePhoto, STATUS_FLOW } = useLeadDetail(id!);
   const [note, setNote] = useState("");
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [converting, setConverting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [newBrandId, setNewBrandId] = useState("");
+  const [newCategoryId, setNewCategoryId] = useState("");
+  const [newServiceType, setNewServiceType] = useState("");
 
   const { data: leadItems } = useQuery({
     queryKey: ["lead-items", id],
@@ -47,6 +53,54 @@ const LeadDetail = () => {
       return (data as any[]) || [];
     },
     enabled: !!id,
+  });
+
+  const { data: brandsOptions } = useQuery({
+    queryKey: ["brands-options"],
+    queryFn: async () => {
+      const { data } = await supabase.from("brands").select("id, name").eq("is_active", true).order("name");
+      return data || [];
+    },
+  });
+
+  const { data: categoriesOptions } = useQuery({
+    queryKey: ["categories-options"],
+    queryFn: async () => {
+      const { data } = await supabase.from("service_categories").select("id, name").eq("is_active", true).order("name");
+      return data || [];
+    },
+  });
+
+  const addItemMutation = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("lead_items").insert({
+        lead_id: id!,
+        brand_id: newBrandId,
+        category_id: newCategoryId,
+        service_type: newServiceType,
+        sort_order: leadItems?.length || 0,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["lead-items", id] });
+      setNewBrandId("");
+      setNewCategoryId("");
+      setNewServiceType("");
+      toast({ title: "Item added" });
+    },
+    onError: (err: any) => toast({ title: err.message || "Failed to add item", variant: "destructive" }),
+  });
+
+  const deleteItemMutation = useMutation({
+    mutationFn: async (itemId: string) => {
+      const { error } = await supabase.from("lead_items").delete().eq("id", itemId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["lead-items", id] });
+      toast({ title: "Item removed" });
+    },
   });
 
   // Fetch customer legacy data for VIP badge
@@ -183,43 +237,106 @@ const LeadDetail = () => {
           </div>
         )}
 
-        {/* Lead Items */}
-        {leadItems && leadItems.length > 0 ? (
-          <section className="space-y-2">
+        {/* Lead Items Manager */}
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <ClipboardList className="h-4 w-4 text-muted-foreground" />
             <h2 className="text-sm font-semibold text-foreground">Items</h2>
-            {leadItems.map((item: any) => {
-              const tierBadge: Record<string, string> = {
-                standard: "bg-muted text-muted-foreground",
-                luxury: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
-                ultra_luxury: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
-              };
-              const tierLabel: Record<string, string> = { standard: "Standard", luxury: "Luxury", ultra_luxury: "Ultra-Luxury" };
-              return (
-                <div key={item.id} className="rounded-[var(--radius)] border border-border bg-card p-3 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium text-foreground">{item.service_categories?.name || "Item"}</p>
-                      {item.brands?.name && (
-                        <>
-                          <span className="text-[10px] text-muted-foreground">·</span>
-                          <span className="text-xs font-medium text-foreground">{item.brands.name}</span>
-                          <Badge className={`text-[9px] ${tierBadge[item.brands?.tier] || ""}`}>{tierLabel[item.brands?.tier] || item.brands?.tier}</Badge>
-                        </>
-                      )}
-                    </div>
-                    <span className="text-sm font-semibold text-foreground">₹{Number(item.manual_price || 0).toLocaleString()}</span>
-                  </div>
-                  {item.description && <p className="text-xs text-muted-foreground">{item.description}</p>}
-                  <Badge variant="outline" className="text-[10px]">{item.mode}</Badge>
-                </div>
-              );
-            })}
-          </section>
-        ) : (
-          <div className="rounded-[var(--radius)] border border-dashed border-border bg-muted/30 p-4 text-center">
-            <p className="text-sm text-muted-foreground">Legacy Lead — no itemized breakdown available.</p>
+            <Badge variant="secondary" className="text-[10px]">{leadItems?.length || 0}</Badge>
           </div>
-        )}
+
+          {leadItems && leadItems.length > 0 && (
+            <div className="space-y-2">
+              {leadItems.map((item: any) => {
+                const tierBadge: Record<string, string> = {
+                  standard: "bg-muted text-muted-foreground",
+                  luxury: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
+                  ultra_luxury: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
+                };
+                const tierLabel: Record<string, string> = { standard: "Standard", luxury: "Luxury", ultra_luxury: "Ultra-Luxury" };
+                return (
+                  <div key={item.id} className="rounded-[var(--radius)] border border-border bg-card p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-medium text-foreground">{item.service_categories?.name || "Item"}</p>
+                        {item.brands?.name && (
+                          <>
+                            <span className="text-[10px] text-muted-foreground">·</span>
+                            <span className="text-xs font-medium text-foreground">{item.brands.name}</span>
+                            <Badge className={`text-[9px] ${tierBadge[item.brands?.tier] || ""}`}>{tierLabel[item.brands?.tier] || item.brands?.tier}</Badge>
+                          </>
+                        )}
+                        <Badge variant="outline" className="text-[9px]">{item.service_type || "restoration"}</Badge>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-foreground">₹{Number(item.manual_price || 0).toLocaleString()}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => deleteItemMutation.mutate(item.id)}
+                          disabled={deleteItemMutation.isPending}
+                        >
+                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {(!leadItems || leadItems.length === 0) && (
+            <p className="text-sm text-muted-foreground">No items yet. Add at least one item below.</p>
+          )}
+
+          {/* Add Item Form */}
+          <div className="rounded-[var(--radius)] border border-dashed border-border bg-muted/20 p-3 space-y-3">
+            <p className="text-xs font-medium text-muted-foreground">Add Item</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <Select value={newBrandId} onValueChange={setNewBrandId}>
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="Brand" />
+                </SelectTrigger>
+                <SelectContent>
+                  {brandsOptions?.map((b) => (
+                    <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={newCategoryId} onValueChange={setNewCategoryId}>
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="Category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categoriesOptions?.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={newServiceType} onValueChange={setNewServiceType}>
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="Service Type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {["restoration", "repair", "cleaning", "dye", "hardware", "spa"].map((t) => (
+                    <SelectItem key={t} value={t}>{t}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              size="sm"
+              className="gap-1.5"
+              disabled={!newBrandId || !newCategoryId || !newServiceType || addItemMutation.isPending}
+              onClick={() => addItemMutation.mutate()}
+            >
+              {addItemMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+              Add
+            </Button>
+          </div>
+        </section>
 
         {/* Status Stepper */}
         <section className="space-y-3">
@@ -248,15 +365,20 @@ const LeadDetail = () => {
         </section>
 
         {/* Convert to Order */}
-        <Button
-          onClick={handleConvertToOrder}
-          disabled={converting || !leadItems?.length}
-          variant="outline"
-          className="w-full rounded-[var(--radius)] gap-2 border-primary/30"
-        >
-          {converting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardList className="h-4 w-4" />}
-          Convert to Order
-        </Button>
+        <div className="space-y-1">
+          <Button
+            onClick={handleConvertToOrder}
+            disabled={converting || !leadItems?.length}
+            variant="outline"
+            className="w-full rounded-[var(--radius)] gap-2 border-primary/30"
+          >
+            {converting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardList className="h-4 w-4" />}
+            Convert to Order
+          </Button>
+          {(!leadItems || leadItems.length === 0) && (
+            <p className="text-center text-xs text-amber-600">⚠ Add at least 1 item to convert</p>
+          )}
+        </div>
 
         {/* Photo Gallery */}
         <section className="space-y-3">
