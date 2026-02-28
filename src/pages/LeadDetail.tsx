@@ -15,6 +15,8 @@ import { format, formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
+import DigitalWardrobe from "@/components/lead/DigitalWardrobe";
+import RestorationAddons from "@/components/lead/RestorationAddons";
 
 // PhotoThumb sub-component: handles broken image gracefully
 const PhotoThumb = ({ url, fileName }: { url: string; fileName: string }) => {
@@ -498,6 +500,9 @@ const LeadDetail = () => {
             </Link>
           </div>
         )}
+
+        {/* Digital Wardrobe — completed history for this customer */}
+        {lead.customerId && <DigitalWardrobe customerId={lead.customerId} />}
 
         {/* Info Cards */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -986,6 +991,7 @@ function ItemCard({
           )}
           <Badge variant="outline" className="text-[9px]">{item.service_type || "restoration"}</Badge>
           {item.description && <span className="text-[10px] text-muted-foreground italic">— {item.description}</span>}
+          {item.custom_category_label && <span className="text-[10px] text-muted-foreground">({item.custom_category_label})</span>}
         </div>
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-foreground">₹{Number(item.manual_price || 0).toLocaleString()}</span>
@@ -1006,6 +1012,11 @@ function ItemCard({
           </Button>
           <Button size="sm" variant="ghost" className="h-7 text-xs px-2" onClick={() => onConfirmDelete(null)}>Cancel</Button>
         </div>
+      )}
+
+      {/* Restoration Add-ons */}
+      {(item.service_type || "").toLowerCase() === "restoration" && !isConverted && (
+        <RestorationAddons leadItemId={item.id} categoryName={item.service_categories?.name || ""} />
       )}
 
       {/* Per-item photos */}
