@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
-import { LayoutDashboard, Users, TrendingUp, Zap, RotateCcw, Settings, LogOut, Plus, MoreHorizontal, PanelLeftClose, PanelLeft, Hammer, Cog, ClipboardList } from "lucide-react";
+import { LayoutDashboard, Users, TrendingUp, Zap, RotateCcw, Settings, LogOut, Plus, MoreHorizontal, PanelLeftClose, PanelLeft, Hammer, Cog, ClipboardList, IndianRupee } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { useAuth } from "@/contexts/AuthContext";
@@ -30,6 +30,7 @@ const AppLayout = () => {
     { path: "/recovery", label: "Recovery", icon: RotateCcw },
     ...(isAdmin ? [
       { path: "/services", label: "Services", icon: Settings },
+      { path: "/pricing", label: "Pricing", icon: IndianRupee },
       { path: "/automations", label: "Automations", icon: Zap },
       { path: "/admin-hub", label: "Admin Hub", icon: Cog },
     ] : []),
