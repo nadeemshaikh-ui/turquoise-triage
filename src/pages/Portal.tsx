@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { Loader2, CheckCircle } from "lucide-react";
+import { Loader2, CheckCircle, WifiOff, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import PortalOrderCard from "@/components/portal/PortalOrderCard";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
+const CACHE_STALE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 const Portal = () => {
   const { customerId } = useParams<{ customerId: string }>();
@@ -15,6 +16,7 @@ const Portal = () => {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"active" | "historical">("active");
   const [expired, setExpired] = useState(false);
+  const [cacheStatus, setCacheStatus] = useState<"fresh" | "refreshing" | "offline" | "stale" | null>(null);
 
   // Approval flow state
   const [ack1, setAck1] = useState(false);
@@ -29,6 +31,8 @@ const Portal = () => {
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
   const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(customerId || "");
+
+  const cacheKey = `portal-cache-${customerId}`;
 
   const resetTimeout = useCallback(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -46,6 +50,20 @@ const Portal = () => {
     };
   }, [isValidUuid, resetTimeout]);
 
+  // Load cached data on mount
+  useEffect(() => {
+    if (!isValidUuid) return;
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        setData(parsed.data);
+        const age = Date.now() - parsed.timestamp;
+        setCacheStatus(age > CACHE_STALE_MS ? "stale" : "refreshing");
+      }
+    } catch {}
+  }, [cacheKey, isValidUuid]);
+
   const fetchData = useCallback(async () => {
     if (!isValidUuid) return;
     setLoading(true);
@@ -54,12 +72,23 @@ const Portal = () => {
       if (!res.ok) throw new Error("Failed to load");
       const json = await res.json();
       setData(json);
+      setError(null);
+      setCacheStatus("fresh");
+      // Save to cache
+      try {
+        localStorage.setItem(cacheKey, JSON.stringify({ data: json, timestamp: Date.now() }));
+      } catch {}
     } catch (err: any) {
-      setError(err.message);
+      // If we have cached data, show offline banner instead of error
+      if (data) {
+        setCacheStatus("offline");
+      } else {
+        setError(err.message);
+      }
     } finally {
       setLoading(false);
     }
-  }, [customerId, isValidUuid]);
+  }, [customerId, isValidUuid, cacheKey, data]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -133,11 +162,28 @@ const Portal = () => {
         </p>
       </header>
 
-      {loading ? (
+      {/* Cache status banners */}
+      {cacheStatus === "refreshing" && (
+        <div className="flex items-center justify-center gap-2 py-2 text-xs bg-[hsl(var(--portal-surface))] text-[hsl(var(--portal-muted))] border-b border-[hsl(var(--portal-border))]">
+          <RefreshCw className="h-3 w-3 animate-spin" /> Refreshing...
+        </div>
+      )}
+      {cacheStatus === "offline" && (
+        <div className="flex items-center justify-center gap-2 py-2 text-xs bg-amber-900/20 text-amber-400 border-b border-amber-800/30">
+          <WifiOff className="h-3 w-3" /> Offline — showing last known state
+        </div>
+      )}
+      {cacheStatus === "stale" && !loading && (
+        <div className="flex items-center justify-center gap-2 py-2 text-xs bg-amber-900/20 text-amber-400 border-b border-amber-800/30">
+          <RefreshCw className="h-3 w-3" /> Data may be outdated — pull to refresh
+        </div>
+      )}
+
+      {loading && !data ? (
         <div className="flex justify-center py-20">
           <Loader2 className="h-8 w-8 animate-spin text-[hsl(var(--portal-gold))]" />
         </div>
-      ) : error ? (
+      ) : error && !data ? (
         <div className="text-center py-20">
           <p className="text-base text-[hsl(var(--portal-muted))]">Unable to load your wardrobe.</p>
         </div>

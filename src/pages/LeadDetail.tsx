@@ -102,58 +102,18 @@ const LeadDetail = () => {
     e.target.value = "";
   };
 
-  // Patch 1: Convert to Order with customer_id + item_category + brand matching
   const handleConvertToOrder = async () => {
     if (!lead || !leadItems?.length) return;
     setConverting(true);
     try {
-      const firstItem = leadItems[0] as any;
-      const category = firstItem.service_categories?.name || "Unknown";
-      const brand = firstItem.brands?.name || null;
-
-      // Patch 1: Match asset by customer_id + item_category + brand
-      let assetId: string | null = null;
-      let query = supabase
-        .from("asset_passport")
-        .select("id")
-        .eq("customer_id", lead.customerId)
-        .eq("item_category", category);
-      if (brand) query = query.eq("brand", brand);
-      const { data: existingAssets } = await query.limit(1);
-
-      if (existingAssets && existingAssets.length > 0) {
-        assetId = existingAssets[0].id;
-      } else {
-        const { data: newAsset, error: assetErr } = await supabase
-          .from("asset_passport")
-          .insert({ customer_id: lead.customerId, item_category: category, brand })
-          .select("id")
-          .single();
-        if (assetErr) throw assetErr;
-        assetId = newAsset.id;
-      }
-
-      // Create the order
-      const { data: newOrder, error: orderErr } = await supabase
-        .from("orders")
-        .insert({
-          lead_id: lead.id,
-          asset_id: assetId,
-          customer_id: lead.customerId,
-          customer_name: lead.customerName,
-          customer_phone: lead.customerPhone,
-          status: "triage",
-          total_price: lead.quotedPrice,
-          created_by: user?.id,
-        })
-        .select("id")
-        .single();
-      if (orderErr) throw orderErr;
-
+      const { data, error } = await supabase.rpc('convert_lead_to_order', {
+        p_lead_id: lead.id,
+      });
+      if (error) throw error;
       toast({ title: "Order created!" });
-      navigate(`/orders/${newOrder.id}`);
-    } catch (err) {
-      toast({ title: "Failed to create order", variant: "destructive" });
+      navigate(`/orders/${data}`);
+    } catch (err: any) {
+      toast({ title: err.message || "Failed to create order", variant: "destructive" });
     } finally {
       setConverting(false);
     }

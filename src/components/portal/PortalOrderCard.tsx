@@ -507,6 +507,7 @@ const DeliveredSection = React.memo(({ order, beforePhotoUrl, afterPhotoUrl, onS
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [reworking, setReworking] = useState(false);
+  const [reworkReason, setReworkReason] = useState("");
 
   const daysSinceDelivery = order.updated_at
     ? Math.floor((Date.now() - new Date(order.updated_at).getTime()) / (1000 * 60 * 60 * 24))
@@ -556,19 +557,27 @@ const DeliveredSection = React.memo(({ order, beforePhotoUrl, afterPhotoUrl, onS
 
       {/* Rework Request */}
       {canRequestRework && (
-        <Button
-          variant="outline"
-          onClick={async () => {
-            setReworking(true);
-            await onAction?.("request_rework", { orderId: order.id });
-            setReworking(false);
-          }}
-          disabled={reworking}
-          className="w-full min-h-[48px] gap-2 border-[hsl(var(--portal-border))] text-[hsl(var(--portal-muted))]"
-        >
-          {reworking ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
-          Request Rework ({7 - daysSinceDelivery} days left)
-        </Button>
+        <div className="space-y-3">
+          <Textarea
+            value={reworkReason}
+            onChange={(e) => setReworkReason(e.target.value)}
+            placeholder="Describe the issue you'd like us to fix (min 10 characters)..."
+            className="min-h-[60px] bg-[hsl(var(--portal-surface))] border-[hsl(var(--portal-border))] text-[hsl(var(--portal-text))]"
+          />
+          <Button
+            variant="outline"
+            onClick={async () => {
+              setReworking(true);
+              await onAction?.("request_rework", { orderId: order.id, reason: reworkReason });
+              setReworking(false);
+            }}
+            disabled={reworking || reworkReason.trim().length < 10}
+            className="w-full min-h-[48px] gap-2 border-[hsl(var(--portal-border))] text-[hsl(var(--portal-muted))]"
+          >
+            {reworking ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+            Request Rework ({7 - daysSinceDelivery} days left)
+          </Button>
+        </div>
       )}
     </div>
   );

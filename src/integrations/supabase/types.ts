@@ -628,6 +628,7 @@ export type Database = {
       leads: {
         Row: {
           condition_note: string | null
+          converted_order_id: string | null
           created_at: string
           created_by: string | null
           custom_service_name: string | null
@@ -637,11 +638,15 @@ export type Database = {
           id: string
           is_gold_tier: boolean
           issue_tags: Json | null
+          lifecycle_status: string
           meta_campaign_name: string | null
           notes: string | null
+          original_order_id: string | null
+          photos_pending: boolean
           qc_checklist: Json | null
           quoted_price: number
           service_id: string | null
+          source: string
           status: string
           tat_days_max: number
           tat_days_min: number
@@ -650,6 +655,7 @@ export type Database = {
         }
         Insert: {
           condition_note?: string | null
+          converted_order_id?: string | null
           created_at?: string
           created_by?: string | null
           custom_service_name?: string | null
@@ -659,11 +665,15 @@ export type Database = {
           id?: string
           is_gold_tier?: boolean
           issue_tags?: Json | null
+          lifecycle_status?: string
           meta_campaign_name?: string | null
           notes?: string | null
+          original_order_id?: string | null
+          photos_pending?: boolean
           qc_checklist?: Json | null
           quoted_price: number
           service_id?: string | null
+          source?: string
           status?: string
           tat_days_max?: number
           tat_days_min?: number
@@ -672,6 +682,7 @@ export type Database = {
         }
         Update: {
           condition_note?: string | null
+          converted_order_id?: string | null
           created_at?: string
           created_by?: string | null
           custom_service_name?: string | null
@@ -681,11 +692,15 @@ export type Database = {
           id?: string
           is_gold_tier?: boolean
           issue_tags?: Json | null
+          lifecycle_status?: string
           meta_campaign_name?: string | null
           notes?: string | null
+          original_order_id?: string | null
+          photos_pending?: boolean
           qc_checklist?: Json | null
           quoted_price?: number
           service_id?: string | null
+          source?: string
           status?: string
           tat_days_max?: number
           tat_days_min?: number
@@ -813,6 +828,38 @@ export type Database = {
         }
         Relationships: []
       }
+      order_actions: {
+        Row: {
+          action: string
+          created_at: string
+          id: string
+          order_id: string
+          payload_hash: string
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          id?: string
+          order_id: string
+          payload_hash: string
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          id?: string
+          order_id?: string
+          payload_hash?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_actions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_discoveries: {
         Row: {
           approved_at: string | null
@@ -844,6 +891,44 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "order_discoveries_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      order_items: {
+        Row: {
+          brand: string
+          category: string
+          created_at: string
+          id: string
+          order_id: string
+          service_type: string
+          sort_order: number
+        }
+        Insert: {
+          brand: string
+          category: string
+          created_at?: string
+          id?: string
+          order_id: string
+          service_type: string
+          sort_order?: number
+        }
+        Update: {
+          brand?: string
+          category?: string
+          created_at?: string
+          id?: string
+          order_id?: string
+          service_type?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_items_order_id_fkey"
             columns: ["order_id"]
             isOneToOne: false
             referencedRelation: "orders"
@@ -897,6 +982,9 @@ export type Database = {
           auto_sweetener_type: string | null
           auto_sweetener_value: string | null
           balance_remaining: number | null
+          certificate_error: string | null
+          certificate_status: string
+          certificate_url: string | null
           checked_in_items: Json
           checkin_confirmed: boolean
           cleaning_fee: number | null
@@ -909,13 +997,16 @@ export type Database = {
           customer_name: string | null
           customer_phone: string | null
           decline_reason: string | null
+          delivery_address: Json | null
           delivery_address_confirmed_at: string | null
+          delivery_address_mode: string
           discount_amount: number | null
           discount_reason: string | null
           discovery_pending: boolean | null
           dropoff_slot: string | null
           expected_item_count: number
           final_qc_video_url: string | null
+          google_review_prompted_at: string | null
           health_score: number | null
           id: string
           is_bundle_applied: boolean | null
@@ -927,6 +1018,7 @@ export type Database = {
           package_tier: string | null
           packing_photo_url: string | null
           payment_declared: boolean | null
+          pickup_date: string | null
           pickup_slot: string | null
           quote_sent_at: string | null
           quote_valid_until: string | null
@@ -950,6 +1042,9 @@ export type Database = {
           auto_sweetener_type?: string | null
           auto_sweetener_value?: string | null
           balance_remaining?: number | null
+          certificate_error?: string | null
+          certificate_status?: string
+          certificate_url?: string | null
           checked_in_items?: Json
           checkin_confirmed?: boolean
           cleaning_fee?: number | null
@@ -962,13 +1057,16 @@ export type Database = {
           customer_name?: string | null
           customer_phone?: string | null
           decline_reason?: string | null
+          delivery_address?: Json | null
           delivery_address_confirmed_at?: string | null
+          delivery_address_mode?: string
           discount_amount?: number | null
           discount_reason?: string | null
           discovery_pending?: boolean | null
           dropoff_slot?: string | null
           expected_item_count?: number
           final_qc_video_url?: string | null
+          google_review_prompted_at?: string | null
           health_score?: number | null
           id?: string
           is_bundle_applied?: boolean | null
@@ -980,6 +1078,7 @@ export type Database = {
           package_tier?: string | null
           packing_photo_url?: string | null
           payment_declared?: boolean | null
+          pickup_date?: string | null
           pickup_slot?: string | null
           quote_sent_at?: string | null
           quote_valid_until?: string | null
@@ -1003,6 +1102,9 @@ export type Database = {
           auto_sweetener_type?: string | null
           auto_sweetener_value?: string | null
           balance_remaining?: number | null
+          certificate_error?: string | null
+          certificate_status?: string
+          certificate_url?: string | null
           checked_in_items?: Json
           checkin_confirmed?: boolean
           cleaning_fee?: number | null
@@ -1015,13 +1117,16 @@ export type Database = {
           customer_name?: string | null
           customer_phone?: string | null
           decline_reason?: string | null
+          delivery_address?: Json | null
           delivery_address_confirmed_at?: string | null
+          delivery_address_mode?: string
           discount_amount?: number | null
           discount_reason?: string | null
           discovery_pending?: boolean | null
           dropoff_slot?: string | null
           expected_item_count?: number
           final_qc_video_url?: string | null
+          google_review_prompted_at?: string | null
           health_score?: number | null
           id?: string
           is_bundle_applied?: boolean | null
@@ -1033,6 +1138,7 @@ export type Database = {
           package_tier?: string | null
           packing_photo_url?: string | null
           payment_declared?: boolean | null
+          pickup_date?: string | null
           pickup_slot?: string | null
           quote_sent_at?: string | null
           quote_valid_until?: string | null
@@ -1505,12 +1611,27 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      can_staff: { Args: never; Returns: boolean }
+      convert_lead_to_order: { Args: { p_lead_id: string }; Returns: string }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
           _user_id: string
         }
         Returns: boolean
+      }
+      is_admin: { Args: never; Returns: boolean }
+      request_rework: {
+        Args: {
+          p_order_id: string
+          p_photos_pending?: boolean
+          p_reason: string
+        }
+        Returns: string
+      }
+      transition_order_status: {
+        Args: { p_order_id: string; p_payload?: Json; p_to_status: string }
+        Returns: undefined
       }
     }
     Enums: {
