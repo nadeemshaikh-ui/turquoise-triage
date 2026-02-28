@@ -87,6 +87,12 @@ const LeadDetail = () => {
   const [isAddingBrand, setIsAddingBrand] = useState(false);
   const [newBrandName, setNewBrandName] = useState("");
   const [brandError, setBrandError] = useState("");
+  const [manualServiceText, setManualServiceText] = useState("");
+
+  // Dynamic TAT state
+  const [tatMin, setTatMin] = useState(4);
+  const [tatMax, setTatMax] = useState(5);
+  const [tatOverridden, setTatOverridden] = useState(false);
 
   // Address state
   const [addressLine1, setAddressLine1] = useState("");
@@ -150,20 +156,50 @@ const LeadDetail = () => {
   });
 
   // Dynamic price lookup
+  const activeServiceType = newServiceType || manualServiceText;
   useEffect(() => {
-    if (!dbCategory || !newServiceType) return;
+    if (!dbCategory || !activeServiceType) return;
     (async () => {
       const { data } = await supabase
         .from("service_pricing_master")
         .select("base_price")
         .ilike("category", dbCategory)
-        .ilike("service_type", newServiceType)
+        .ilike("service_type", activeServiceType)
         .limit(1);
       if (data && data.length > 0) {
         setManualPrice(Number(data[0].base_price));
       }
     })();
-  }, [dbCategory, newServiceType]);
+  }, [dbCategory, activeServiceType]);
+
+  // Dynamic TAT computation
+  useEffect(() => {
+    if (tatOverridden || !leadItems || leadItems.length === 0) return;
+    const hasRestoration = leadItems.some((i: any) =>
+      (i.service_type || "").toLowerCase().includes("restoration")
+    );
+    const allCleaning = leadItems.every((i: any) =>
+      (i.service_type || "").toLowerCase().includes("cleaning")
+    );
+    if (hasRestoration) {
+      setTatMin(10);
+      setTatMax(15);
+    } else if (allCleaning) {
+      setTatMin(3);
+      setTatMax(5);
+    } else {
+      setTatMin(4);
+      setTatMax(5);
+    }
+  }, [leadItems, tatOverridden]);
+
+  // Initialize TAT from lead data
+  useEffect(() => {
+    if (lead && !tatOverridden) {
+      setTatMin(lead.tatDaysMin);
+      setTatMax(lead.tatDaysMax);
+    }
+  }, [lead]);
 
   // Map pill to category UUID
   const getCategoryIdForPill = (pill: string) => {
@@ -217,6 +253,7 @@ const LeadDetail = () => {
       setItemDescription("");
       setIsAddingBrand(false);
       setNewBrandName("");
+      setManualServiceText("");
       toast.success("Item added");
     },
     onError: (err: any) => toast.error(err.message || "Failed to add item"),
@@ -286,12 +323,14 @@ const LeadDetail = () => {
   const handleSendToPortal = () => {
     updateStatus.mutate("quoted", {
       onSuccess: () => toast.success("Lead sent to customer portal"),
+      onError: (err: any) => toast.error(err.message || "Failed to send to portal"),
     });
   };
 
   const handleRecallFromPortal = () => {
     updateStatus.mutate("New", {
       onSuccess: () => toast.success("Lead recalled from portal"),
+      onError: (err: any) => toast.error(err.message || "Failed to recall from portal"),
     });
   };
 
@@ -372,11 +411,16 @@ const LeadDetail = () => {
     const missing: string[] = [];
     if (!newBrandId) missing.push("Brand");
     if (!newCategoryId) missing.push("Category");
-    if (!newServiceType) missing.push("Service Type");
+    const effectiveServiceType = newServiceType || manualServiceText.trim();
+    if (!effectiveServiceType) missing.push("Service Type");
     if (manualPrice < 0 || isNaN(manualPrice)) missing.push("Valid Price");
     if (missing.length > 0) {
       toast.error(`Please select: ${missing.join(", ")}`);
       return;
+    }
+    // If using manual text input, set newServiceType temporarily
+    if (!newServiceType && manualServiceText.trim()) {
+      setNewServiceType(manualServiceText.trim());
     }
     addItemMutation.mutate();
   };
@@ -426,7 +470,30 @@ const LeadDetail = () => {
         {/* Info Cards */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <InfoCard label="Quoted Price" value={`₹${lead.quotedPrice.toLocaleString("en-IN")}`} />
-          <InfoCard label="TAT" value={`${lead.tatDaysMin}–${lead.tatDaysMax} days`} icon={<Clock className="h-3.5 w-3.5 text-muted-foreground" />} />
+          <div className="rounded-[var(--radius)] border border-border bg-card p-3">
+            <div className="flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">TAT</span>
+            </div>
+            <div className="mt-1 flex items-center gap-1">
+              <Input
+                type="number"
+                min={1}
+                value={tatMin}
+                onChange={(e) => { setTatMin(Number(e.target.value)); setTatOverridden(true); }}
+                className="h-7 w-12 text-center text-sm font-semibold p-0"
+              />
+              <span className="text-xs text-muted-foreground">–</span>
+              <Input
+                type="number"
+                min={1}
+                value={tatMax}
+                onChange={(e) => { setTatMax(Number(e.target.value)); setTatOverridden(true); }}
+                className="h-7 w-12 text-center text-sm font-semibold p-0"
+              />
+              <span className="text-xs text-muted-foreground">days</span>
+            </div>
+          </div>
           <InfoCard label="Phone" value={lead.customerPhone} icon={<Phone className="h-3.5 w-3.5 text-muted-foreground" />} />
           <InfoCard label="Category" value={lead.category} />
         </div>
@@ -594,17 +661,26 @@ const LeadDetail = () => {
                 )}
                 {brandError && <p className="text-[11px] text-destructive col-span-full">{brandError}</p>}
 
-                {/* Service Type dropdown — dynamic from DB */}
-                <Select value={newServiceType} onValueChange={setNewServiceType} disabled={!selectedPill}>
-                  <SelectTrigger className="h-9 text-xs">
-                    <SelectValue placeholder="Service Type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {serviceTypes.map((t: string) => (
-                      <SelectItem key={t} value={t}>{t}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              {/* Service Type — dropdown if options exist, text input fallback */}
+                {selectedPill && serviceTypes.length === 0 ? (
+                  <Input
+                    value={manualServiceText}
+                    onChange={(e) => { setManualServiceText(e.target.value); setNewServiceType(""); }}
+                    placeholder="Type service (e.g. restoration)"
+                    className="h-9 text-xs"
+                  />
+                ) : (
+                  <Select value={newServiceType} onValueChange={(v) => { setNewServiceType(v); setManualServiceText(""); }} disabled={!selectedPill}>
+                    <SelectTrigger className="h-9 text-xs">
+                      <SelectValue placeholder="Service Type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {serviceTypes.map((t: string) => (
+                        <SelectItem key={t} value={t}>{t}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
 
               {/* Price field — editable suggestion */}
@@ -834,7 +910,12 @@ function ItemCard({
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    if (files.length > 0) upload.mutate(files);
+    if (files.length > 0) {
+      upload.mutate(files, {
+        onSuccess: () => toast.success("Photos uploaded"),
+        onError: () => toast.error("Photo upload failed"),
+      });
+    }
     e.target.value = "";
   };
 
