@@ -22,6 +22,8 @@ export interface LeadDetail {
   customerCity: string | null;
   customerState: string | null;
   customerPincode: string | null;
+  convertedOrderId: string | null;
+  lifecycleStatus: string;
 }
 
 export interface LeadPhoto {
@@ -39,7 +41,7 @@ export interface ActivityItem {
   userName: string | null;
 }
 
-const STATUS_FLOW = ["New", "Assigned", "In Progress", "QC", "Ready for Pickup", "Completed"];
+// STATUS_FLOW removed — workflow is now linear in LeadDetail
 
 export const useLeadDetail = (leadId: string) => {
   const queryClient = useQueryClient();
@@ -71,6 +73,7 @@ export const useLeadDetail = (leadId: string) => {
         .select(`
           id, quoted_price, status, tat_days_min, tat_days_max,
           is_gold_tier, created_at, custom_service_name, notes, customer_id,
+          converted_order_id, lifecycle_status,
           customers ( name, phone, email, address, city, state, pincode ),
           services ( name, category )
         `)
@@ -98,6 +101,8 @@ export const useLeadDetail = (leadId: string) => {
         customerCity: row.customers?.city ?? null,
         customerState: row.customers?.state ?? null,
         customerPincode: row.customers?.pincode ?? null,
+        convertedOrderId: row.converted_order_id ?? null,
+        lifecycleStatus: row.lifecycle_status ?? "open",
       };
     },
     enabled: !!leadId,
@@ -249,6 +254,5 @@ export const useLeadDetail = (leadId: string) => {
     addNote,
     uploadPhotos,
     deletePhoto,
-    STATUS_FLOW,
   };
 };
