@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { Loader2, CheckCircle, WifiOff, RefreshCw } from "lucide-react";
+import { Loader2, CheckCircle, WifiOff, RefreshCw, Package, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import PortalOrderCard from "@/components/portal/PortalOrderCard";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
-const CACHE_STALE_MS = 24 * 60 * 60 * 1000; // 24 hours
+const CACHE_STALE_MS = 24 * 60 * 60 * 1000;
 
 const Portal = () => {
   const { customerId } = useParams<{ customerId: string }>();
@@ -27,6 +27,12 @@ const Portal = () => {
   // Lifted interactive sales state per order
   const [tierSelections, setTierSelections] = useState<Record<string, string>>({});
   const [excludedTasks, setExcludedTasks] = useState<Record<string, Set<string>>>({});
+
+  // Portal stage flow state
+  const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
+  const [pickupStart, setPickupStart] = useState("");
+  const [pickupEnd, setPickupEnd] = useState("");
+  const [stageLoading, setStageLoading] = useState(false);
 
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -50,7 +56,6 @@ const Portal = () => {
     };
   }, [isValidUuid, resetTimeout]);
 
-  // Load cached data on mount
   useEffect(() => {
     if (!isValidUuid) return;
     try {
@@ -74,12 +79,10 @@ const Portal = () => {
       setData(json);
       setError(null);
       setCacheStatus("fresh");
-      // Save to cache
       try {
         localStorage.setItem(cacheKey, JSON.stringify({ data: json, timestamp: Date.now() }));
       } catch {}
     } catch (err: any) {
-      // If we have cached data, show offline banner instead of error
       if (data) {
         setCacheStatus("offline");
       } else {
@@ -100,6 +103,23 @@ const Portal = () => {
     });
     if (!res.ok) throw new Error("Action failed");
     await fetchData();
+  };
+
+  const callStageAction = async (stageAction: string, payload: any = {}) => {
+    setStageLoading(true);
+    try {
+      // Find active leads for this customer from data
+      const leadId = data?.leadId; // serve-portal should include this
+      if (!leadId) throw new Error("No active lead found");
+      await callAction("advance_stage", {
+        leadId,
+        stageAction,
+        payload,
+        actorUserId: customerId,
+      });
+    } finally {
+      setStageLoading(false);
+    }
   };
 
   const quotedOrders = (data?.active || []).filter((o: any) => o.status === "quoted");
@@ -128,6 +148,10 @@ const Portal = () => {
   const handleExcludedChange = useCallback((orderId: string, excluded: Set<string>) => {
     setExcludedTasks(prev => ({ ...prev, [orderId]: excluded }));
   }, []);
+
+  // Portal stage info
+  const portalStage = data?.portalStage || "AwaitingSelection";
+  const packages = data?.packages || [];
 
   if (!isValidUuid) {
     return (
@@ -189,6 +213,101 @@ const Portal = () => {
         </div>
       ) : (
         <main className="max-w-lg mx-auto px-5 py-6 space-y-6">
+          {/* Portal Stage Flow — shown when lead has portal_stage data */}
+          {portalStage && portalStage !== "Approved" && data?.leadId && (
+            <div className="portal-raised p-5 space-y-4 border border-[hsl(var(--portal-gold)/0.3)]">
+              <h3 className="text-lg font-semibold text-[hsl(var(--portal-gold))]">
+                {portalStage === "AwaitingSelection" ? "Select Your Package" : "Schedule Pickup"}
+              </h3>
+
+              {/* Step 1: Package Selection */}
+              {portalStage === "AwaitingSelection" && (
+                <div className="space-y-3">
+                  {packages.map((pkg: any) => (
+                    <button
+                      key={pkg.id}
+                      onClick={() => setSelectedPackageId(pkg.id)}
+                      className={`w-full p-4 rounded-lg border text-left transition-all ${
+                        selectedPackageId === pkg.id
+                          ? "border-[hsl(var(--portal-gold))] bg-[hsl(var(--portal-gold)/0.1)]"
+                          : "border-[hsl(var(--portal-border))] bg-[hsl(var(--portal-surface))]"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Package className="h-4 w-4 text-[hsl(var(--portal-gold))]" />
+                        <span className="font-medium text-[hsl(var(--portal-text))]">{pkg.name}</span>
+                      </div>
+                      <p className="text-sm text-[hsl(var(--portal-muted))] mt-1">
+                        {pkg.warranty_days} days warranty
+                      </p>
+                    </button>
+                  ))}
+                  <Button
+                    onClick={() => callStageAction("select_package", { package_id: selectedPackageId })}
+                    disabled={!selectedPackageId || stageLoading}
+                    className="w-full min-h-[48px] bg-[hsl(var(--portal-gold))] text-[hsl(0_0%_4%)]"
+                  >
+                    {stageLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Continue"}
+                  </Button>
+                </div>
+              )}
+
+              {/* Step 2: Pickup Scheduling */}
+              {portalStage === "Scheduling" && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <label className="text-sm text-[hsl(var(--portal-text))]">
+                      <CalendarDays className="h-4 w-4 inline mr-1" /> Pickup Start
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={pickupStart}
+                      onChange={(e) => setPickupStart(e.target.value)}
+                      className="w-full p-3 rounded-lg border border-[hsl(var(--portal-border))] bg-[hsl(var(--portal-surface))] text-[hsl(var(--portal-text))] min-h-[48px]"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm text-[hsl(var(--portal-text))]">
+                      <CalendarDays className="h-4 w-4 inline mr-1" /> Pickup End
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={pickupEnd}
+                      onChange={(e) => setPickupEnd(e.target.value)}
+                      className="w-full p-3 rounded-lg border border-[hsl(var(--portal-border))] bg-[hsl(var(--portal-surface))] text-[hsl(var(--portal-text))] min-h-[48px]"
+                    />
+                  </div>
+                  <Button
+                    onClick={async () => {
+                      if (pickupStart && pickupEnd) {
+                        await callStageAction("select_pickup", {
+                          start_at: new Date(pickupStart).toISOString(),
+                          end_at: new Date(pickupEnd).toISOString(),
+                        });
+                      }
+                    }}
+                    disabled={!pickupStart || !pickupEnd || stageLoading}
+                    className="w-full min-h-[48px] bg-[hsl(var(--portal-gold))] text-[hsl(0_0%_4%)]"
+                  >
+                    {stageLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Set Pickup Slot"}
+                  </Button>
+
+                  {/* Approve Button — available once pickup is set */}
+                  {data?.pickupSlotStartAt && (
+                    <Button
+                      onClick={() => callStageAction("approve")}
+                      disabled={stageLoading}
+                      className="w-full min-h-[48px] gap-2 bg-[hsl(var(--portal-gold))] text-[hsl(0_0%_4%)]"
+                    >
+                      {stageLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+                      Approve & Convert
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Tabs */}
           <div className="flex gap-2">
             {(["active", "historical"] as const).map((t) => (

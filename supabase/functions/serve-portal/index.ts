@@ -27,7 +27,7 @@ Deno.serve(async (req) => {
         });
       }
 
-      const [ordersRes, tasksRes, photosRes, discoveriesRes, markersRes, settingsRes, auditRes] = await Promise.all([
+      const [ordersRes, tasksRes, photosRes, discoveriesRes, markersRes, settingsRes, auditRes, leadsRes, packagesRes] = await Promise.all([
         supabase.from("orders").select("*").eq("customer_id", customerId).order("created_at", { ascending: false }),
         supabase.from("expert_tasks").select("*"),
         supabase.from("order_photos").select("*"),
@@ -35,6 +35,8 @@ Deno.serve(async (req) => {
         supabase.from("photo_markers").select("*"),
         supabase.from("system_settings").select("company_upi_id, pickup_slots, dropoff_slots").limit(1).single(),
         supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(200),
+        supabase.from("leads").select("id, portal_stage, selected_package_id, pickup_slot_start_at, pickup_slot_end_at, approved_at").eq("customer_id", customerId).eq("lifecycle_status", "open").order("created_at", { ascending: false }).limit(1),
+        supabase.from("package_settings").select("id, name, warranty_days").eq("is_active", true).order("name"),
       ]);
 
       const orders = ordersRes.data || [];
@@ -55,8 +57,16 @@ Deno.serve(async (req) => {
       const historical = orders.filter((o: any) => o.status === "delivered");
 
       const systemSettings = settingsRes.data || {};
+      const activeLead = (leadsRes.data || [])[0] || null;
 
-      return new Response(JSON.stringify({ active, historical, tasks, photos: photosWithUrls, discoveries, markers, auditLogs, systemSettings }), {
+      return new Response(JSON.stringify({
+        active, historical, tasks, photos: photosWithUrls, discoveries, markers, auditLogs, systemSettings,
+        leadId: activeLead?.id || null,
+        portalStage: activeLead?.portal_stage || null,
+        pickupSlotStartAt: activeLead?.pickup_slot_start_at || null,
+        pickupSlotEndAt: activeLead?.pickup_slot_end_at || null,
+        packages: packagesRes.data || [],
+      }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

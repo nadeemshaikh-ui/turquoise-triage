@@ -20,6 +20,7 @@ import PricingEngine from "@/components/orders/PricingEngine";
 import AdminOverride from "@/components/orders/AdminOverride";
 import BeforeAfterPhotos from "@/components/orders/BeforeAfterPhotos";
 import DiscoveryDialog from "@/components/orders/DiscoveryDialog";
+import InvoiceSection from "@/components/orders/InvoiceSection";
 
 const statusColor: Record<string, string> = {
   pickup_scheduled: "bg-primary/15 text-primary border-primary/30",
@@ -436,6 +437,9 @@ const OrderDetail = () => {
             )}
           </section>
         )}
+
+        {/* Invoice Section */}
+        <InvoiceSection orderId={order.id} />
 
         <BeforeAfterPhotos
           photos={photos}
