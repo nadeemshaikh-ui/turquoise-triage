@@ -1,103 +1,133 @@
 
 
-# Lead Items Manager + Convert Gating
+# Wave 1+2: Data Integrity + Core UI Fixes for LeadDetail
 
-## Pre-requisite: Add `service_type` column to `lead_items`
+## Pre-requisite: Database Migration
 
-The `lead_items` table currently lacks a `service_type` column. A single `ALTER TABLE` is needed to add it. This does NOT modify any existing RPC or function -- the `convert_lead_to_order` RPC already defaults to `'restoration'` when `service_type` is missing, so this is purely additive.
-
-```text
-ALTER TABLE public.lead_items 
-  ADD COLUMN IF NOT EXISTS service_type text NOT NULL DEFAULT 'restoration';
-
--- Add CHECK constraint matching order_items
-ALTER TABLE public.lead_items 
-  ADD CONSTRAINT lead_items_service_type_check 
-  CHECK (service_type IN ('restoration','repair','cleaning','dye','hardware','spa'));
-```
-
-## UI Changes: `src/pages/LeadDetail.tsx`
-
-### 1. New imports
-- Add `Select, SelectContent, SelectItem, SelectTrigger, SelectValue` from shadcn select
-- Add `Label` from shadcn label
-- Add `useMutation, useQueryClient` from tanstack/react-query
-- Add `Plus` icon from lucide-react
-
-### 2. New queries (alongside existing `leadItems` query)
-
-**Brands query:**
-```text
-supabase.from('brands').select('id, name').eq('is_active', true).order('name')
-```
-
-**Categories query:**
-```text
-supabase.from('service_categories').select('id, name').eq('is_active', true).order('name')
-```
-
-### 3. New state for inline "Add Item" form
-- `newBrandId`, `newCategoryId`, `newServiceType` -- all string state for the 3 dropdowns
-
-### 4. New mutations
-
-**Add item mutation:**
-```text
-supabase.from('lead_items').insert({
-  lead_id: id,
-  brand_id: newBrandId,
-  category_id: newCategoryId,
-  service_type: newServiceType,
-  sort_order: leadItems?.length || 0
-})
-```
-On success: invalidate `["lead-items", id]`, reset form state.
-
-**Delete item mutation:**
-```text
-supabase.from('lead_items').delete().eq('id', itemId)
-```
-On success: invalidate `["lead-items", id]`.
-
-### 5. Replace the Lead Items section (lines 186-222)
-
-Replace the current read-only items section with a full "Items" manager:
-
-- **Header**: "Items" with item count badge
-- **Existing items list**: Each item shows:
-  - Category name (from `service_categories.name`)
-  - Brand name (from `brands.name`) with tier badge (existing logic kept)
-  - Service type badge
-  - Price
-  - Delete button (Trash2 icon) that calls the delete mutation
-- **Add Item row** (inline form below the list):
-  - 3 Select dropdowns in a row: Brand, Category, Service Type
-  - Service Type has static options: restoration, repair, cleaning, dye, hardware, spa
-  - "Add" button (disabled unless all 3 fields are selected)
-- **Empty state**: When no items exist, show the add form with a prompt message
-
-### 6. Gate the Convert button (lines 250-259)
-
-The button is already gated with `disabled={converting || !leadItems?.length}`. Add helper text below it:
+The `customers` table has `address` (text) and `city` (text) but **no `state` or `pincode` columns**. A migration is needed:
 
 ```text
-{(!leadItems || leadItems.length === 0) && (
-  <p className="text-center text-xs text-amber-600">
-    Warning: Add at least 1 item to convert
-  </p>
-)}
+ALTER TABLE public.customers
+  ADD COLUMN IF NOT EXISTS state text,
+  ADD COLUMN IF NOT EXISTS pincode text;
 ```
+
+No other schema changes needed -- `lead_items.description` already exists for the Belt/Wallet item description field.
+
+---
+
+## FIX 1 -- Structured Address Block
+
+**Current state:** The LeadDetail page shows no address fields. Address lives on the `customers` table (`address`, `city`), not on `leads`.
+
+**Changes to `src/pages/LeadDetail.tsx`:**
+
+- Add 5 state variables: `addressLine1`, `addressLine2`, `city`, `state`, `pincode`
+- Fetch customer data including `address`, `city`, `state`, `pincode` (extend the existing `customerLegacy` query or add a new one)
+- On load, populate fields from customer data. For legacy data where only `address` exists, put it all in `addressLine1`
+- Render 5 Input fields in an "Address" section after the info cards
+- Pincode: `type="text"`, `inputMode="numeric"`, `maxLength={6}`, inline error if non-empty and not matching `/^\d{6}$/`
+- On save (see FIX 5), update `customers` table:
+  - `address`: concatenated string `${line1}${line2 ? ', ' + line2 : ''}, ${city}, ${state} - ${pincode}`
+  - `city`: from city field
+  - `state`: from state field  
+  - `pincode`: from pincode field
+
+---
+
+## FIX 2 -- Category Enum Correction + Sneaker/Heels Mapping
+
+**Current state:** Category dropdown fetches all active `service_categories` dynamically. The `order_items` CHECK constraint only allows `Bag`, `Shoe`, `Belt`, `Wallet`.
+
+**Changes:**
+
+- Replace the dynamic categories query with a query that filters to only the 4 valid names, OR hard-code 4 options but still look up their UUIDs from the `service_categories` table
+- Approach: Keep the `categoriesOptions` query but filter results client-side to only show entries whose `name` is in `['Bag', 'Shoe', 'Belt', 'Wallet']`
+- In the existing items list display, map `Sneaker` and `Heels` category names to `Shoe` for display
+- The insert mutation already writes `category_id` (UUID), so no write-side mapping is needed as long as we only show the 4 valid categories in the dropdown
+
+---
+
+## FIX 3 -- Belt/Wallet: Item Description Field
+
+**Current state:** The Add Item form has 3 dropdowns (Brand, Category, Service Type). No description field.
+
+**Changes:**
+
+- Add `itemDescription` state variable
+- After the Category dropdown, conditionally render an Input field when selected category resolves to `Belt` or `Wallet`
+- Label: "Specific Item Description", placeholder varies by category
+- On insert, include `description: itemDescription` in the `lead_items.insert()` call
+- Reset `itemDescription` on successful add
+- Hide field entirely for Bag/Shoe
+
+---
+
+## FIX 4 -- Brand Dropdown: "+ Add New Brand"
+
+**Current state:** Brand dropdown shows all active brands from DB.
+
+**Changes:**
+
+- Add a `"+ Add New Brand"` option at the end of the Select
+- Add state: `isAddingBrand` (boolean), `newBrandName` (string)
+- When `__add_new__` selected: hide Select, show Input + "Save Brand" button + "Cancel" link
+- Save Brand: insert into `brands` table, invalidate `brands-options` query, auto-select new brand ID, restore Select
+- Cancel: restore Select, clear input
+- Inline error on failure
+
+---
+
+## FIX 5 -- "Save Lead" Button
+
+**Current state:** There is no "Create" or "Generate Quote" button on this page. This is a detail/edit page, not a creation form. The page currently auto-saves nothing -- status changes and notes are saved individually.
+
+**Adaptation:** Add a "Save Lead" button in the address section that:
+
+1. Validates address fields (Line 1, City, State, Pincode required; Pincode must match `/^\d{6}$/`)
+2. Updates the `customers` table with the structured address
+3. Shows loading spinner (`isSaving` state)
+4. Toast on success/error
+
+This button saves the address data only (items and notes already have their own save mechanisms).
+
+---
+
+## FIX 6 -- Assign vs Convert Flow
+
+**Current state:** The status stepper has a generic "Move to {nextStatus}" button. When status is `New`, it shows "Move to Assigned".
+
+**Changes:**
+
+- When `nextStatus === 'Assigned'`, label the button "Assign to Workshop" instead of "Move to Assigned"
+- The onClick remains the same (calls `updateStatus.mutate('Assigned')`)
+- Keep the "Convert to Order" button separate and unchanged
+- Update convert gating to also check pincode validity:
+
+```text
+const pincodeValid = /^\d{6}$/.test(pincode);
+const hasItems = leadItems && leadItems.length > 0;
+const canConvert = hasItems && pincodeValid;
+```
+
+- Show stacked helper messages when blocked:
+  - If `!hasItems`: "Add at least 1 item to convert"
+  - If `!pincodeValid`: "A valid 6-digit Pincode is required to convert"
+
+---
 
 ## Files Summary
 
-| File | Change |
-|------|--------|
-| DB Migration | Add `service_type` column + CHECK to `lead_items` |
-| `src/pages/LeadDetail.tsx` | Add item manager UI with add/delete, brand/category/service_type dropdowns, convert gating helper text |
+| # | File | Change |
+|---|------|--------|
+| 0 | DB Migration | Add `state` and `pincode` columns to `customers` |
+| 1 | `src/pages/LeadDetail.tsx` | All 6 fixes: structured address, category filtering, Belt/Wallet description, add-new-brand flow, save-lead button, assign label + convert gating |
+| 2 | `src/hooks/useLeadDetail.ts` | Extend lead query to include customer address/city/state/pincode |
 
 ## What is NOT changed
-- No RPCs modified
-- No order-related files touched
-- No address fields added or modified
-- All existing lead fields (customer, notes, status, photos, activity) remain untouched
+- No RPCs or edge functions modified
+- No changes to Orders.tsx, Portal.tsx, or order-related files
+- All existing lead fields preserved (customer name, phone, notes, status, photos, activity)
+- No item-level photo segregation
+- No service_tasks fetching
 
