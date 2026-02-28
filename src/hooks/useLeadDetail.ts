@@ -18,6 +18,10 @@ export interface LeadDetail {
   isGoldTier: boolean;
   notes: string | null;
   createdAt: string;
+  customerAddress: string | null;
+  customerCity: string | null;
+  customerState: string | null;
+  customerPincode: string | null;
 }
 
 export interface LeadPhoto {
@@ -67,7 +71,7 @@ export const useLeadDetail = (leadId: string) => {
         .select(`
           id, quoted_price, status, tat_days_min, tat_days_max,
           is_gold_tier, created_at, custom_service_name, notes, customer_id,
-          customers ( name, phone, email ),
+          customers ( name, phone, email, address, city, state, pincode ),
           services ( name, category )
         `)
         .eq("id", leadId)
@@ -90,6 +94,10 @@ export const useLeadDetail = (leadId: string) => {
         isGoldTier: row.is_gold_tier,
         notes: row.notes,
         createdAt: row.created_at,
+        customerAddress: row.customers?.address ?? null,
+        customerCity: row.customers?.city ?? null,
+        customerState: row.customers?.state ?? null,
+        customerPincode: row.customers?.pincode ?? null,
       };
     },
     enabled: !!leadId,
