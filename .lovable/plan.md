@@ -1,120 +1,236 @@
 
 
-# Strict Architectural Rebuild v2.0 -- Ship-Ready Plan
+# Restoree 360 Total Architecture v3.4 -- Implementation Plan
 
-## Root Causes Confirmed
+## Pre-Flight Assessment
 
-- `leads_status_check` constraint only allows `'New','In Progress','Ready for Pickup','Completed'` -- any update to `'Quoted'` silently fails at DB level. This is why "Send to Portal" appears unresponsive.
-- `lead_photos.lead_item_id` FK exists but lacks `ON DELETE CASCADE` -- orphaned photo rows when items are deleted.
-- `leads.tat_is_manual` column does not exist -- TAT manual lock cannot be persisted.
+**Already implemented (v2.0):**
+- `leads.tat_is_manual` column exists
+- `leads_status_check` includes 'Quoted'
+- `lead_photos.lead_item_id` FK with ON DELETE CASCADE
+- Pre-quote validation gate, canonical service pills, TAT manual lock in LeadDetail.tsx
+- `convert_lead_to_order`, `transition_order_status`, `request_rework` RPCs exist
+- `orders.lead_id` column exists (nullable uuid)
 
----
-
-## Step 1: Database Migration (single migration, 4 changes)
-
-**A) Add `tat_is_manual` column**
-```sql
-ALTER TABLE public.leads
-  ADD COLUMN IF NOT EXISTS tat_is_manual boolean NOT NULL DEFAULT false;
-```
-
-**B) Fix status CHECK to include 'Quoted'**
-```sql
-ALTER TABLE public.leads DROP CONSTRAINT IF EXISTS leads_status_check;
-ALTER TABLE public.leads ADD CONSTRAINT leads_status_check
-  CHECK (status = ANY (ARRAY['New','Quoted','In Progress','Ready for Pickup','Completed']));
-```
-
-**C) Replace lead_photos FK with CASCADE + add index**
-```sql
-ALTER TABLE public.lead_photos DROP CONSTRAINT IF EXISTS lead_photos_lead_item_id_fkey;
-ALTER TABLE public.lead_photos
-  ADD CONSTRAINT lead_photos_lead_item_id_fkey
-  FOREIGN KEY (lead_item_id) REFERENCES public.lead_items(id)
-  ON DELETE CASCADE;
-CREATE INDEX IF NOT EXISTS idx_lead_photos_lead_item_id
-  ON public.lead_photos(lead_item_id);
-```
-
-**D) Data normalization (via insert tool, not migration)**
-```sql
-UPDATE public.leads SET status = 'Quoted' WHERE status = 'quoted';
-```
+**Critical compatibility notes:**
+- `orders.created_by_user_id` CANNOT be NOT NULL -- existing orders have no value. Will be nullable with a backfill strategy.
+- `lead_items` uses `category_id` (uuid FK to service_categories), not a text `category` column. The "Others" category must be added as a row in `service_categories`, and `custom_category_label` CHECK must reference `category_id` matching the Others row (or be enforced in application code).
+- `lead_photos.lead_item_id` is nullable (orphaned photos exist). Cannot change to NOT NULL without data migration. Will keep nullable.
+- `invoice_line_items.amount` will use a BEFORE INSERT/UPDATE trigger (GENERATED ALWAYS AS STORED has limitations with some Supabase operations).
 
 ---
 
-## Step 2: `src/hooks/useLeadDetail.ts`
+## Phase 1: Database Migration A -- Tables, Columns, Constraints
 
-- Add `tatIsManual: boolean` to `LeadDetail` interface
-- Add `tat_is_manual` to the lead query select clause
-- Map: `tatIsManual: row.tat_is_manual ?? false`
-- Add `updateTat` mutation: updates `tat_days_min`, `tat_days_max`, `tat_is_manual` on leads table, with activity log entry
-- Modify `updateStatus` mutation to use `.update().select('status, customer_id').single()` and return the updated row for caller verification
-- Return `updateTat` from the hook
+### A1: package_settings
+```sql
+CREATE TABLE public.package_settings (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  warranty_days int NOT NULL CHECK (warranty_days >= 0),
+  is_active boolean NOT NULL DEFAULT true,
+  UNIQUE (lower(trim(name)))
+);
+ALTER TABLE public.package_settings ENABLE ROW LEVEL SECURITY;
+```
+Seed: ('Normal', 90, true), ('Elite', 180, true)
+
+### A2: leads -- portal stage columns
+Add columns:
+- `portal_stage` text NOT NULL DEFAULT 'AwaitingSelection'
+- `selected_package_id` uuid NULL REFERENCES package_settings(id)
+- `package_selected_at` timestamptz NULL
+- `pickup_slot_start_at` timestamptz NULL
+- `pickup_slot_end_at` timestamptz NULL
+- `approved_at` timestamptz NULL
+
+Add CHECK: `portal_stage IN ('AwaitingSelection','Scheduling','Approved')`
+Add CHECK: pickup_slot_end_at > pickup_slot_start_at (when both non-null)
+
+### A3: orders -- delivery, creator, package, warranty snapshot
+Add columns:
+- `delivered_at` timestamptz NULL
+- `created_by_user_id` uuid NULL REFERENCES auth.users(id) -- nullable for backward compat
+- `package_id` uuid NULL REFERENCES package_settings(id)
+- `warranty_days_snapshot` int NOT NULL DEFAULT 0 CHECK (warranty_days_snapshot >= 0)
+
+Add partial unique index: `UNIQUE (lead_id) WHERE lead_id IS NOT NULL` -- prevent duplicate conversions
+
+### A4: order_items -- immutable snapshots + warranty
+Add columns:
+- `remarks_snapshot` text NULL
+- `primary_image_url_snapshot` text NULL
+- `warranty_start_at` timestamptz NULL
+- `warranty_end_at` timestamptz NULL
+
+### A5: lead_items -- Others support
+Add columns:
+- `custom_category_label` text NULL
+
+Insert 'Others' row into `service_categories` if not exists.
+Application-level enforcement: if category is 'Others', require custom_category_label.
+
+### A6: Restoration add-ons
+```text
+addons_master (id, name, is_active) UNIQUE(lower(trim(name)))
+pricing_addons_master (id, category, addon_id FK, price, is_active)
+lead_item_addons (id, lead_item_id FK CASCADE, addon_id FK, price_at_time) UNIQUE(lead_item_id, addon_id)
+```
+
+### A7: Invoices
+```text
+invoices (id, order_id FK UNIQUE, public_url, issued_at)
+invoice_line_items (id, invoice_id FK CASCADE, order_item_id FK nullable, label, qty, unit_price, amount)
+```
+Trigger: BEFORE INSERT/UPDATE on invoice_line_items SET amount = qty * unit_price.
+
+### A8: Ratings + Disputes
+```text
+ratings (id, order_id FK CASCADE, stars CHECK 1-5, created_at) UNIQUE(order_id)
+disputes (id, order_id FK CASCADE, reason, created_at) UNIQUE(order_id)
+```
+
+### A9: order_item_photos (snapshot storage)
+```text
+order_item_photos (id, order_item_id FK CASCADE, url, kind DEFAULT 'before', created_at)
+```
+
+### RLS Policies (all new tables)
+- `package_settings`: SELECT for authenticated, ALL for can_staff()
+- `addons_master`, `pricing_addons_master`: SELECT for authenticated, ALL for can_staff()
+- `lead_item_addons`: ALL for can_staff()
+- `invoices`, `invoice_line_items`: ALL for can_staff()
+- `ratings`, `disputes`: ALL for can_staff()
+- `order_item_photos`: ALL for can_staff()
 
 ---
 
-## Step 3: `src/pages/LeadDetail.tsx`
+## Phase 2: Database Migration B -- Functions
 
-### 3a. Status casing
-- Change `statusColor` map: replace key `quoted` with `Quoted`
-- Change `isQuoted` check: `lead.status === "Quoted"`
+### C1: advance_portal_stage(p_lead_id uuid, p_action text, p_payload jsonb, p_actor_user_id uuid)
+SECURITY DEFINER, SET search_path = public, pg_temp
 
-### 3b. Portal gating (no optimistic UI)
-- `handleSendToPortal`: run pre-quote validation first; if fails, toast error and return. Then call `updateStatus.mutate("Quoted")`. In `onSuccess`, verify returned row confirms `status === 'Quoted'` before showing success toast. In `onError`, show specific error.
-- Portal controls (Copy Link / Preview / Recall) only render when `lead.status === "Quoted"` -- already gated by `isQuoted`, just fix the value.
+- Validates p_actor_user_id IS NOT NULL
+- Locks lead row FOR UPDATE
+- Actions:
+  - `select_package`: AwaitingSelection -> Scheduling (sets selected_package_id, package_selected_at)
+  - `select_pickup`: sets pickup_slot_start_at/end_at (validates end > start)
+  - `approve`: Scheduling -> Approved (requires package + pickup), calls convert_lead_to_order, returns order_id
+- Returns JSON: {lead_id, portal_stage, order_id}
 
-### 3c. Canonical service_type
-- Replace the service type dropdown/text-input with two pill buttons: **Cleaning** | **Restoration**
-- Clicking sets `newServiceType` to lowercase `'cleaning'` or `'restoration'`
-- Display as Title Case in UI
-- Remove `manualServiceText` state entirely
-- Add optional "Custom Label" text input (saves to `lead_items.description`) -- shown for all categories, not just Belt/Wallet
+### C2: Updated convert_lead_to_order(p_lead_id uuid, p_actor_user_id uuid)
+SECURITY DEFINER
 
-### 3d. Pricing with effective price display
-- After category + service type selection: lookup `service_pricing_master` for `base_price`
-- Show "Suggested: Rs. X" label when found
-- `manualPrice` defaults to `base_price` if found, editable
-- Effective price = `manualPrice > 0 ? manualPrice : basePriceFound ? basePrice : null`
+- Requires portal_stage = 'Approved' (for portal path) OR can_staff() (for admin manual conversion)
+- Idempotent: if order exists for lead_id, return it
+- Sets created_by_user_id = p_actor_user_id (NOT auth.uid())
+- Snapshots warranty_days from package_settings
+- Creates order_items with remarks_snapshot (from lead_items.description) and primary_image_url_snapshot (earliest lead_photo URL for that item)
+- Copies photos into order_item_photos table
+- The existing function signature changes from (p_lead_id uuid) to (p_lead_id uuid, p_actor_user_id uuid) -- need to handle the old call site in LeadDetail.tsx
 
-### 3e. Pre-quote validation gate
-Before firing `updateStatus("Quoted")`, check:
-1. `leadItems.length >= 1` -- "Add at least one item"
-2. Every item has `service_type` set -- "Item X missing service type"
-3. Every item has `manual_price > 0` -- "Item X missing price"
-4. For Bag/Shoe items: `brand_id` is set -- "Item X missing brand"
-If any fail: show specific toast and do not call mutation.
+### C3: set_delivered_at(p_order_id uuid, p_delivered_at timestamptz)
+SECURITY DEFINER, requires can_staff()
 
-### 3f. TAT with DB-persisted manual lock
-- Initialize `tatOverridden` from `lead.tatIsManual` (not local-only)
-- Auto-logic unchanged (restoration=10-15, all cleaning=3-5, else 4-5) but only runs when `!tatOverridden`
-- On TAT input change: call `updateTat({ tat_days_min, tat_days_max, tat_is_manual: true })`
-- Add "Reset to Auto" button below TAT inputs: calls `updateTat({ tat_is_manual: false, ...recomputed })` and sets `tatOverridden = false`
+- Sets orders.delivered_at
+- Updates each order_item: warranty_start_at = delivered_at, warranty_end_at = delivered_at + warranty_days_snapshot days
 
 ---
 
-## Step 4: `src/components/dashboard/LeadsPipeline.tsx`
+## Phase 3: Frontend Changes
 
-Add `Quoted` to `statusStyles` map:
-```
-Quoted: { dot: "bg-blue-500", badge: "bg-blue-100 text-blue-800 border-blue-300" }
-```
+### D1: LeadDetail.tsx -- Digital Wardrobe
+When lead.customerId exists, query completed orders:
+- `orders.status = 'Completed' AND delivered_at IS NOT NULL AND customer_id = lead.customerId` (note: current order status uses lowercase -- query both 'Completed' and 'delivered' for safety)
+- Join order_items for snapshot data
+- Display cards: primary_image_url_snapshot, delivered_at as service date, warranty countdown, invoice link
+- 7-day dispute gate: "Raise Dispute" button only if now() < delivered_at + 7 days
+- Rating widget: 1-5 stars, if 5 -> Google Review CTA
+
+### D2: LeadDetail.tsx -- "Others" category pill
+- Add "Others" to CATEGORY_PILLS
+- When selected, show required "Custom Category Label" text input
+- Store in lead_items.custom_category_label
+- Validation: block if Others selected but label empty
+
+### D3: LeadDetail.tsx -- Restoration Add-ons
+When service_type is 'restoration':
+- Query pricing_addons_master for active add-ons matching the category
+- Show multi-select checkboxes
+- On toggle: insert/delete lead_item_addons with price_at_time
+- Display: Base Price + Sum(Add-ons) = Total
+
+### D4: useLeadDetail.ts
+- Add portal_stage to LeadDetail interface and query
+
+### D5: useOrderDetail.ts
+- Add deliveredAt, createdByUserId, packageId, warrantyDaysSnapshot to OrderDetail interface
+- Map new columns in query
+
+### D6: OrderDetail.tsx -- Mark Delivered + Warranty
+- Add "Mark Delivered" button (calls set_delivered_at RPC)
+- Display warranty status on order items (countdown from warranty_end_at)
+- Show delivered_at date
+
+### D7: OrderDetail.tsx -- Invoice Section
+- After order reaches ready/delivered: show invoice view
+- Display itemized: base + add-on lines + totals
+- Invoice public_url for future PDF
+
+### D8: serve-portal edge function
+- Add `advance_stage` action that calls advance_portal_stage RPC
+- Extract actor user ID from JWT or pass explicitly
+- Remove direct order status updates for approval flow (keep existing actions for backward compat)
+
+### D9: Portal.tsx -- Stage-based flow
+- Query portal_stage from leads (via serve-portal load)
+- Step 1: Package Selection (Normal/Elite)
+- Step 2: Pickup Scheduling
+- Step 3: Approve (triggers conversion)
+
+### D10: LeadDetail.tsx -- Convert to Order
+- Update handleConvertToOrder to pass user.id as p_actor_user_id
+
+---
+
+## Execution Order
+
+| Step | What | Dependencies |
+|------|------|-------------|
+| 1 | Migration A: all tables + columns + RLS | None |
+| 2 | Seed data: package_settings, Others category | Migration A |
+| 3 | Migration B: all 3 functions | Migration A |
+| 4 | Update useLeadDetail.ts + useOrderDetail.ts | Migration A |
+| 5 | Update LeadDetail.tsx (wardrobe, Others, add-ons, convert) | Steps 3-4 |
+| 6 | Update OrderDetail.tsx (delivered, warranty, invoice) | Steps 3-4 |
+| 7 | Update serve-portal edge function | Step 3 |
+| 8 | Update Portal.tsx | Step 7 |
 
 ---
 
 ## Files Changed
 
-| File | Change |
-|------|--------|
-| DB Migration | Add `tat_is_manual`, fix status CHECK, cascade FK, index |
-| Data Update | Normalize `quoted` to `Quoted` |
-| `src/hooks/useLeadDetail.ts` | Add `tatIsManual` field, `updateTat` mutation, return row from `updateStatus` |
-| `src/pages/LeadDetail.tsx` | Status 'Quoted', canonical service pills, effective price, pre-quote validation, TAT persistence + Reset to Auto |
-| `src/components/dashboard/LeadsPipeline.tsx` | Add 'Quoted' to statusStyles |
+| File | Summary |
+|------|---------|
+| Migration A | 9 new tables, alter leads/orders/order_items/lead_items, RLS, seed |
+| Migration B | advance_portal_stage, convert_lead_to_order v2, set_delivered_at |
+| `src/hooks/useLeadDetail.ts` | Add portal_stage field |
+| `src/hooks/useOrderDetail.ts` | Add deliveredAt, warranty, package fields |
+| `src/pages/LeadDetail.tsx` | Digital Wardrobe, Others pill, add-ons multi-select, updated convert call |
+| `src/pages/OrderDetail.tsx` | Mark Delivered, warranty display, invoice section |
+| `supabase/functions/serve-portal/index.ts` | advance_stage action via RPC |
+| `src/pages/Portal.tsx` | Stage-based flow (package select, pickup, approve) |
 
 ## Files NOT Changed
-- Order-related files (order status stays lowercase)
 - `useLeadItemPhotos.ts` -- already correct
-- `PricingMaster.tsx` -- no changes needed
-- Edge functions -- not affected
+- `src/integrations/supabase/client.ts` -- auto-generated
+- `src/integrations/supabase/types.ts` -- auto-generated
+- `supabase/config.toml` -- no new edge functions
+
+## Risk Mitigations
+- `created_by_user_id` is nullable to avoid breaking existing orders
+- Existing `convert_lead_to_order(uuid)` call in LeadDetail must be updated to pass user ID
+- Portal stage defaults to 'AwaitingSelection' so existing leads are unaffected
+- `warranty_days_snapshot` defaults to 0 so existing orders keep current behavior
+- The partial unique index on orders(lead_id) prevents duplicate conversions
 
