@@ -1,94 +1,93 @@
 
 
-# Fix Broken Components + Workflow Realignment for LeadDetail
+# Fix LeadDetail Broken UI Components
 
-## Summary
+## Root Causes Found
 
-Fix 7 issues in one pass: broken category dropdown, silent add button, broken photo display, form reset, incorrect workflow stages, misplaced status stepper, and missing service type filtering by category.
+### 1. Category Dropdown - Duplicate Values
+The `service_categories` table has `Luxury Handbags`, `Leather Jackets`, `Sneakers`, `Accessories`. After mapping through `CATEGORY_NAME_MAP`, both "Luxury Handbags" AND "Leather Jackets" resolve to "Bag". This produces TWO SelectItems with displayName "Bag" in the dropdown. Radix Select can behave unpredictably with duplicate display labels pointing to different values. Fix: deduplicate `mappedCategories` so only one entry per display name survives.
 
----
+### 2. Add Button Silent Failure
+The `handleAddItem` function (line 311) looks correct but has no logging. The toast call uses the shadcn `toast()` function which returns an object -- if the toast system isn't rendering properly (e.g., `Toaster` component missing or shadcn toast conflicting with `sonner`), the user sees nothing. Fix: add `console.log` at the top of `handleAddItem` and inside the Category `onValueChange` for debugging, and also use `sonner` toast as a fallback.
+
+### 3. Photo Broken Image
+The `onError` fallback sets `src` to `/placeholder.svg` (line 704). If that file doesn't render correctly or the initial URL has encoding issues (file paths contain spaces like "Napa dori after.jpg"), the image shows broken. Fix: replace the `img` tag with a conditional render -- if `onError` fires, swap to a grey div placeholder instead of trying another image src.
+
+### 4. Form Reset After Add
+The `onSuccess` callback (lines 158-164) resets 4 fields but does NOT reset `manualPrice` if that state exists elsewhere or the `isAddingBrand` state. The reset logic itself looks correct, so the real issue is likely that the mutation never fires (related to issue #2). Once the add button works, reset should follow. Add `console.log` in `onSuccess` to confirm.
 
 ## Changes
 
-### File 1: `src/pages/LeadDetail.tsx`
+### File: `src/pages/LeadDetail.tsx`
 
-**1. Photo display fix (broken images)**
-The `lead-photos` storage bucket is private. The current code uses `getPublicUrl()` which only works for public buckets. Fix by making the bucket public via a migration (preferred -- photos are not sensitive, and the order-photos bucket is already public). Alternatively, switch to signed URLs in the hook.
-
-**2. Category-based service type filtering**
-Add a constant map:
+**A. Deduplicate mapped categories (lines 128-132)**
+After mapping, filter to keep only one entry per display name (first match wins):
 
 ```text
-CATEGORY_SERVICE_TYPES = {
-  Bag: ["restoration", "cleaning", "hardware", "dye", "spa"],
-  Shoe: ["restoration", "cleaning", "repair", "spa"],
-  Belt: ["restoration", "cleaning", "repair", "dye"],
-  Wallet: ["restoration", "cleaning", "repair"],
-}
+const seen = new Set<string>();
+const mappedCategories = (categoriesOptions || [])
+  .map(c => ({ ...c, displayName: mapCategoryName(c.name) }))
+  .filter(c => ["Bag","Shoe","Belt","Wallet"].includes(c.displayName))
+  .filter(c => { if (seen.has(c.displayName)) return false; seen.add(c.displayName); return true; });
 ```
 
-When `newCategoryId` changes, reset `newServiceType` to `""`. Filter the Service Type dropdown options based on the selected category name. If no category is selected, show all options.
+**B. Add console.log to Category Select onValueChange (line 557)**
+Add `console.log("Category selected:", val)` inside the handler.
 
-**3. Add button feedback**
-The Add button is currently disabled when any field is empty (correct behavior). Add a visible toast/feedback when the user clicks while fields are missing, instead of silently disabling. Change the disabled button to show which field is missing via a tooltip or small helper text below.
+**C. Add console.log to handleAddItem (line 311)**
+Add `console.log("handleAddItem called", { newBrandId, newCategoryId, newServiceType })` at the first line.
 
-**4. Form reset after adding item**
-Already implemented in the `onSuccess` callback (lines 130-134). Verify this works by ensuring mutation completes without error. The issue may have been the mutation itself failing silently -- the `onError` handler already shows a toast, so this should work once the category/service type fixes are in.
+**D. Add console.log to addItemMutation onSuccess (line 158)**
+Add `console.log("Item added successfully, resetting form")`.
 
-**5. Remove STATUS_FLOW stepper and "Move to" button entirely (lines 561-585)**
-Delete the entire "Order Progress" section with the stepper bar and the advance button. This belongs on `OrderDetail.tsx`, not the lead page.
+**E. Fix photo rendering (lines 698-706)**
+Replace the `img` with `onError` fallback approach. Use a local state pattern or a simpler inline approach: wrap each photo in a component that tracks error state and renders a grey box with a camera icon when the image fails to load.
 
-**6. Implement the 4-stage linear workflow**
-Replace the removed stepper and the current convert button block (lines 561-604) with the correct flow:
-
-- **Stage: DRAFT** (status = "New" AND no items): Show Save Lead button (already in address section), Add Item form (already present). Hide "Send to Portal" and "Convert to Order".
-
-- **Stage: READY TO QUOTE** (status = "New" AND items exist): Show a "Send to Portal" button. On click: update lead status to "quoted". Show toast "Lead sent to customer portal". Hide Convert button.
-
-- **Stage: QUOTED** (status = "quoted"): Show Convert to Order button (gated by items + pincode). Show read-only message "Awaiting customer approval via portal". Hide Send to Portal.
-
-- **Stage: CONVERTED** (lead has `converted_order_id`): Show a read-only banner "This lead has been converted to an Order" with a link to the order. Hide all action buttons.
-
-**7. Remove "Assign to Workshop" logic entirely**
-Delete `advanceLabel`, `handleAdvance`, `STATUS_FLOW` usage, and the `nextStatus` variable. Remove the import of `STATUS_FLOW` from `useLeadDetail`.
-
-### File 2: `src/hooks/useLeadDetail.ts`
-
-**1. Add `converted_order_id` and `lifecycle_status` to the lead query**
-Extend the select clause and the `LeadDetail` interface to include `convertedOrderId` and `lifecycleStatus`.
-
-**2. Accept "quoted" as a valid status in `updateStatus`**
-No code change needed -- the mutation already does a generic `update({ status: newStatus })` which accepts any string. The `leads` table has no CHECK constraint on status, so "quoted" will work.
-
-### File 3: Database Migration
-
-Make the `lead-photos` storage bucket public so `getPublicUrl()` returns working URLs:
+Since we can't use per-item state easily in a `.map()`, use a small inline component:
 
 ```text
-UPDATE storage.buckets SET public = true WHERE id = 'lead-photos';
+const PhotoThumb = ({ url, fileName }: { url: string; fileName: string }) => {
+  const [failed, setFailed] = useState(false);
+  if (failed || !url) {
+    return (
+      <div className="h-full w-full flex items-center justify-center bg-muted">
+        <Camera className="h-6 w-6 text-muted-foreground/50" />
+      </div>
+    );
+  }
+  return (
+    <img src={url} alt={fileName} className="h-full w-full object-cover" loading="lazy"
+      onError={() => setFailed(true)} />
+  );
+};
 ```
 
----
+Replace the `<img>` tag in the photo grid with `<PhotoThumb url={p.url} fileName={p.fileName} />`.
+
+**F. Ensure toast works by importing from sonner**
+Currently uses `import { toast } from "@/hooks/use-toast"`. The project also has `sonner` installed. If the shadcn Toaster isn't mounted, toasts silently disappear. Add a `console.log` alongside every toast call in `handleAddItem` to guarantee visibility even if toasts fail.
+
+## Database Migration
+Add the 4 correct category rows and deactivate the old ones so the dropdown shows `Bag`, `Shoe`, `Belt`, `Wallet` directly without relying on the fragile name map:
+
+```text
+INSERT INTO service_categories (name, sort_order, is_active) VALUES
+  ('Bag', 1, true), ('Shoe', 2, true), ('Belt', 3, true), ('Wallet', 4, true)
+ON CONFLICT DO NOTHING;
+
+UPDATE service_categories SET is_active = false
+WHERE name IN ('Luxury Handbags','Sneakers','Leather Jackets','Accessories');
+```
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| DB Migration | Insert Bag/Shoe/Belt/Wallet, deactivate legacy categories |
+| `src/pages/LeadDetail.tsx` | Deduplicate categories, add console.logs, fix photo fallback with PhotoThumb component |
 
 ## Files NOT Changed
-
-- `OrderDetail.tsx` -- not touched
-- `Portal.tsx` -- not touched
-- Any RPC or edge function -- not touched
-- `useLeadDetail.ts` -- only the query select and interface are extended
-
-## What Gets Removed
-
-- The entire STATUS_FLOW stepper progress bar (lines 561-585)
-- The "Move to Assigned" / "Assign to Workshop" button
-- The `advanceLabel` and `handleAdvance` logic
-- Direct `STATUS_FLOW` usage in LeadDetail
-
-## What Gets Added
-
-- `CATEGORY_SERVICE_TYPES` constant map for filtered service type dropdown
-- "Send to Portal" button (visible when status=New and items exist)
-- "Converted" banner with order link (visible when convertedOrderId is set)
-- "Awaiting customer approval" message (visible when status=quoted)
-- `convertedOrderId` and `lifecycleStatus` fields on `LeadDetail` interface
+- `useLeadDetail.ts` -- no changes needed
+- `OrderDetail.tsx`, `Portal.tsx` -- not touched
+- No RPCs or edge functions modified
 
