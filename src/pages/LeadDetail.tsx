@@ -11,8 +11,29 @@ import { useLeadDetail } from "@/hooks/useLeadDetail";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format, formatDistanceToNow } from "date-fns";
-import { toast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+
+// PhotoThumb sub-component: handles broken image gracefully
+const PhotoThumb = ({ url, fileName }: { url: string; fileName: string }) => {
+  const [failed, setFailed] = useState(false);
+  if (failed || !url) {
+    return (
+      <div className="h-full w-full flex items-center justify-center bg-muted">
+        <Camera className="h-6 w-6 text-muted-foreground/50" />
+      </div>
+    );
+  }
+  return (
+    <img
+      src={url}
+      alt={fileName}
+      className="h-full w-full object-cover"
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
+};
 
 const statusColor: Record<string, string> = {
   New: "bg-primary/15 text-primary border-primary/30",
@@ -125,11 +146,13 @@ const LeadDetail = () => {
     },
   });
 
-  // Map DB categories to valid display names, deduplicate
+  // Map DB categories to valid display names, deduplicate (first match per displayName wins)
+  const seen = new Set<string>();
   const mappedCategories = (categoriesOptions || []).map((c) => ({
     ...c,
     displayName: mapCategoryName(c.name),
-  })).filter((c) => ["Bag", "Shoe", "Belt", "Wallet"].includes(c.displayName));
+  })).filter((c) => ["Bag", "Shoe", "Belt", "Wallet"].includes(c.displayName))
+    .filter((c) => { if (seen.has(c.displayName)) return false; seen.add(c.displayName); return true; });
 
   // Resolve selected category display name for filtering
   const selectedCategoryDisplay = mappedCategories.find((c) => c.id === newCategoryId)?.displayName || "";
@@ -156,14 +179,17 @@ const LeadDetail = () => {
       if (error) throw error;
     },
     onSuccess: () => {
+      console.log("Item added successfully, resetting form");
       queryClient.invalidateQueries({ queryKey: ["lead-items", id] });
       setNewBrandId("");
       setNewCategoryId("");
       setNewServiceType("");
       setItemDescription("");
-      toast({ title: "Item added" });
+      setIsAddingBrand(false);
+      setNewBrandName("");
+      toast.success("Item added");
     },
-    onError: (err: any) => toast({ title: err.message || "Failed to add item", variant: "destructive" }),
+    onError: (err: any) => { console.error("addItemMutation error:", err); toast.error(err.message || "Failed to add item"); },
   });
 
   const deleteItemMutation = useMutation({
@@ -173,7 +199,7 @@ const LeadDetail = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["lead-items", id] });
-      toast({ title: "Item removed" });
+      toast.success("Item removed");
     },
   });
 
@@ -193,7 +219,7 @@ const LeadDetail = () => {
       setIsAddingBrand(false);
       setNewBrandName("");
       setBrandError("");
-      toast({ title: `Brand "${data.name}" created` });
+      toast.success(`Brand "${data.name}" created`);
     },
     onError: () => {
       setBrandError("Could not save brand. Try again.");
@@ -233,7 +259,7 @@ const LeadDetail = () => {
 
   const handleSendToPortal = () => {
     updateStatus.mutate("quoted", {
-      onSuccess: () => toast({ title: "Lead sent to customer portal" }),
+      onSuccess: () => toast.success("Lead sent to customer portal"),
     });
   };
 
@@ -242,7 +268,7 @@ const LeadDetail = () => {
     addNote.mutate(note.trim(), {
       onSuccess: () => {
         setNote("");
-        toast({ title: "Note added" });
+        toast.success("Note added");
       },
     });
   };
@@ -251,8 +277,8 @@ const LeadDetail = () => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
     uploadPhotos.mutate(files, {
-      onSuccess: () => toast({ title: `${files.length} photo${files.length > 1 ? "s" : ""} uploaded` }),
-      onError: () => toast({ title: "Upload failed", variant: "destructive" }),
+      onSuccess: () => toast.success(`${files.length} photo${files.length > 1 ? "s" : ""} uploaded`),
+      onError: () => toast.error("Upload failed"),
     });
     e.target.value = "";
   };
@@ -265,10 +291,10 @@ const LeadDetail = () => {
         p_lead_id: lead.id,
       });
       if (error) throw error;
-      toast({ title: "Order created!" });
+      toast.success("Order created!");
       navigate(`/orders/${data}`);
     } catch (err: any) {
-      toast({ title: err.message || "Failed to create order", variant: "destructive" });
+      toast.error(err.message || "Failed to create order");
     } finally {
       setConverting(false);
     }
@@ -276,11 +302,11 @@ const LeadDetail = () => {
 
   const handleSaveLead = async () => {
     if (!addressLine1.trim() || !city.trim() || !state.trim() || !pincode.trim()) {
-      toast({ title: "Please fill Address Line 1, City, State, and Pincode", variant: "destructive" });
+      toast.error("Please fill Address Line 1, City, State, and Pincode");
       return;
     }
     if (!/^\d{6}$/.test(pincode)) {
-      toast({ title: "Pincode must be a 6-digit number", variant: "destructive" });
+      toast.error("Pincode must be a 6-digit number");
       return;
     }
     setIsSaving(true);
@@ -297,9 +323,9 @@ const LeadDetail = () => {
         .eq("id", lead.customerId);
       if (error) throw error;
       queryClient.invalidateQueries({ queryKey: ["lead", id] });
-      toast({ title: "Lead saved successfully" });
+      toast.success("Lead saved successfully");
     } catch {
-      toast({ title: "Save failed. Please try again.", variant: "destructive" });
+      toast.error("Save failed. Please try again.");
     } finally {
       setIsSaving(false);
     }
@@ -309,12 +335,14 @@ const LeadDetail = () => {
 
   // Add item validation helper
   const handleAddItem = () => {
+    console.log("handleAddItem called", { newBrandId, newCategoryId, newServiceType });
     const missing: string[] = [];
     if (!newBrandId) missing.push("Brand");
     if (!newCategoryId) missing.push("Category");
     if (!newServiceType) missing.push("Service Type");
     if (missing.length > 0) {
-      toast({ title: `Please select: ${missing.join(", ")}`, variant: "destructive" });
+      console.log("handleAddItem: missing fields", missing);
+      toast.error(`Please select: ${missing.join(", ")}`);
       return;
     }
     addItemMutation.mutate();
@@ -555,6 +583,7 @@ const LeadDetail = () => {
 
                 {/* Category dropdown — maps DB names to Bag/Shoe/Belt/Wallet */}
                 <Select value={newCategoryId} onValueChange={(val) => {
+                  console.log("Category selected:", val, mappedCategories.find(c => c.id === val)?.displayName);
                   setNewCategoryId(val);
                   setNewServiceType("");
                   setItemDescription("");
@@ -695,19 +724,11 @@ const LeadDetail = () => {
                     onClick={() => setSelectedPhoto(p.url)}
                     className="h-full w-full"
                   >
-                    <img
-                      src={p.url}
-                      alt={p.fileName}
-                      className="h-full w-full object-cover"
-                      loading="lazy"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = "/placeholder.svg";
-                      }}
-                    />
+                    <PhotoThumb url={p.url} fileName={p.fileName} />
                   </button>
                   <button
                     onClick={() => deletePhoto.mutate({ id: p.id, storagePath: p.storagePath }, {
-                      onSuccess: () => toast({ title: "Photo deleted" }),
+                      onSuccess: () => toast.success("Photo deleted"),
                     })}
                     className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-destructive text-destructive-foreground opacity-0 transition-opacity group-hover:opacity-100"
                   >
