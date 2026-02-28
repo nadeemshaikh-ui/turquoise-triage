@@ -15,6 +15,7 @@ export interface LeadDetail {
   status: string;
   tatDaysMin: number;
   tatDaysMax: number;
+  tatIsManual: boolean;
   isGoldTier: boolean;
   notes: string | null;
   createdAt: string;
@@ -71,7 +72,7 @@ export const useLeadDetail = (leadId: string) => {
       const { data, error } = await supabase
         .from("leads")
         .select(`
-          id, quoted_price, status, tat_days_min, tat_days_max,
+          id, quoted_price, status, tat_days_min, tat_days_max, tat_is_manual,
           is_gold_tier, created_at, custom_service_name, notes, customer_id,
           converted_order_id, lifecycle_status,
           customers ( name, phone, email, address, city, state, pincode ),
@@ -94,6 +95,7 @@ export const useLeadDetail = (leadId: string) => {
         status: row.status,
         tatDaysMin: row.tat_days_min,
         tatDaysMax: row.tat_days_max,
+        tatIsManual: row.tat_is_manual ?? false,
         isGoldTier: row.is_gold_tier,
         notes: row.notes,
         createdAt: row.created_at,
@@ -170,10 +172,12 @@ export const useLeadDetail = (leadId: string) => {
 
   const updateStatus = useMutation({
     mutationFn: async (newStatus: string) => {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("leads")
-        .update({ status: newStatus })
-        .eq("id", leadId);
+        .update({ status: newStatus } as any)
+        .eq("id", leadId)
+        .select("status, customer_id")
+        .single();
       if (error) throw error;
 
       await supabase.from("lead_activity").insert({
@@ -182,11 +186,40 @@ export const useLeadDetail = (leadId: string) => {
         action: "status_change",
         details: `Status changed to ${newStatus}`,
       });
+
+      return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["lead", leadId] });
       queryClient.invalidateQueries({ queryKey: ["lead-activity", leadId] });
       queryClient.invalidateQueries({ queryKey: ["leads"] });
+    },
+  });
+
+  const updateTat = useMutation({
+    mutationFn: async (params: { tat_days_min: number; tat_days_max: number; tat_is_manual: boolean }) => {
+      const { error } = await supabase
+        .from("leads")
+        .update({
+          tat_days_min: params.tat_days_min,
+          tat_days_max: params.tat_days_max,
+          tat_is_manual: params.tat_is_manual,
+        } as any)
+        .eq("id", leadId);
+      if (error) throw error;
+
+      await supabase.from("lead_activity").insert({
+        lead_id: leadId,
+        user_id: user?.id,
+        action: "tat_update",
+        details: params.tat_is_manual
+          ? `TAT manually set to ${params.tat_days_min}–${params.tat_days_max} days`
+          : `TAT reset to auto (${params.tat_days_min}–${params.tat_days_max} days)`,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["lead", leadId] });
+      queryClient.invalidateQueries({ queryKey: ["lead-activity", leadId] });
     },
   });
 
@@ -251,6 +284,7 @@ export const useLeadDetail = (leadId: string) => {
     activity: activityQuery.data ?? [],
     isLoading: leadQuery.isLoading,
     updateStatus,
+    updateTat,
     addNote,
     uploadPhotos,
     deletePhoto,

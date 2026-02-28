@@ -659,6 +659,7 @@ export type Database = {
           status: string
           tat_days_max: number
           tat_days_min: number
+          tat_is_manual: boolean
           tier: string
           updated_at: string
         }
@@ -686,6 +687,7 @@ export type Database = {
           status?: string
           tat_days_max?: number
           tat_days_min?: number
+          tat_is_manual?: boolean
           tier?: string
           updated_at?: string
         }
@@ -713,6 +715,7 @@ export type Database = {
           status?: string
           tat_days_max?: number
           tat_days_min?: number
+          tat_is_manual?: boolean
           tier?: string
           updated_at?: string
         }

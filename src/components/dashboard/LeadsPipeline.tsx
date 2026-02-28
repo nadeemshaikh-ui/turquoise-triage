@@ -13,6 +13,7 @@ interface LeadsPipelineProps {
 
 const statusStyles: Record<string, { dot: string; badge: string }> = {
   New: { dot: "bg-primary", badge: "bg-primary/15 text-primary border-primary/30" },
+  Quoted: { dot: "bg-blue-500", badge: "bg-blue-100 text-blue-800 border-blue-300" },
   Assigned: { dot: "bg-accent-foreground", badge: "bg-accent text-accent-foreground border-accent" },
   "In Progress": { dot: "bg-gold", badge: "bg-gold/15 text-gold-foreground border-gold/30" },
   QC: { dot: "bg-secondary-foreground", badge: "bg-secondary text-secondary-foreground border-border" },

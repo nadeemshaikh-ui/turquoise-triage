@@ -39,7 +39,7 @@ const PhotoThumb = ({ url, fileName }: { url: string; fileName: string }) => {
 
 const statusColor: Record<string, string> = {
   New: "bg-primary/15 text-primary border-primary/30",
-  quoted: "bg-accent text-accent-foreground border-accent",
+  Quoted: "bg-blue-100 text-blue-800 border-blue-300",
   Assigned: "bg-accent text-accent-foreground border-accent",
   "In Progress": "bg-gold/15 text-gold-foreground border-gold/30",
   QC: "bg-secondary text-secondary-foreground border-border",
@@ -68,7 +68,7 @@ const LeadDetail = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const { lead, photos, activity, isLoading, updateStatus, addNote, uploadPhotos, deletePhoto } = useLeadDetail(id!);
+  const { lead, photos, activity, isLoading, updateStatus, updateTat, addNote, uploadPhotos, deletePhoto } = useLeadDetail(id!);
   const [note, setNote] = useState("");
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [converting, setConverting] = useState(false);
@@ -87,7 +87,7 @@ const LeadDetail = () => {
   const [isAddingBrand, setIsAddingBrand] = useState(false);
   const [newBrandName, setNewBrandName] = useState("");
   const [brandError, setBrandError] = useState("");
-  const [manualServiceText, setManualServiceText] = useState("");
+  const [manualServiceText, setManualServiceText] = useState(""); // kept for legacy compat but canonical pills preferred
 
   // Dynamic TAT state
   const [tatMin, setTatMin] = useState(4);
@@ -172,14 +172,14 @@ const LeadDetail = () => {
     })();
   }, [dbCategory, activeServiceType]);
 
-  // Dynamic TAT computation
+  // Dynamic TAT computation — only when not manually overridden
   useEffect(() => {
     if (tatOverridden || !leadItems || leadItems.length === 0) return;
     const hasRestoration = leadItems.some((i: any) =>
-      (i.service_type || "").toLowerCase().includes("restoration")
+      (i.service_type || "").toLowerCase() === "restoration"
     );
     const allCleaning = leadItems.every((i: any) =>
-      (i.service_type || "").toLowerCase().includes("cleaning")
+      (i.service_type || "").toLowerCase() === "cleaning"
     );
     if (hasRestoration) {
       setTatMin(10);
@@ -193,11 +193,17 @@ const LeadDetail = () => {
     }
   }, [leadItems, tatOverridden]);
 
-  // Initialize TAT from lead data
+  // Initialize TAT from lead data (including manual lock)
   useEffect(() => {
-    if (lead && !tatOverridden) {
-      setTatMin(lead.tatDaysMin);
-      setTatMax(lead.tatDaysMax);
+    if (lead) {
+      setTatOverridden(lead.tatIsManual);
+      if (!lead.tatIsManual) {
+        setTatMin(lead.tatDaysMin);
+        setTatMax(lead.tatDaysMax);
+      } else {
+        setTatMin(lead.tatDaysMin);
+        setTatMax(lead.tatDaysMax);
+      }
     }
   }, [lead]);
 
@@ -222,7 +228,7 @@ const LeadDetail = () => {
     setNewBrandName("");
   };
 
-  const showDescriptionField = selectedPill === "Belt" || selectedPill === "Wallet";
+  const showDescriptionField = true; // Show custom label for all categories
 
   // Orphaned photos
   const { photos: orphanedPhotos } = useOrphanedPhotos(id!);
@@ -233,11 +239,11 @@ const LeadDetail = () => {
         lead_id: id!,
         brand_id: newBrandId,
         category_id: newCategoryId,
-        service_type: newServiceType,
+        service_type: newServiceType.toLowerCase(),
         manual_price: manualPrice,
         sort_order: leadItems?.length || 0,
       };
-      if (showDescriptionField && itemDescription.trim()) {
+      if (itemDescription.trim()) {
         insertData.description = itemDescription.trim();
       }
       const { error } = await supabase.from("lead_items").insert(insertData);
@@ -318,11 +324,38 @@ const LeadDetail = () => {
   const pincodeValid = /^\d{6}$/.test(pincode);
   const canConvert = hasItems && pincodeValid;
   const isConverted = !!lead.convertedOrderId;
-  const isQuoted = lead.status === "quoted";
+  const isQuoted = lead.status === "Quoted";
+
+  // Pre-quote validation
+  const validateForQuote = (): string | null => {
+    if (!leadItems || leadItems.length === 0) return "Add at least one item before sending to portal";
+    for (let i = 0; i < leadItems.length; i++) {
+      const item = leadItems[i];
+      const catName = item.service_categories?.name || "";
+      const isBagOrShoe = ["Bag", "Shoe", "Luxury Handbags", "Sneakers", "Heels", "Stilettos"].some(
+        (c) => catName.toLowerCase().includes(c.toLowerCase())
+      );
+      if (!item.service_type) return `Item ${i + 1} (${catName}) is missing service type`;
+      if (Number(item.manual_price) <= 0) return `Item ${i + 1} (${catName}) is missing price`;
+      if (isBagOrShoe && !item.brand_id) return `Item ${i + 1} (${catName}) is missing brand`;
+    }
+    return null;
+  };
 
   const handleSendToPortal = () => {
-    updateStatus.mutate("quoted", {
-      onSuccess: () => toast.success("Lead sent to customer portal"),
+    const validationError = validateForQuote();
+    if (validationError) {
+      toast.error(validationError);
+      return;
+    }
+    updateStatus.mutate("Quoted", {
+      onSuccess: (data: any) => {
+        if (data?.status === "Quoted") {
+          toast.success("Lead sent to customer portal");
+        } else {
+          toast.error("Status update did not confirm — please retry");
+        }
+      },
       onError: (err: any) => toast.error(err.message || "Failed to send to portal"),
     });
   };
@@ -411,16 +444,11 @@ const LeadDetail = () => {
     const missing: string[] = [];
     if (!newBrandId) missing.push("Brand");
     if (!newCategoryId) missing.push("Category");
-    const effectiveServiceType = newServiceType || manualServiceText.trim();
-    if (!effectiveServiceType) missing.push("Service Type");
-    if (manualPrice < 0 || isNaN(manualPrice)) missing.push("Valid Price");
+    if (!newServiceType) missing.push("Service Type");
+    if (manualPrice <= 0 || isNaN(manualPrice)) missing.push("Price (must be > 0)");
     if (missing.length > 0) {
       toast.error(`Please select: ${missing.join(", ")}`);
       return;
-    }
-    // If using manual text input, set newServiceType temporarily
-    if (!newServiceType && manualServiceText.trim()) {
-      setNewServiceType(manualServiceText.trim());
     }
     addItemMutation.mutate();
   };
@@ -474,13 +502,19 @@ const LeadDetail = () => {
             <div className="flex items-center gap-1.5">
               <Clock className="h-3.5 w-3.5 text-muted-foreground" />
               <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">TAT</span>
+              {tatOverridden && <Badge variant="outline" className="text-[8px]">Manual</Badge>}
             </div>
             <div className="mt-1 flex items-center gap-1">
               <Input
                 type="number"
                 min={1}
                 value={tatMin}
-                onChange={(e) => { setTatMin(Number(e.target.value)); setTatOverridden(true); }}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setTatMin(val);
+                  setTatOverridden(true);
+                  updateTat.mutate({ tat_days_min: val, tat_days_max: tatMax, tat_is_manual: true });
+                }}
                 className="h-7 w-12 text-center text-sm font-semibold p-0"
               />
               <span className="text-xs text-muted-foreground">–</span>
@@ -488,11 +522,34 @@ const LeadDetail = () => {
                 type="number"
                 min={1}
                 value={tatMax}
-                onChange={(e) => { setTatMax(Number(e.target.value)); setTatOverridden(true); }}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setTatMax(val);
+                  setTatOverridden(true);
+                  updateTat.mutate({ tat_days_min: tatMin, tat_days_max: val, tat_is_manual: true });
+                }}
                 className="h-7 w-12 text-center text-sm font-semibold p-0"
               />
               <span className="text-xs text-muted-foreground">days</span>
             </div>
+            {tatOverridden && (
+              <button
+                className="mt-1 text-[10px] text-primary hover:underline"
+                onClick={() => {
+                  setTatOverridden(false);
+                  // Recompute from items
+                  const hasRestoration = leadItems?.some((i: any) => (i.service_type || "").toLowerCase() === "restoration");
+                  const allCleaning = leadItems?.every((i: any) => (i.service_type || "").toLowerCase() === "cleaning") && (leadItems?.length ?? 0) > 0;
+                  const newMin = hasRestoration ? 10 : allCleaning ? 3 : 4;
+                  const newMax = hasRestoration ? 15 : allCleaning ? 5 : 5;
+                  setTatMin(newMin);
+                  setTatMax(newMax);
+                  updateTat.mutate({ tat_days_min: newMin, tat_days_max: newMax, tat_is_manual: false });
+                }}
+              >
+                Reset to Auto
+              </button>
+            )}
           </div>
           <InfoCard label="Phone" value={lead.customerPhone} icon={<Phone className="h-3.5 w-3.5 text-muted-foreground" />} />
           <InfoCard label="Category" value={lead.category} />
@@ -661,26 +718,23 @@ const LeadDetail = () => {
                 )}
                 {brandError && <p className="text-[11px] text-destructive col-span-full">{brandError}</p>}
 
-              {/* Service Type — dropdown if options exist, text input fallback */}
-                {selectedPill && serviceTypes.length === 0 ? (
-                  <Input
-                    value={manualServiceText}
-                    onChange={(e) => { setManualServiceText(e.target.value); setNewServiceType(""); }}
-                    placeholder="Type service (e.g. restoration)"
-                    className="h-9 text-xs"
-                  />
-                ) : (
-                  <Select value={newServiceType} onValueChange={(v) => { setNewServiceType(v); setManualServiceText(""); }} disabled={!selectedPill}>
-                    <SelectTrigger className="h-9 text-xs">
-                      <SelectValue placeholder="Service Type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {serviceTypes.map((t: string) => (
-                        <SelectItem key={t} value={t}>{t}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
+              {/* Service Type — canonical Cleaning/Restoration pills */}
+                <div className="flex gap-1.5 items-center col-span-full sm:col-span-1">
+                  {["cleaning", "restoration"].map((st) => (
+                    <button
+                      key={st}
+                      onClick={() => { setNewServiceType(st); setManualServiceText(""); }}
+                      className={cn(
+                        "px-3 py-1.5 rounded-full text-xs font-medium transition-all border",
+                        newServiceType === st
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-muted text-muted-foreground border-border hover:border-primary/40"
+                      )}
+                    >
+                      {st.charAt(0).toUpperCase() + st.slice(1)}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Price field — editable suggestion */}
@@ -698,14 +752,14 @@ const LeadDetail = () => {
                 </div>
               )}
 
-              {/* Belt/Wallet description field */}
-              {showDescriptionField && (
+              {/* Custom label (optional) */}
+              {selectedPill && (
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Specific Item Description</Label>
+                  <Label className="text-xs">Custom Label (optional)</Label>
                   <Input
                     value={itemDescription}
                     onChange={(e) => setItemDescription(e.target.value)}
-                    placeholder={selectedPill === "Belt" ? "e.g. Thin leather belt" : "e.g. Bifold wallet"}
+                    placeholder="e.g. deep cleaning, full restoration + dye"
                     className="h-9 text-sm"
                   />
                 </div>
@@ -722,12 +776,7 @@ const LeadDetail = () => {
         {/* 3-State Portal Workflow */}
         {!isConverted && (
           <section className="space-y-2">
-            {!isQuoted && !hasItems && (
-              <Button disabled className="w-full gap-2">
-                <Send className="h-4 w-4" /> Send to Portal
-              </Button>
-            )}
-            {!isQuoted && hasItems && (
+            {!isQuoted && (
               <Button onClick={handleSendToPortal} disabled={updateStatus.isPending} className="w-full gap-2">
                 {updateStatus.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 Send to Portal
