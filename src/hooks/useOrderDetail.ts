@@ -311,14 +311,10 @@ export const useOrderDetail = (orderId: string) => {
 
   const updateStatus = useMutation({
     mutationFn: async (newStatus: string) => {
-      const updates: any = { status: newStatus };
-      if (newStatus === "in_progress") {
-        updates.sla_start = new Date().toISOString();
-      }
-      const { error } = await supabase
-        .from("orders")
-        .update(updates)
-        .eq("id", orderId);
+      const { error } = await supabase.rpc('transition_order_status', {
+        p_order_id: orderId,
+        p_to_status: newStatus,
+      });
       if (error) throw error;
     },
     onSuccess: () => {

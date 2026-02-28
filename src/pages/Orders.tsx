@@ -221,8 +221,8 @@ const Orders = () => {
                           Quote Expired
                         </Badge>
                       )}
-                      <Badge variant="outline" className={`text-[10px] rounded-full ${statusColor[order.status] || ""}`}>
-                        {order.status}
+                      <Badge variant="outline" className={`text-[10px] rounded-full ${statusColor[order.status] || "bg-yellow-100 text-yellow-800 border-yellow-300"}`}>
+                        {statusColor[order.status] ? order.status : `Unknown (${order.status})`}
                       </Badge>
                     </div>
                   </div>

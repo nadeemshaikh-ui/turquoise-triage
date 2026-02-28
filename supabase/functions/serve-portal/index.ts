@@ -223,6 +223,13 @@ Deno.serve(async (req) => {
           new_value: String(rating),
           reason: feedback || `Customer rated ${rating}/5`,
         });
+        // Atomic Google review dedup
+        if (rating >= 4) {
+          await supabase.from("orders")
+            .update({ google_review_prompted_at: new Date().toISOString() })
+            .eq("id", orderId)
+            .is("google_review_prompted_at", null);
+        }
         return new Response(JSON.stringify({ success: true }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -239,23 +246,14 @@ Deno.serve(async (req) => {
       }
 
       if (action === "request_rework") {
-        const { orderId } = body;
-        // Get the order to link customer
-        const { data: orderData } = await supabase.from("orders").select("customer_id, customer_name, customer_phone").eq("id", orderId).single();
-        if (!orderData) {
-          return new Response(JSON.stringify({ error: "Order not found" }), {
-            status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
-        // Create a new lead for rework
-        await supabase.from("leads").insert({
-          customer_id: orderData.customer_id,
-          quoted_price: 0,
-          status: "New",
-          notes: `Rework request for order ${orderId}`,
-          tier: "Premium",
+        const { orderId, reason } = body;
+        const { data: reworkLeadId, error: reworkErr } = await supabase.rpc('request_rework', {
+          p_order_id: orderId,
+          p_reason: reason || 'Customer requested rework',
+          p_photos_pending: true,
         });
-        return new Response(JSON.stringify({ success: true }), {
+        if (reworkErr) throw reworkErr;
+        return new Response(JSON.stringify({ success: true, leadId: reworkLeadId }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
