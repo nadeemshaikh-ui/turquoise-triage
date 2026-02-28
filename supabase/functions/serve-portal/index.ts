@@ -258,6 +258,25 @@ Deno.serve(async (req) => {
         });
       }
 
+      if (action === "advance_stage") {
+        const { leadId, stageAction, payload, actorUserId } = body;
+        if (!leadId || !stageAction) {
+          return new Response(JSON.stringify({ error: "leadId and stageAction required" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const { data, error: rpcErr } = await supabase.rpc('advance_portal_stage', {
+          p_lead_id: leadId,
+          p_action: stageAction,
+          p_payload: payload || {},
+          p_actor_user_id: actorUserId || customerId,
+        });
+        if (rpcErr) throw rpcErr;
+        return new Response(JSON.stringify({ success: true, result: data }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       return new Response(JSON.stringify({ error: "Unknown action" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

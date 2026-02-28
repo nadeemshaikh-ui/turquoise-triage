@@ -14,6 +14,24 @@ export type Database = {
   }
   public: {
     Tables: {
+      addons_master: {
+        Row: {
+          id: string
+          is_active: boolean
+          name: string
+        }
+        Insert: {
+          id?: string
+          is_active?: boolean
+          name: string
+        }
+        Update: {
+          id?: string
+          is_active?: boolean
+          name?: string
+        }
+        Relationships: []
+      }
       app_settings: {
         Row: {
           id: string
@@ -329,6 +347,35 @@ export type Database = {
         }
         Relationships: []
       }
+      disputes: {
+        Row: {
+          created_at: string
+          id: string
+          order_id: string
+          reason: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          order_id: string
+          reason: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          order_id?: string
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "disputes_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       expert_tasks: {
         Row: {
           assigned_at: string | null
@@ -421,6 +468,80 @@ export type Database = {
         }
         Relationships: []
       }
+      invoice_line_items: {
+        Row: {
+          amount: number
+          id: string
+          invoice_id: string
+          label: string
+          order_item_id: string | null
+          qty: number
+          unit_price: number
+        }
+        Insert: {
+          amount: number
+          id?: string
+          invoice_id: string
+          label: string
+          order_item_id?: string | null
+          qty?: number
+          unit_price: number
+        }
+        Update: {
+          amount?: number
+          id?: string
+          invoice_id?: string
+          label?: string
+          order_item_id?: string | null
+          qty?: number
+          unit_price?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_line_items_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_line_items_order_item_id_fkey"
+            columns: ["order_item_id"]
+            isOneToOne: false
+            referencedRelation: "order_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      invoices: {
+        Row: {
+          id: string
+          issued_at: string | null
+          order_id: string
+          public_url: string | null
+        }
+        Insert: {
+          id?: string
+          issued_at?: string | null
+          order_id: string
+          public_url?: string | null
+        }
+        Update: {
+          id?: string
+          issued_at?: string | null
+          order_id?: string
+          public_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoices_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       lead_activity: {
         Row: {
           action: string
@@ -456,11 +577,48 @@ export type Database = {
           },
         ]
       }
+      lead_item_addons: {
+        Row: {
+          addon_id: string
+          id: string
+          lead_item_id: string
+          price_at_time: number
+        }
+        Insert: {
+          addon_id: string
+          id?: string
+          lead_item_id: string
+          price_at_time: number
+        }
+        Update: {
+          addon_id?: string
+          id?: string
+          lead_item_id?: string
+          price_at_time?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_item_addons_addon_id_fkey"
+            columns: ["addon_id"]
+            isOneToOne: false
+            referencedRelation: "addons_master"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_item_addons_lead_item_id_fkey"
+            columns: ["lead_item_id"]
+            isOneToOne: false
+            referencedRelation: "lead_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       lead_items: {
         Row: {
           brand_id: string | null
           category_id: string
           created_at: string
+          custom_category_label: string | null
           description: string | null
           id: string
           lead_id: string
@@ -477,6 +635,7 @@ export type Database = {
           brand_id?: string | null
           category_id: string
           created_at?: string
+          custom_category_label?: string | null
           description?: string | null
           id?: string
           lead_id: string
@@ -493,6 +652,7 @@ export type Database = {
           brand_id?: string | null
           category_id?: string
           created_at?: string
+          custom_category_label?: string | null
           description?: string | null
           id?: string
           lead_id?: string
@@ -636,6 +796,7 @@ export type Database = {
       }
       leads: {
         Row: {
+          approved_at: string | null
           condition_note: string | null
           converted_order_id: string | null
           created_at: string
@@ -651,9 +812,14 @@ export type Database = {
           meta_campaign_name: string | null
           notes: string | null
           original_order_id: string | null
+          package_selected_at: string | null
           photos_pending: boolean
+          pickup_slot_end_at: string | null
+          pickup_slot_start_at: string | null
+          portal_stage: string
           qc_checklist: Json | null
           quoted_price: number
+          selected_package_id: string | null
           service_id: string | null
           source: string
           status: string
@@ -664,6 +830,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          approved_at?: string | null
           condition_note?: string | null
           converted_order_id?: string | null
           created_at?: string
@@ -679,9 +846,14 @@ export type Database = {
           meta_campaign_name?: string | null
           notes?: string | null
           original_order_id?: string | null
+          package_selected_at?: string | null
           photos_pending?: boolean
+          pickup_slot_end_at?: string | null
+          pickup_slot_start_at?: string | null
+          portal_stage?: string
           qc_checklist?: Json | null
           quoted_price: number
+          selected_package_id?: string | null
           service_id?: string | null
           source?: string
           status?: string
@@ -692,6 +864,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          approved_at?: string | null
           condition_note?: string | null
           converted_order_id?: string | null
           created_at?: string
@@ -707,9 +880,14 @@ export type Database = {
           meta_campaign_name?: string | null
           notes?: string | null
           original_order_id?: string | null
+          package_selected_at?: string | null
           photos_pending?: boolean
+          pickup_slot_end_at?: string | null
+          pickup_slot_start_at?: string | null
+          portal_stage?: string
           qc_checklist?: Json | null
           quoted_price?: number
+          selected_package_id?: string | null
           service_id?: string | null
           source?: string
           status?: string
@@ -725,6 +903,13 @@ export type Database = {
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leads_selected_package_id_fkey"
+            columns: ["selected_package_id"]
+            isOneToOne: false
+            referencedRelation: "package_settings"
             referencedColumns: ["id"]
           },
           {
@@ -910,6 +1095,38 @@ export type Database = {
           },
         ]
       }
+      order_item_photos: {
+        Row: {
+          created_at: string
+          id: string
+          kind: string
+          order_item_id: string
+          url: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          kind?: string
+          order_item_id: string
+          url: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          kind?: string
+          order_item_id?: string
+          url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_item_photos_order_item_id_fkey"
+            columns: ["order_item_id"]
+            isOneToOne: false
+            referencedRelation: "order_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_items: {
         Row: {
           brand: string
@@ -917,8 +1134,12 @@ export type Database = {
           created_at: string
           id: string
           order_id: string
+          primary_image_url_snapshot: string | null
+          remarks_snapshot: string | null
           service_type: string
           sort_order: number
+          warranty_end_at: string | null
+          warranty_start_at: string | null
         }
         Insert: {
           brand: string
@@ -926,8 +1147,12 @@ export type Database = {
           created_at?: string
           id?: string
           order_id: string
+          primary_image_url_snapshot?: string | null
+          remarks_snapshot?: string | null
           service_type: string
           sort_order?: number
+          warranty_end_at?: string | null
+          warranty_start_at?: string | null
         }
         Update: {
           brand?: string
@@ -935,8 +1160,12 @@ export type Database = {
           created_at?: string
           id?: string
           order_id?: string
+          primary_image_url_snapshot?: string | null
+          remarks_snapshot?: string | null
           service_type?: string
           sort_order?: number
+          warranty_end_at?: string | null
+          warranty_start_at?: string | null
         }
         Relationships: [
           {
@@ -1003,12 +1232,14 @@ export type Database = {
           consultation_start_time: string | null
           created_at: string
           created_by: string | null
+          created_by_user_id: string | null
           customer_approved_at: string | null
           customer_declined_at: string | null
           customer_id: string
           customer_name: string | null
           customer_phone: string | null
           decline_reason: string | null
+          delivered_at: string | null
           delivery_address: Json | null
           delivery_address_confirmed_at: string | null
           delivery_address_mode: string
@@ -1027,6 +1258,7 @@ export type Database = {
           lead_id: string | null
           maintenance_due: string | null
           notes: string | null
+          package_id: string | null
           package_tier: string | null
           packing_photo_url: string | null
           payment_declared: boolean | null
@@ -1045,6 +1277,7 @@ export type Database = {
           total_price: number | null
           unique_asset_signature: string | null
           updated_at: string
+          warranty_days_snapshot: number
           warranty_months: number | null
         }
         Insert: {
@@ -1063,12 +1296,14 @@ export type Database = {
           consultation_start_time?: string | null
           created_at?: string
           created_by?: string | null
+          created_by_user_id?: string | null
           customer_approved_at?: string | null
           customer_declined_at?: string | null
           customer_id: string
           customer_name?: string | null
           customer_phone?: string | null
           decline_reason?: string | null
+          delivered_at?: string | null
           delivery_address?: Json | null
           delivery_address_confirmed_at?: string | null
           delivery_address_mode?: string
@@ -1087,6 +1322,7 @@ export type Database = {
           lead_id?: string | null
           maintenance_due?: string | null
           notes?: string | null
+          package_id?: string | null
           package_tier?: string | null
           packing_photo_url?: string | null
           payment_declared?: boolean | null
@@ -1105,6 +1341,7 @@ export type Database = {
           total_price?: number | null
           unique_asset_signature?: string | null
           updated_at?: string
+          warranty_days_snapshot?: number
           warranty_months?: number | null
         }
         Update: {
@@ -1123,12 +1360,14 @@ export type Database = {
           consultation_start_time?: string | null
           created_at?: string
           created_by?: string | null
+          created_by_user_id?: string | null
           customer_approved_at?: string | null
           customer_declined_at?: string | null
           customer_id?: string
           customer_name?: string | null
           customer_phone?: string | null
           decline_reason?: string | null
+          delivered_at?: string | null
           delivery_address?: Json | null
           delivery_address_confirmed_at?: string | null
           delivery_address_mode?: string
@@ -1147,6 +1386,7 @@ export type Database = {
           lead_id?: string | null
           maintenance_due?: string | null
           notes?: string | null
+          package_id?: string | null
           package_tier?: string | null
           packing_photo_url?: string | null
           payment_declared?: boolean | null
@@ -1165,6 +1405,7 @@ export type Database = {
           total_price?: number | null
           unique_asset_signature?: string | null
           updated_at?: string
+          warranty_days_snapshot?: number
           warranty_months?: number | null
         }
         Relationships: [
@@ -1182,7 +1423,35 @@ export type Database = {
             referencedRelation: "leads"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "orders_package_id_fkey"
+            columns: ["package_id"]
+            isOneToOne: false
+            referencedRelation: "package_settings"
+            referencedColumns: ["id"]
+          },
         ]
+      }
+      package_settings: {
+        Row: {
+          id: string
+          is_active: boolean
+          name: string
+          warranty_days: number
+        }
+        Insert: {
+          id?: string
+          is_active?: boolean
+          name: string
+          warranty_days: number
+        }
+        Update: {
+          id?: string
+          is_active?: boolean
+          name?: string
+          warranty_days?: number
+        }
+        Relationships: []
       }
       photo_markers: {
         Row: {
@@ -1219,6 +1488,38 @@ export type Database = {
           },
         ]
       }
+      pricing_addons_master: {
+        Row: {
+          addon_id: string
+          category: string
+          id: string
+          is_active: boolean
+          price: number
+        }
+        Insert: {
+          addon_id: string
+          category: string
+          id?: string
+          is_active?: boolean
+          price: number
+        }
+        Update: {
+          addon_id?: string
+          category?: string
+          id?: string
+          is_active?: boolean
+          price?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pricing_addons_master_addon_id_fkey"
+            columns: ["addon_id"]
+            isOneToOne: false
+            referencedRelation: "addons_master"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -1251,6 +1552,35 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      ratings: {
+        Row: {
+          created_at: string
+          id: string
+          order_id: string
+          stars: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          order_id: string
+          stars: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          order_id?: string
+          stars?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ratings_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       recovery_offers: {
         Row: {
@@ -1647,8 +1977,20 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      advance_portal_stage: {
+        Args: {
+          p_action: string
+          p_actor_user_id?: string
+          p_lead_id: string
+          p_payload?: Json
+        }
+        Returns: Json
+      }
       can_staff: { Args: never; Returns: boolean }
-      convert_lead_to_order: { Args: { p_lead_id: string }; Returns: string }
+      convert_lead_to_order: {
+        Args: { p_actor_user_id?: string; p_lead_id: string }
+        Returns: string
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1664,6 +2006,10 @@ export type Database = {
           p_reason: string
         }
         Returns: string
+      }
+      set_delivered_at: {
+        Args: { p_delivered_at: string; p_order_id: string }
+        Returns: undefined
       }
       transition_order_status: {
         Args: { p_order_id: string; p_payload?: Json; p_to_status: string }

@@ -59,9 +59,10 @@ const CATEGORY_DB_MAP: Record<string, string> = {
   Shoe: "Sneakers",
   Belt: "Belt",
   Wallet: "Wallet",
+  Others: "Others",
 };
 
-const CATEGORY_PILLS = ["Bag", "Shoe", "Belt", "Wallet"] as const;
+const CATEGORY_PILLS = ["Bag", "Shoe", "Belt", "Wallet", "Others"] as const;
 
 const LeadDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -398,10 +399,13 @@ const LeadDetail = () => {
   };
 
   const handleConvertToOrder = async () => {
-    if (!lead || !canConvert) return;
+    if (!lead || !canConvert || !user?.id) return;
     setConverting(true);
     try {
-      const { data, error } = await supabase.rpc('convert_lead_to_order', { p_lead_id: lead.id });
+      const { data, error } = await supabase.rpc('convert_lead_to_order', { 
+        p_lead_id: lead.id,
+        p_actor_user_id: user.id,
+      } as any);
       if (error) throw error;
       toast.success("Order created!");
       navigate(`/orders/${data}`);
