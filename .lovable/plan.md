@@ -1,133 +1,94 @@
 
 
-# Wave 1+2: Data Integrity + Core UI Fixes for LeadDetail
+# Fix Broken Components + Workflow Realignment for LeadDetail
 
-## Pre-requisite: Database Migration
+## Summary
 
-The `customers` table has `address` (text) and `city` (text) but **no `state` or `pincode` columns**. A migration is needed:
+Fix 7 issues in one pass: broken category dropdown, silent add button, broken photo display, form reset, incorrect workflow stages, misplaced status stepper, and missing service type filtering by category.
+
+---
+
+## Changes
+
+### File 1: `src/pages/LeadDetail.tsx`
+
+**1. Photo display fix (broken images)**
+The `lead-photos` storage bucket is private. The current code uses `getPublicUrl()` which only works for public buckets. Fix by making the bucket public via a migration (preferred -- photos are not sensitive, and the order-photos bucket is already public). Alternatively, switch to signed URLs in the hook.
+
+**2. Category-based service type filtering**
+Add a constant map:
 
 ```text
-ALTER TABLE public.customers
-  ADD COLUMN IF NOT EXISTS state text,
-  ADD COLUMN IF NOT EXISTS pincode text;
+CATEGORY_SERVICE_TYPES = {
+  Bag: ["restoration", "cleaning", "hardware", "dye", "spa"],
+  Shoe: ["restoration", "cleaning", "repair", "spa"],
+  Belt: ["restoration", "cleaning", "repair", "dye"],
+  Wallet: ["restoration", "cleaning", "repair"],
+}
 ```
 
-No other schema changes needed -- `lead_items.description` already exists for the Belt/Wallet item description field.
+When `newCategoryId` changes, reset `newServiceType` to `""`. Filter the Service Type dropdown options based on the selected category name. If no category is selected, show all options.
 
----
+**3. Add button feedback**
+The Add button is currently disabled when any field is empty (correct behavior). Add a visible toast/feedback when the user clicks while fields are missing, instead of silently disabling. Change the disabled button to show which field is missing via a tooltip or small helper text below.
 
-## FIX 1 -- Structured Address Block
+**4. Form reset after adding item**
+Already implemented in the `onSuccess` callback (lines 130-134). Verify this works by ensuring mutation completes without error. The issue may have been the mutation itself failing silently -- the `onError` handler already shows a toast, so this should work once the category/service type fixes are in.
 
-**Current state:** The LeadDetail page shows no address fields. Address lives on the `customers` table (`address`, `city`), not on `leads`.
+**5. Remove STATUS_FLOW stepper and "Move to" button entirely (lines 561-585)**
+Delete the entire "Order Progress" section with the stepper bar and the advance button. This belongs on `OrderDetail.tsx`, not the lead page.
 
-**Changes to `src/pages/LeadDetail.tsx`:**
+**6. Implement the 4-stage linear workflow**
+Replace the removed stepper and the current convert button block (lines 561-604) with the correct flow:
 
-- Add 5 state variables: `addressLine1`, `addressLine2`, `city`, `state`, `pincode`
-- Fetch customer data including `address`, `city`, `state`, `pincode` (extend the existing `customerLegacy` query or add a new one)
-- On load, populate fields from customer data. For legacy data where only `address` exists, put it all in `addressLine1`
-- Render 5 Input fields in an "Address" section after the info cards
-- Pincode: `type="text"`, `inputMode="numeric"`, `maxLength={6}`, inline error if non-empty and not matching `/^\d{6}$/`
-- On save (see FIX 5), update `customers` table:
-  - `address`: concatenated string `${line1}${line2 ? ', ' + line2 : ''}, ${city}, ${state} - ${pincode}`
-  - `city`: from city field
-  - `state`: from state field  
-  - `pincode`: from pincode field
+- **Stage: DRAFT** (status = "New" AND no items): Show Save Lead button (already in address section), Add Item form (already present). Hide "Send to Portal" and "Convert to Order".
 
----
+- **Stage: READY TO QUOTE** (status = "New" AND items exist): Show a "Send to Portal" button. On click: update lead status to "quoted". Show toast "Lead sent to customer portal". Hide Convert button.
 
-## FIX 2 -- Category Enum Correction + Sneaker/Heels Mapping
+- **Stage: QUOTED** (status = "quoted"): Show Convert to Order button (gated by items + pincode). Show read-only message "Awaiting customer approval via portal". Hide Send to Portal.
 
-**Current state:** Category dropdown fetches all active `service_categories` dynamically. The `order_items` CHECK constraint only allows `Bag`, `Shoe`, `Belt`, `Wallet`.
+- **Stage: CONVERTED** (lead has `converted_order_id`): Show a read-only banner "This lead has been converted to an Order" with a link to the order. Hide all action buttons.
 
-**Changes:**
+**7. Remove "Assign to Workshop" logic entirely**
+Delete `advanceLabel`, `handleAdvance`, `STATUS_FLOW` usage, and the `nextStatus` variable. Remove the import of `STATUS_FLOW` from `useLeadDetail`.
 
-- Replace the dynamic categories query with a query that filters to only the 4 valid names, OR hard-code 4 options but still look up their UUIDs from the `service_categories` table
-- Approach: Keep the `categoriesOptions` query but filter results client-side to only show entries whose `name` is in `['Bag', 'Shoe', 'Belt', 'Wallet']`
-- In the existing items list display, map `Sneaker` and `Heels` category names to `Shoe` for display
-- The insert mutation already writes `category_id` (UUID), so no write-side mapping is needed as long as we only show the 4 valid categories in the dropdown
+### File 2: `src/hooks/useLeadDetail.ts`
 
----
+**1. Add `converted_order_id` and `lifecycle_status` to the lead query**
+Extend the select clause and the `LeadDetail` interface to include `convertedOrderId` and `lifecycleStatus`.
 
-## FIX 3 -- Belt/Wallet: Item Description Field
+**2. Accept "quoted" as a valid status in `updateStatus`**
+No code change needed -- the mutation already does a generic `update({ status: newStatus })` which accepts any string. The `leads` table has no CHECK constraint on status, so "quoted" will work.
 
-**Current state:** The Add Item form has 3 dropdowns (Brand, Category, Service Type). No description field.
+### File 3: Database Migration
 
-**Changes:**
-
-- Add `itemDescription` state variable
-- After the Category dropdown, conditionally render an Input field when selected category resolves to `Belt` or `Wallet`
-- Label: "Specific Item Description", placeholder varies by category
-- On insert, include `description: itemDescription` in the `lead_items.insert()` call
-- Reset `itemDescription` on successful add
-- Hide field entirely for Bag/Shoe
-
----
-
-## FIX 4 -- Brand Dropdown: "+ Add New Brand"
-
-**Current state:** Brand dropdown shows all active brands from DB.
-
-**Changes:**
-
-- Add a `"+ Add New Brand"` option at the end of the Select
-- Add state: `isAddingBrand` (boolean), `newBrandName` (string)
-- When `__add_new__` selected: hide Select, show Input + "Save Brand" button + "Cancel" link
-- Save Brand: insert into `brands` table, invalidate `brands-options` query, auto-select new brand ID, restore Select
-- Cancel: restore Select, clear input
-- Inline error on failure
-
----
-
-## FIX 5 -- "Save Lead" Button
-
-**Current state:** There is no "Create" or "Generate Quote" button on this page. This is a detail/edit page, not a creation form. The page currently auto-saves nothing -- status changes and notes are saved individually.
-
-**Adaptation:** Add a "Save Lead" button in the address section that:
-
-1. Validates address fields (Line 1, City, State, Pincode required; Pincode must match `/^\d{6}$/`)
-2. Updates the `customers` table with the structured address
-3. Shows loading spinner (`isSaving` state)
-4. Toast on success/error
-
-This button saves the address data only (items and notes already have their own save mechanisms).
-
----
-
-## FIX 6 -- Assign vs Convert Flow
-
-**Current state:** The status stepper has a generic "Move to {nextStatus}" button. When status is `New`, it shows "Move to Assigned".
-
-**Changes:**
-
-- When `nextStatus === 'Assigned'`, label the button "Assign to Workshop" instead of "Move to Assigned"
-- The onClick remains the same (calls `updateStatus.mutate('Assigned')`)
-- Keep the "Convert to Order" button separate and unchanged
-- Update convert gating to also check pincode validity:
+Make the `lead-photos` storage bucket public so `getPublicUrl()` returns working URLs:
 
 ```text
-const pincodeValid = /^\d{6}$/.test(pincode);
-const hasItems = leadItems && leadItems.length > 0;
-const canConvert = hasItems && pincodeValid;
+UPDATE storage.buckets SET public = true WHERE id = 'lead-photos';
 ```
-
-- Show stacked helper messages when blocked:
-  - If `!hasItems`: "Add at least 1 item to convert"
-  - If `!pincodeValid`: "A valid 6-digit Pincode is required to convert"
 
 ---
 
-## Files Summary
+## Files NOT Changed
 
-| # | File | Change |
-|---|------|--------|
-| 0 | DB Migration | Add `state` and `pincode` columns to `customers` |
-| 1 | `src/pages/LeadDetail.tsx` | All 6 fixes: structured address, category filtering, Belt/Wallet description, add-new-brand flow, save-lead button, assign label + convert gating |
-| 2 | `src/hooks/useLeadDetail.ts` | Extend lead query to include customer address/city/state/pincode |
+- `OrderDetail.tsx` -- not touched
+- `Portal.tsx` -- not touched
+- Any RPC or edge function -- not touched
+- `useLeadDetail.ts` -- only the query select and interface are extended
 
-## What is NOT changed
-- No RPCs or edge functions modified
-- No changes to Orders.tsx, Portal.tsx, or order-related files
-- All existing lead fields preserved (customer name, phone, notes, status, photos, activity)
-- No item-level photo segregation
-- No service_tasks fetching
+## What Gets Removed
+
+- The entire STATUS_FLOW stepper progress bar (lines 561-585)
+- The "Move to Assigned" / "Assign to Workshop" button
+- The `advanceLabel` and `handleAdvance` logic
+- Direct `STATUS_FLOW` usage in LeadDetail
+
+## What Gets Added
+
+- `CATEGORY_SERVICE_TYPES` constant map for filtered service type dropdown
+- "Send to Portal" button (visible when status=New and items exist)
+- "Converted" banner with order link (visible when convertedOrderId is set)
+- "Awaiting customer approval" message (visible when status=quoted)
+- `convertedOrderId` and `lifecycleStatus` fields on `LeadDetail` interface
 
