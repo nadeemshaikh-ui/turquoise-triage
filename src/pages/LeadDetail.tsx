@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Crown, Clock, Phone, Mail, Camera, MessageSquare, CheckCircle2, Loader2, Upload, ImagePlus, Trash2, X, Award, ClipboardList, Plus, MapPin, Save } from "lucide-react";
+import { useParams, useNavigate, Link } from "react-router-dom";
+import { ArrowLeft, Crown, Clock, Phone, Mail, Camera, MessageSquare, CheckCircle2, Loader2, Upload, ImagePlus, Trash2, X, Award, ClipboardList, Plus, MapPin, Save, Send, ExternalLink, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,7 @@ import { useAuth } from "@/contexts/AuthContext";
 
 const statusColor: Record<string, string> = {
   New: "bg-primary/15 text-primary border-primary/30",
+  quoted: "bg-accent text-accent-foreground border-accent",
   Assigned: "bg-accent text-accent-foreground border-accent",
   "In Progress": "bg-gold/15 text-gold-foreground border-gold/30",
   QC: "bg-secondary text-secondary-foreground border-border",
@@ -29,17 +30,38 @@ const actionIcons: Record<string, typeof CheckCircle2> = {
   photo_upload: Camera,
 };
 
-const VALID_CATEGORIES = ["Bag", "Shoe", "Belt", "Wallet"];
-const SNEAKER_HEELS_MAP: Record<string, string> = { Sneaker: "Shoe", Heels: "Shoe" };
+// Category service type filtering
+const CATEGORY_SERVICE_TYPES: Record<string, string[]> = {
+  Bag: ["restoration", "cleaning", "hardware", "dye", "spa"],
+  Shoe: ["restoration", "cleaning", "repair", "spa"],
+  Belt: ["restoration", "cleaning", "repair", "dye"],
+  Wallet: ["restoration", "cleaning", "repair"],
+};
 
-const mapCategoryName = (name: string) => SNEAKER_HEELS_MAP[name] || name;
+const ALL_SERVICE_TYPES = ["restoration", "cleaning", "repair", "dye", "hardware", "spa"];
+
+// Map DB category names to valid display names
+const CATEGORY_NAME_MAP: Record<string, string> = {
+  "Luxury Handbags": "Bag",
+  "Sneakers": "Shoe",
+  "Sneaker": "Shoe",
+  "Heels": "Shoe",
+  "Bag": "Bag",
+  "Shoe": "Shoe",
+  "Belt": "Belt",
+  "Wallet": "Wallet",
+  "Accessories": "Belt", // fallback mapping
+  "Leather Jackets": "Bag", // fallback mapping
+};
+
+const mapCategoryName = (name: string) => CATEGORY_NAME_MAP[name] || name;
 
 const LeadDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const { lead, photos, activity, isLoading, updateStatus, addNote, uploadPhotos, deletePhoto, STATUS_FLOW } = useLeadDetail(id!);
+  const { lead, photos, activity, isLoading, updateStatus, addNote, uploadPhotos, deletePhoto } = useLeadDetail(id!);
   const [note, setNote] = useState("");
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [converting, setConverting] = useState(false);
@@ -51,12 +73,12 @@ const LeadDetail = () => {
   const [newServiceType, setNewServiceType] = useState("");
   const [itemDescription, setItemDescription] = useState("");
 
-  // Add New Brand state (FIX 4)
+  // Add New Brand state
   const [isAddingBrand, setIsAddingBrand] = useState(false);
   const [newBrandName, setNewBrandName] = useState("");
   const [brandError, setBrandError] = useState("");
 
-  // Address state (FIX 1)
+  // Address state
   const [addressLine1, setAddressLine1] = useState("");
   const [addressLine2, setAddressLine2] = useState("");
   const [city, setCity] = useState("");
@@ -103,12 +125,20 @@ const LeadDetail = () => {
     },
   });
 
-  // FIX 2: Filter categories to only valid 4
-  const filteredCategories = (categoriesOptions || []).filter((c) => VALID_CATEGORIES.includes(c.name));
+  // Map DB categories to valid display names, deduplicate
+  const mappedCategories = (categoriesOptions || []).map((c) => ({
+    ...c,
+    displayName: mapCategoryName(c.name),
+  })).filter((c) => ["Bag", "Shoe", "Belt", "Wallet"].includes(c.displayName));
 
-  // Resolve selected category name for conditional description field
-  const selectedCategoryName = filteredCategories.find((c) => c.id === newCategoryId)?.name || "";
-  const showDescriptionField = selectedCategoryName === "Belt" || selectedCategoryName === "Wallet";
+  // Resolve selected category display name for filtering
+  const selectedCategoryDisplay = mappedCategories.find((c) => c.id === newCategoryId)?.displayName || "";
+  const showDescriptionField = selectedCategoryDisplay === "Belt" || selectedCategoryDisplay === "Wallet";
+
+  // Service type options filtered by selected category
+  const serviceTypeOptions = selectedCategoryDisplay
+    ? (CATEGORY_SERVICE_TYPES[selectedCategoryDisplay] || ALL_SERVICE_TYPES)
+    : ALL_SERVICE_TYPES;
 
   const addItemMutation = useMutation({
     mutationFn: async () => {
@@ -119,7 +149,6 @@ const LeadDetail = () => {
         service_type: newServiceType,
         sort_order: leadItems?.length || 0,
       };
-      // FIX 3: Include description for Belt/Wallet
       if (showDescriptionField && itemDescription.trim()) {
         insertData.description = itemDescription.trim();
       }
@@ -148,7 +177,6 @@ const LeadDetail = () => {
     },
   });
 
-  // FIX 4: Save new brand mutation
   const saveBrandMutation = useMutation({
     mutationFn: async () => {
       const { data, error } = await supabase
@@ -172,7 +200,6 @@ const LeadDetail = () => {
     },
   });
 
-  // Fetch customer legacy data for VIP badge
   const { data: customerLegacy } = useQuery({
     queryKey: ["customer-legacy", lead?.customerId],
     queryFn: async () => {
@@ -195,16 +222,18 @@ const LeadDetail = () => {
     );
   }
 
-  const currentIdx = STATUS_FLOW.indexOf(lead.status);
-  const nextStatus = currentIdx < STATUS_FLOW.length - 1 ? STATUS_FLOW[currentIdx + 1] : null;
+  // 4-stage workflow
+  const hasItems = leadItems && leadItems.length > 0;
+  const pincodeValid = /^\d{6}$/.test(pincode);
+  const canConvert = hasItems && pincodeValid;
+  const isConverted = !!lead.convertedOrderId;
+  const isQuoted = lead.status === "quoted";
+  const isDraft = lead.status === "New" && !hasItems;
+  const isReadyToQuote = lead.status === "New" && hasItems;
 
-  // FIX 6: Label for the advance button
-  const advanceLabel = nextStatus === "Assigned" ? "Assign to Workshop" : `Move to ${nextStatus}`;
-
-  const handleAdvance = () => {
-    if (!nextStatus) return;
-    updateStatus.mutate(nextStatus, {
-      onSuccess: () => toast({ title: `Status updated to ${nextStatus}` }),
+  const handleSendToPortal = () => {
+    updateStatus.mutate("quoted", {
+      onSuccess: () => toast({ title: "Lead sent to customer portal" }),
     });
   };
 
@@ -228,11 +257,6 @@ const LeadDetail = () => {
     e.target.value = "";
   };
 
-  // FIX 6: Convert gating
-  const pincodeValid = /^\d{6}$/.test(pincode);
-  const hasItems = leadItems && leadItems.length > 0;
-  const canConvert = hasItems && pincodeValid;
-
   const handleConvertToOrder = async () => {
     if (!lead || !canConvert) return;
     setConverting(true);
@@ -250,7 +274,6 @@ const LeadDetail = () => {
     }
   };
 
-  // FIX 5: Save Lead (address only)
   const handleSaveLead = async () => {
     if (!addressLine1.trim() || !city.trim() || !state.trim() || !pincode.trim()) {
       toast({ title: "Please fill Address Line 1, City, State, and Pincode", variant: "destructive" });
@@ -282,8 +305,20 @@ const LeadDetail = () => {
     }
   };
 
-  // Pincode inline error
   const pincodeError = pincode.length > 0 && !/^\d{6}$/.test(pincode);
+
+  // Add item validation helper
+  const handleAddItem = () => {
+    const missing: string[] = [];
+    if (!newBrandId) missing.push("Brand");
+    if (!newCategoryId) missing.push("Category");
+    if (!newServiceType) missing.push("Service Type");
+    if (missing.length > 0) {
+      toast({ title: `Please select: ${missing.join(", ")}`, variant: "destructive" });
+      return;
+    }
+    addItemMutation.mutate();
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -312,6 +347,21 @@ const LeadDetail = () => {
       </header>
 
       <main className="mx-auto max-w-3xl space-y-6 px-4 py-6 sm:px-6">
+        {/* Converted Banner */}
+        {isConverted && (
+          <div className="rounded-[var(--radius)] border border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-900/20 p-4 flex items-center gap-3">
+            <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-green-800 dark:text-green-300">This lead has been converted to an Order</p>
+            </div>
+            <Link to={`/orders/${lead.convertedOrderId}`}>
+              <Button variant="outline" size="sm" className="gap-1.5">
+                <ExternalLink className="h-3.5 w-3.5" /> View Order
+              </Button>
+            </Link>
+          </div>
+        )}
+
         {/* Info Cards */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <InfoCard label="Quoted Price" value={`₹${lead.quotedPrice.toLocaleString("en-IN")}`} />
@@ -347,7 +397,7 @@ const LeadDetail = () => {
           </div>
         )}
 
-        {/* FIX 1: Structured Address Block */}
+        {/* Structured Address Block */}
         <section className="space-y-3">
           <div className="flex items-center gap-2">
             <MapPin className="h-4 w-4 text-muted-foreground" />
@@ -385,16 +435,12 @@ const LeadDetail = () => {
                 {pincodeError && <p className="text-[11px] text-destructive">Must be a 6-digit number</p>}
               </div>
             </div>
-            {/* FIX 5: Save Lead Button */}
-            <Button
-              onClick={handleSaveLead}
-              disabled={isSaving}
-              className="w-full gap-2"
-              size="sm"
-            >
-              {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              Save Lead
-            </Button>
+            {!isConverted && (
+              <Button onClick={handleSaveLead} disabled={isSaving} className="w-full gap-2" size="sm">
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                Save Lead
+              </Button>
+            )}
           </div>
         </section>
 
@@ -415,7 +461,6 @@ const LeadDetail = () => {
                   ultra_luxury: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
                 };
                 const tierLabel: Record<string, string> = { standard: "Standard", luxury: "Luxury", ultra_luxury: "Ultra-Luxury" };
-                // FIX 2: Map Sneaker/Heels → Shoe for display
                 const displayCategory = mapCategoryName(item.service_categories?.name || "Item");
                 return (
                   <div key={item.id} className="rounded-[var(--radius)] border border-border bg-card p-3">
@@ -434,15 +479,17 @@ const LeadDetail = () => {
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold text-foreground">₹{Number(item.manual_price || 0).toLocaleString()}</span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          onClick={() => deleteItemMutation.mutate(item.id)}
-                          disabled={deleteItemMutation.isPending}
-                        >
-                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                        </Button>
+                        {!isConverted && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => deleteItemMutation.mutate(item.id)}
+                            disabled={deleteItemMutation.isPending}
+                          >
+                            <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -455,153 +502,153 @@ const LeadDetail = () => {
             <p className="text-sm text-muted-foreground">No items yet. Add at least one item below.</p>
           )}
 
-          {/* Add Item Form */}
-          <div className="rounded-[var(--radius)] border border-dashed border-border bg-muted/20 p-3 space-y-3">
-            <p className="text-xs font-medium text-muted-foreground">Add Item</p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              {/* FIX 4: Brand dropdown with "+ Add New Brand" */}
-              {!isAddingBrand ? (
-                <Select value={newBrandId} onValueChange={(val) => {
-                  if (val === "__add_new__") {
-                    setIsAddingBrand(true);
-                    setNewBrandId("");
-                  } else {
-                    setNewBrandId(val);
-                  }
+          {/* Add Item Form — hidden when converted */}
+          {!isConverted && (
+            <div className="rounded-[var(--radius)] border border-dashed border-border bg-muted/20 p-3 space-y-3">
+              <p className="text-xs font-medium text-muted-foreground">Add Item</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {/* Brand dropdown with "+ Add New Brand" */}
+                {!isAddingBrand ? (
+                  <Select value={newBrandId} onValueChange={(val) => {
+                    if (val === "__add_new__") {
+                      setIsAddingBrand(true);
+                      setNewBrandId("");
+                    } else {
+                      setNewBrandId(val);
+                    }
+                  }}>
+                    <SelectTrigger className="h-9 text-xs">
+                      <SelectValue placeholder="Brand" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {brandsOptions?.map((b) => (
+                        <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                      ))}
+                      <SelectItem value="__add_new__">+ Add New Brand</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="flex items-center gap-1">
+                    <Input
+                      value={newBrandName}
+                      onChange={(e) => { setNewBrandName(e.target.value); setBrandError(""); }}
+                      placeholder="Enter new brand name"
+                      className="h-9 text-xs flex-1"
+                    />
+                    <Button
+                      size="sm"
+                      className="h-9 text-xs px-2"
+                      disabled={!newBrandName.trim() || saveBrandMutation.isPending}
+                      onClick={() => saveBrandMutation.mutate()}
+                    >
+                      {saveBrandMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
+                    </Button>
+                    <button
+                      className="text-xs text-muted-foreground hover:text-foreground px-1"
+                      onClick={() => { setIsAddingBrand(false); setNewBrandName(""); setBrandError(""); }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+                {brandError && <p className="text-[11px] text-destructive col-span-full">{brandError}</p>}
+
+                {/* Category dropdown — maps DB names to Bag/Shoe/Belt/Wallet */}
+                <Select value={newCategoryId} onValueChange={(val) => {
+                  setNewCategoryId(val);
+                  setNewServiceType("");
+                  setItemDescription("");
                 }}>
                   <SelectTrigger className="h-9 text-xs">
-                    <SelectValue placeholder="Brand" />
+                    <SelectValue placeholder="Category" />
                   </SelectTrigger>
                   <SelectContent>
-                    {brandsOptions?.map((b) => (
-                      <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                    {mappedCategories.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>{c.displayName}</SelectItem>
                     ))}
-                    <SelectItem value="__add_new__">+ Add New Brand</SelectItem>
                   </SelectContent>
                 </Select>
-              ) : (
-                <div className="flex items-center gap-1">
+
+                {/* Service Type dropdown — filtered by category */}
+                <Select value={newServiceType} onValueChange={setNewServiceType}>
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue placeholder="Service Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {serviceTypeOptions.map((t) => (
+                      <SelectItem key={t} value={t}>{t}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Belt/Wallet description field */}
+              {showDescriptionField && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Specific Item Description</Label>
                   <Input
-                    value={newBrandName}
-                    onChange={(e) => { setNewBrandName(e.target.value); setBrandError(""); }}
-                    placeholder="Enter new brand name"
-                    className="h-9 text-xs flex-1"
+                    value={itemDescription}
+                    onChange={(e) => setItemDescription(e.target.value)}
+                    placeholder={selectedCategoryDisplay === "Belt" ? "e.g. Thin leather belt" : "e.g. Bifold wallet"}
+                    className="h-9 text-sm"
                   />
-                  <Button
-                    size="sm"
-                    className="h-9 text-xs px-2"
-                    disabled={!newBrandName.trim() || saveBrandMutation.isPending}
-                    onClick={() => saveBrandMutation.mutate()}
-                  >
-                    {saveBrandMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
-                  </Button>
-                  <button
-                    className="text-xs text-muted-foreground hover:text-foreground px-1"
-                    onClick={() => { setIsAddingBrand(false); setNewBrandName(""); setBrandError(""); }}
-                  >
-                    Cancel
-                  </button>
                 </div>
               )}
-              {brandError && <p className="text-[11px] text-destructive col-span-full">{brandError}</p>}
 
-              {/* FIX 2: Category dropdown filtered to 4 valid values */}
-              <Select value={newCategoryId} onValueChange={(val) => {
-                setNewCategoryId(val);
-                // Reset description when category changes
-                setItemDescription("");
-              }}>
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue placeholder="Category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {filteredCategories.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              <Select value={newServiceType} onValueChange={setNewServiceType}>
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue placeholder="Service Type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {["restoration", "repair", "cleaning", "dye", "hardware", "spa"].map((t) => (
-                    <SelectItem key={t} value={t}>{t}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Button
+                size="sm"
+                className="gap-1.5"
+                onClick={handleAddItem}
+                disabled={addItemMutation.isPending}
+              >
+                {addItemMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                Add
+              </Button>
             </div>
+          )}
+        </section>
 
-            {/* FIX 3: Belt/Wallet description field */}
-            {showDescriptionField && (
-              <div className="space-y-1.5">
-                <Label className="text-xs">Specific Item Description</Label>
-                <Input
-                  value={itemDescription}
-                  onChange={(e) => setItemDescription(e.target.value)}
-                  placeholder={selectedCategoryName === "Belt" ? "e.g. Thin leather belt" : "e.g. Bifold wallet"}
-                  className="h-9 text-sm"
-                />
-              </div>
+        {/* 4-Stage Workflow Actions */}
+        {!isConverted && (
+          <section className="space-y-2">
+            {/* Stage 2: Ready to Quote → Send to Portal */}
+            {isReadyToQuote && (
+              <Button
+                onClick={handleSendToPortal}
+                disabled={updateStatus.isPending}
+                className="w-full gap-2"
+              >
+                {updateStatus.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                Send to Portal
+              </Button>
             )}
 
-            <Button
-              size="sm"
-              className="gap-1.5"
-              disabled={!newBrandId || !newCategoryId || !newServiceType || addItemMutation.isPending}
-              onClick={() => addItemMutation.mutate()}
-            >
-              {addItemMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-              Add
-            </Button>
-          </div>
-        </section>
-
-        {/* Status Stepper */}
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold text-foreground">Order Progress</h2>
-          <div className="flex items-center gap-1">
-            {STATUS_FLOW.map((s, i) => {
-              const done = i <= currentIdx;
-              return (
-                <div key={s} className="flex flex-1 flex-col items-center gap-1.5">
-                  <div className={`h-2 w-full rounded-full transition-colors ${done ? "bg-primary" : "bg-border"}`} />
-                  <span className={`text-[10px] font-medium ${done ? "text-primary" : "text-muted-foreground"}`}>{s}</span>
+            {/* Stage 3: Quoted → Convert to Order */}
+            {isQuoted && (
+              <div className="space-y-2">
+                <div className="rounded-[var(--radius)] border border-border bg-muted/30 p-3 flex items-center gap-2">
+                  <Info className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <p className="text-sm text-muted-foreground">Awaiting customer approval via portal</p>
                 </div>
-              );
-            })}
-          </div>
-          {nextStatus && (
-            <Button
-              onClick={handleAdvance}
-              disabled={updateStatus.isPending}
-              className="w-full rounded-[var(--radius)] gap-2"
-            >
-              {updateStatus.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-              {advanceLabel}
-            </Button>
-          )}
-        </section>
-
-        {/* Convert to Order — FIX 6: gating with pincode + items */}
-        <div className="space-y-1">
-          <Button
-            onClick={handleConvertToOrder}
-            disabled={!canConvert || converting}
-            variant="outline"
-            className="w-full rounded-[var(--radius)] gap-2 border-primary/30"
-          >
-            {converting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardList className="h-4 w-4" />}
-            Convert to Order
-          </Button>
-          {!hasItems && (
-            <p className="text-center text-xs text-amber-600">⚠ Add at least 1 item to convert</p>
-          )}
-          {!pincodeValid && (
-            <p className="text-center text-xs text-amber-600">⚠ A valid 6-digit Pincode is required to convert</p>
-          )}
-        </div>
+                <Button
+                  onClick={handleConvertToOrder}
+                  disabled={!canConvert || converting}
+                  variant="outline"
+                  className="w-full gap-2 border-primary/30"
+                >
+                  {converting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardList className="h-4 w-4" />}
+                  Convert to Order
+                </Button>
+                {!hasItems && (
+                  <p className="text-center text-xs text-amber-600">⚠ Add at least 1 item to convert</p>
+                )}
+                {!pincodeValid && (
+                  <p className="text-center text-xs text-amber-600">⚠ A valid 6-digit Pincode is required to convert</p>
+                )}
+              </div>
+            )}
+          </section>
+        )}
 
         {/* Photo Gallery */}
         <section className="space-y-3">
@@ -648,7 +695,15 @@ const LeadDetail = () => {
                     onClick={() => setSelectedPhoto(p.url)}
                     className="h-full w-full"
                   >
-                    <img src={p.url} alt={p.fileName} className="h-full w-full object-cover" loading="lazy" />
+                    <img
+                      src={p.url}
+                      alt={p.fileName}
+                      className="h-full w-full object-cover"
+                      loading="lazy"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = "/placeholder.svg";
+                      }}
+                    />
                   </button>
                   <button
                     onClick={() => deletePhoto.mutate({ id: p.id, storagePath: p.storagePath }, {
