@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Loader2, AlertTriangle, Info, Ban, XCircle, CheckCircle, CreditCard, Copy, ExternalLink, Send, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -42,6 +42,7 @@ const OrderDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { isAdmin } = useUserRole();
+  const queryClient = useQueryClient();
   const {
     order, tasks, photos, auditLogs, isLoading,
     updateStatus, updateOrder, addExpertTask, updateExpertTask,
@@ -94,6 +95,7 @@ const OrderDetail = () => {
   const isOverCapacity = capacityData && capacityData.activeCount > capacityData.capacity;
   const isVip = (customerOrderCount ?? 0) > 1;
   const isReceivedOrInspection = order.status === "received" || order.status === "inspection";
+  const isDelivered = !!order.deliveredAt;
 
   // Check-in logic
   const checkedInItems: string[] = order.checkedInItems || [];
@@ -393,6 +395,45 @@ const OrderDetail = () => {
                 </Button>
               )}
             </div>
+          </section>
+        )}
+
+        {/* Delivery & Warranty Section */}
+        {order.status === "delivered" && (
+          <section className="rounded-[var(--radius)] border border-border bg-card p-4 space-y-3">
+            <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <CheckCircle className="h-4 w-4 text-green-600" /> Delivery & Warranty
+            </h3>
+            {isDelivered ? (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  Delivered: {format(new Date(order.deliveredAt!), "MMM d, yyyy 'at' h:mm a")}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Warranty: {order.warrantyDaysSnapshot} days from delivery
+                </p>
+              </div>
+            ) : (
+              <Button
+                size="sm"
+                className="gap-1.5"
+                onClick={async () => {
+                  try {
+                    const { error } = await supabase.rpc('set_delivered_at', {
+                      p_order_id: order.id,
+                      p_delivered_at: new Date().toISOString(),
+                    } as any);
+                    if (error) throw error;
+                    toast({ title: "Delivery confirmed & warranty started" });
+                    queryClient.invalidateQueries({ queryKey: ["order", id] });
+                  } catch (err: any) {
+                    toast({ title: err.message || "Failed to mark delivered", variant: "destructive" });
+                  }
+                }}
+              >
+                <Package className="h-3.5 w-3.5" /> Mark Delivered
+              </Button>
+            )}
           </section>
         )}
 

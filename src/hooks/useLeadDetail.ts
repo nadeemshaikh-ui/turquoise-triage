@@ -25,6 +25,7 @@ export interface LeadDetail {
   customerPincode: string | null;
   convertedOrderId: string | null;
   lifecycleStatus: string;
+  portalStage: string;
 }
 
 export interface LeadPhoto {
@@ -74,7 +75,7 @@ export const useLeadDetail = (leadId: string) => {
         .select(`
           id, quoted_price, status, tat_days_min, tat_days_max, tat_is_manual,
           is_gold_tier, created_at, custom_service_name, notes, customer_id,
-          converted_order_id, lifecycle_status,
+          converted_order_id, lifecycle_status, portal_stage,
           customers ( name, phone, email, address, city, state, pincode ),
           services ( name, category )
         `)
@@ -105,6 +106,7 @@ export const useLeadDetail = (leadId: string) => {
         customerPincode: row.customers?.pincode ?? null,
         convertedOrderId: row.converted_order_id ?? null,
         lifecycleStatus: row.lifecycle_status ?? "open",
+        portalStage: row.portal_stage ?? "AwaitingSelection",
       };
     },
     enabled: !!leadId,

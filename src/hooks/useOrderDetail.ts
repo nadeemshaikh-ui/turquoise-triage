@@ -48,7 +48,12 @@ export interface OrderDetail {
   paymentDeclared: boolean;
   packingPhotoUrl: string | null;
   isLoyaltyVip: boolean;
-  // New fields
+  // v3.4 fields
+  deliveredAt: string | null;
+  createdByUserId: string | null;
+  packageId: string | null;
+  warrantyDaysSnapshot: number;
+  // Existing fields
   expectedItemCount: number;
   checkedInItems: any[];
   checkinConfirmed: boolean;
@@ -197,7 +202,12 @@ export const useOrderDetail = (orderId: string) => {
         paymentDeclared: row.payment_declared || false,
         packingPhotoUrl: row.packing_photo_url || null,
         isLoyaltyVip: row.is_loyalty_vip || false,
-        // New fields
+        // v3.4 fields
+        deliveredAt: row.delivered_at || null,
+        createdByUserId: row.created_by_user_id || null,
+        packageId: row.package_id || null,
+        warrantyDaysSnapshot: row.warranty_days_snapshot || 0,
+        // Existing fields
         expectedItemCount: row.expected_item_count || 1,
         checkedInItems: (row.checked_in_items as any[]) || [],
         checkinConfirmed: row.checkin_confirmed || false,
