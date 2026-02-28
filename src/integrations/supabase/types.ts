@@ -463,6 +463,7 @@ export type Database = {
           selected_issues: Json
           selected_package_id: string | null
           selected_package_name: string | null
+          service_type: string
           sort_order: number
           suggestive_price: number
         }
@@ -478,6 +479,7 @@ export type Database = {
           selected_issues?: Json
           selected_package_id?: string | null
           selected_package_name?: string | null
+          service_type?: string
           sort_order?: number
           suggestive_price?: number
         }
@@ -493,6 +495,7 @@ export type Database = {
           selected_issues?: Json
           selected_package_id?: string | null
           selected_package_name?: string | null
+          service_type?: string
           sort_order?: number
           suggestive_price?: number
         }
