@@ -290,7 +290,9 @@ export type Database = {
           legacy_source: string | null
           name: string
           phone: string
+          pincode: string | null
           service_affinity: string[] | null
+          state: string | null
           updated_at: string
         }
         Insert: {
@@ -304,7 +306,9 @@ export type Database = {
           legacy_source?: string | null
           name: string
           phone: string
+          pincode?: string | null
           service_affinity?: string[] | null
+          state?: string | null
           updated_at?: string
         }
         Update: {
@@ -318,7 +322,9 @@ export type Database = {
           legacy_source?: string | null
           name?: string
           phone?: string
+          pincode?: string | null
           service_affinity?: string[] | null
+          state?: string | null
           updated_at?: string
         }
         Relationships: []

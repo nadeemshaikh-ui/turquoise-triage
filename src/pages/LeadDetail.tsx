@@ -1,8 +1,9 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Crown, Clock, Phone, Mail, Camera, MessageSquare, CheckCircle2, Loader2, Upload, ImagePlus, Trash2, X, Award, ClipboardList, Plus } from "lucide-react";
+import { ArrowLeft, Crown, Clock, Phone, Mail, Camera, MessageSquare, CheckCircle2, Loader2, Upload, ImagePlus, Trash2, X, Award, ClipboardList, Plus, MapPin, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
@@ -28,6 +29,11 @@ const actionIcons: Record<string, typeof CheckCircle2> = {
   photo_upload: Camera,
 };
 
+const VALID_CATEGORIES = ["Bag", "Shoe", "Belt", "Wallet"];
+const SNEAKER_HEELS_MAP: Record<string, string> = { Sneaker: "Shoe", Heels: "Shoe" };
+
+const mapCategoryName = (name: string) => SNEAKER_HEELS_MAP[name] || name;
+
 const LeadDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -38,9 +44,35 @@ const LeadDetail = () => {
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [converting, setConverting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Items form state
   const [newBrandId, setNewBrandId] = useState("");
   const [newCategoryId, setNewCategoryId] = useState("");
   const [newServiceType, setNewServiceType] = useState("");
+  const [itemDescription, setItemDescription] = useState("");
+
+  // Add New Brand state (FIX 4)
+  const [isAddingBrand, setIsAddingBrand] = useState(false);
+  const [newBrandName, setNewBrandName] = useState("");
+  const [brandError, setBrandError] = useState("");
+
+  // Address state (FIX 1)
+  const [addressLine1, setAddressLine1] = useState("");
+  const [addressLine2, setAddressLine2] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
+  const [pincode, setPincode] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Populate address from lead data
+  useEffect(() => {
+    if (lead) {
+      setAddressLine1(lead.customerAddress || "");
+      setCity(lead.customerCity || "");
+      setState(lead.customerState || "");
+      setPincode(lead.customerPincode || "");
+    }
+  }, [lead]);
 
   const { data: leadItems } = useQuery({
     queryKey: ["lead-items", id],
@@ -71,15 +103,27 @@ const LeadDetail = () => {
     },
   });
 
+  // FIX 2: Filter categories to only valid 4
+  const filteredCategories = (categoriesOptions || []).filter((c) => VALID_CATEGORIES.includes(c.name));
+
+  // Resolve selected category name for conditional description field
+  const selectedCategoryName = filteredCategories.find((c) => c.id === newCategoryId)?.name || "";
+  const showDescriptionField = selectedCategoryName === "Belt" || selectedCategoryName === "Wallet";
+
   const addItemMutation = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.from("lead_items").insert({
+      const insertData: any = {
         lead_id: id!,
         brand_id: newBrandId,
         category_id: newCategoryId,
         service_type: newServiceType,
         sort_order: leadItems?.length || 0,
-      });
+      };
+      // FIX 3: Include description for Belt/Wallet
+      if (showDescriptionField && itemDescription.trim()) {
+        insertData.description = itemDescription.trim();
+      }
+      const { error } = await supabase.from("lead_items").insert(insertData);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -87,6 +131,7 @@ const LeadDetail = () => {
       setNewBrandId("");
       setNewCategoryId("");
       setNewServiceType("");
+      setItemDescription("");
       toast({ title: "Item added" });
     },
     onError: (err: any) => toast({ title: err.message || "Failed to add item", variant: "destructive" }),
@@ -100,6 +145,30 @@ const LeadDetail = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["lead-items", id] });
       toast({ title: "Item removed" });
+    },
+  });
+
+  // FIX 4: Save new brand mutation
+  const saveBrandMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase
+        .from("brands")
+        .insert({ name: newBrandName.trim() })
+        .select("id, name")
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["brands-options"] });
+      setNewBrandId(data.id);
+      setIsAddingBrand(false);
+      setNewBrandName("");
+      setBrandError("");
+      toast({ title: `Brand "${data.name}" created` });
+    },
+    onError: () => {
+      setBrandError("Could not save brand. Try again.");
     },
   });
 
@@ -129,6 +198,9 @@ const LeadDetail = () => {
   const currentIdx = STATUS_FLOW.indexOf(lead.status);
   const nextStatus = currentIdx < STATUS_FLOW.length - 1 ? STATUS_FLOW[currentIdx + 1] : null;
 
+  // FIX 6: Label for the advance button
+  const advanceLabel = nextStatus === "Assigned" ? "Assign to Workshop" : `Move to ${nextStatus}`;
+
   const handleAdvance = () => {
     if (!nextStatus) return;
     updateStatus.mutate(nextStatus, {
@@ -156,8 +228,13 @@ const LeadDetail = () => {
     e.target.value = "";
   };
 
+  // FIX 6: Convert gating
+  const pincodeValid = /^\d{6}$/.test(pincode);
+  const hasItems = leadItems && leadItems.length > 0;
+  const canConvert = hasItems && pincodeValid;
+
   const handleConvertToOrder = async () => {
-    if (!lead || !leadItems?.length) return;
+    if (!lead || !canConvert) return;
     setConverting(true);
     try {
       const { data, error } = await supabase.rpc('convert_lead_to_order', {
@@ -173,7 +250,40 @@ const LeadDetail = () => {
     }
   };
 
+  // FIX 5: Save Lead (address only)
+  const handleSaveLead = async () => {
+    if (!addressLine1.trim() || !city.trim() || !state.trim() || !pincode.trim()) {
+      toast({ title: "Please fill Address Line 1, City, State, and Pincode", variant: "destructive" });
+      return;
+    }
+    if (!/^\d{6}$/.test(pincode)) {
+      toast({ title: "Pincode must be a 6-digit number", variant: "destructive" });
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const fullAddress = `${addressLine1.trim()}${addressLine2.trim() ? ', ' + addressLine2.trim() : ''}, ${city.trim()}, ${state.trim()} - ${pincode.trim()}`;
+      const { error } = await supabase
+        .from("customers")
+        .update({
+          address: fullAddress,
+          city: city.trim(),
+          state: state.trim(),
+          pincode: pincode.trim(),
+        })
+        .eq("id", lead.customerId);
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: ["lead", id] });
+      toast({ title: "Lead saved successfully" });
+    } catch {
+      toast({ title: "Save failed. Please try again.", variant: "destructive" });
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
+  // Pincode inline error
+  const pincodeError = pincode.length > 0 && !/^\d{6}$/.test(pincode);
 
   return (
     <div className="min-h-screen bg-background">
@@ -237,6 +347,57 @@ const LeadDetail = () => {
           </div>
         )}
 
+        {/* FIX 1: Structured Address Block */}
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <MapPin className="h-4 w-4 text-muted-foreground" />
+            <h2 className="text-sm font-semibold text-foreground">Address</h2>
+          </div>
+          <div className="rounded-[var(--radius)] border border-border bg-card p-4 space-y-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Address Line 1 *</Label>
+              <Input value={addressLine1} onChange={(e) => setAddressLine1(e.target.value)} placeholder="House/flat no, building, street" className="h-9 text-sm" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Address Line 2 (Optional)</Label>
+              <Input value={addressLine2} onChange={(e) => setAddressLine2(e.target.value)} placeholder="Landmark, area" className="h-9 text-sm" />
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">City *</Label>
+                <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="City" className="h-9 text-sm" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">State *</Label>
+                <Input value={state} onChange={(e) => setState(e.target.value)} placeholder="State" className="h-9 text-sm" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Pincode *</Label>
+                <Input
+                  value={pincode}
+                  onChange={(e) => setPincode(e.target.value)}
+                  placeholder="6 digits"
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  className={`h-9 text-sm ${pincodeError ? "border-destructive" : ""}`}
+                />
+                {pincodeError && <p className="text-[11px] text-destructive">Must be a 6-digit number</p>}
+              </div>
+            </div>
+            {/* FIX 5: Save Lead Button */}
+            <Button
+              onClick={handleSaveLead}
+              disabled={isSaving}
+              className="w-full gap-2"
+              size="sm"
+            >
+              {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Save Lead
+            </Button>
+          </div>
+        </section>
+
         {/* Lead Items Manager */}
         <section className="space-y-3">
           <div className="flex items-center gap-2">
@@ -254,11 +415,13 @@ const LeadDetail = () => {
                   ultra_luxury: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
                 };
                 const tierLabel: Record<string, string> = { standard: "Standard", luxury: "Luxury", ultra_luxury: "Ultra-Luxury" };
+                // FIX 2: Map Sneaker/Heels → Shoe for display
+                const displayCategory = mapCategoryName(item.service_categories?.name || "Item");
                 return (
                   <div key={item.id} className="rounded-[var(--radius)] border border-border bg-card p-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-sm font-medium text-foreground">{item.service_categories?.name || "Item"}</p>
+                        <p className="text-sm font-medium text-foreground">{displayCategory}</p>
                         {item.brands?.name && (
                           <>
                             <span className="text-[10px] text-muted-foreground">·</span>
@@ -267,6 +430,7 @@ const LeadDetail = () => {
                           </>
                         )}
                         <Badge variant="outline" className="text-[9px]">{item.service_type || "restoration"}</Badge>
+                        {item.description && <span className="text-[10px] text-muted-foreground italic">— {item.description}</span>}
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold text-foreground">₹{Number(item.manual_price || 0).toLocaleString()}</span>
@@ -295,26 +459,68 @@ const LeadDetail = () => {
           <div className="rounded-[var(--radius)] border border-dashed border-border bg-muted/20 p-3 space-y-3">
             <p className="text-xs font-medium text-muted-foreground">Add Item</p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <Select value={newBrandId} onValueChange={setNewBrandId}>
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue placeholder="Brand" />
-                </SelectTrigger>
-                <SelectContent>
-                  {brandsOptions?.map((b) => (
-                    <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={newCategoryId} onValueChange={setNewCategoryId}>
+              {/* FIX 4: Brand dropdown with "+ Add New Brand" */}
+              {!isAddingBrand ? (
+                <Select value={newBrandId} onValueChange={(val) => {
+                  if (val === "__add_new__") {
+                    setIsAddingBrand(true);
+                    setNewBrandId("");
+                  } else {
+                    setNewBrandId(val);
+                  }
+                }}>
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue placeholder="Brand" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {brandsOptions?.map((b) => (
+                      <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                    ))}
+                    <SelectItem value="__add_new__">+ Add New Brand</SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="flex items-center gap-1">
+                  <Input
+                    value={newBrandName}
+                    onChange={(e) => { setNewBrandName(e.target.value); setBrandError(""); }}
+                    placeholder="Enter new brand name"
+                    className="h-9 text-xs flex-1"
+                  />
+                  <Button
+                    size="sm"
+                    className="h-9 text-xs px-2"
+                    disabled={!newBrandName.trim() || saveBrandMutation.isPending}
+                    onClick={() => saveBrandMutation.mutate()}
+                  >
+                    {saveBrandMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
+                  </Button>
+                  <button
+                    className="text-xs text-muted-foreground hover:text-foreground px-1"
+                    onClick={() => { setIsAddingBrand(false); setNewBrandName(""); setBrandError(""); }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+              {brandError && <p className="text-[11px] text-destructive col-span-full">{brandError}</p>}
+
+              {/* FIX 2: Category dropdown filtered to 4 valid values */}
+              <Select value={newCategoryId} onValueChange={(val) => {
+                setNewCategoryId(val);
+                // Reset description when category changes
+                setItemDescription("");
+              }}>
                 <SelectTrigger className="h-9 text-xs">
                   <SelectValue placeholder="Category" />
                 </SelectTrigger>
                 <SelectContent>
-                  {categoriesOptions?.map((c) => (
+                  {filteredCategories.map((c) => (
                     <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+
               <Select value={newServiceType} onValueChange={setNewServiceType}>
                 <SelectTrigger className="h-9 text-xs">
                   <SelectValue placeholder="Service Type" />
@@ -326,6 +532,20 @@ const LeadDetail = () => {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* FIX 3: Belt/Wallet description field */}
+            {showDescriptionField && (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Specific Item Description</Label>
+                <Input
+                  value={itemDescription}
+                  onChange={(e) => setItemDescription(e.target.value)}
+                  placeholder={selectedCategoryName === "Belt" ? "e.g. Thin leather belt" : "e.g. Bifold wallet"}
+                  className="h-9 text-sm"
+                />
+              </div>
+            )}
+
             <Button
               size="sm"
               className="gap-1.5"
@@ -359,24 +579,27 @@ const LeadDetail = () => {
               className="w-full rounded-[var(--radius)] gap-2"
             >
               {updateStatus.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-              Move to {nextStatus}
+              {advanceLabel}
             </Button>
           )}
         </section>
 
-        {/* Convert to Order */}
+        {/* Convert to Order — FIX 6: gating with pincode + items */}
         <div className="space-y-1">
           <Button
             onClick={handleConvertToOrder}
-            disabled={converting || !leadItems?.length}
+            disabled={!canConvert || converting}
             variant="outline"
             className="w-full rounded-[var(--radius)] gap-2 border-primary/30"
           >
             {converting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardList className="h-4 w-4" />}
             Convert to Order
           </Button>
-          {(!leadItems || leadItems.length === 0) && (
+          {!hasItems && (
             <p className="text-center text-xs text-amber-600">⚠ Add at least 1 item to convert</p>
+          )}
+          {!pincodeValid && (
+            <p className="text-center text-xs text-amber-600">⚠ A valid 6-digit Pincode is required to convert</p>
           )}
         </div>
 
@@ -487,7 +710,6 @@ const LeadDetail = () => {
                 const Icon = actionIcons[item.action] || MessageSquare;
                 return (
                   <div key={item.id} className="relative flex gap-3 pb-4">
-                    {/* Timeline line */}
                     {i < activity.length - 1 && (
                       <div className="absolute left-[13px] top-7 h-full w-px bg-border" />
                     )}
