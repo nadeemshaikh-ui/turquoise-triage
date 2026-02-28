@@ -27,6 +27,7 @@ import AdminHub from "./pages/AdminHub";
 import Orders from "./pages/Orders";
 import OrderDetail from "./pages/OrderDetail";
 import Portal from "./pages/Portal";
+import PricingMaster from "./pages/PricingMaster";
 
 const queryClient = new QueryClient();
 
@@ -49,6 +50,7 @@ const App = () => (
               <Route path="/orders" element={<Orders />} />
               <Route path="/customers" element={<Customers />} />
               <Route path="/services" element={<Services />} />
+              <Route path="/pricing" element={<AdminRoute><PricingMaster /></AdminRoute>} />
               <Route path="/finance" element={<AdminRoute requiredRole="super_admin"><Finance /></AdminRoute>} />
               <Route path="/automations" element={<AdminRoute><Automations /></AdminRoute>} />
               <Route path="/recovery" element={<Recovery />} />

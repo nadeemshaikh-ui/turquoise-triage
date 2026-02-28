@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, Crown, Clock, Phone, Mail, Camera, MessageSquare, CheckCircle2, Loader2, Upload, ImagePlus, Trash2, X, Award, ClipboardList, Plus, MapPin, Save, Send, ExternalLink, Info } from "lucide-react";
+import { ArrowLeft, Crown, Clock, Phone, Mail, Camera, MessageSquare, CheckCircle2, Loader2, Upload, ImagePlus, Trash2, X, Award, ClipboardList, Plus, MapPin, Save, Send, ExternalLink, Info, Copy, Eye, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -8,11 +8,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { useLeadDetail } from "@/hooks/useLeadDetail";
+import { useLeadItemPhotos, useOrphanedPhotos } from "@/hooks/useLeadItemPhotos";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format, formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { cn } from "@/lib/utils";
 
 // PhotoThumb sub-component: handles broken image gracefully
 const PhotoThumb = ({ url, fileName }: { url: string; fileName: string }) => {
@@ -51,31 +53,15 @@ const actionIcons: Record<string, typeof CheckCircle2> = {
   photo_upload: Camera,
 };
 
-// Category service type filtering
-const CATEGORY_SERVICE_TYPES: Record<string, string[]> = {
-  Bag: ["restoration", "cleaning", "hardware", "dye", "spa"],
-  Shoe: ["restoration", "cleaning", "repair", "spa"],
-  Belt: ["restoration", "cleaning", "repair", "dye"],
-  Wallet: ["restoration", "cleaning", "repair"],
+// Map UI pill labels → DB category names in service_pricing_master
+const CATEGORY_DB_MAP: Record<string, string> = {
+  Bag: "Luxury Handbags",
+  Shoe: "Sneakers",
+  Belt: "Belt",
+  Wallet: "Wallet",
 };
 
-const ALL_SERVICE_TYPES = ["restoration", "cleaning", "repair", "dye", "hardware", "spa"];
-
-// Map DB category names to valid display names
-const CATEGORY_NAME_MAP: Record<string, string> = {
-  "Luxury Handbags": "Bag",
-  "Sneakers": "Shoe",
-  "Sneaker": "Shoe",
-  "Heels": "Shoe",
-  "Bag": "Bag",
-  "Shoe": "Shoe",
-  "Belt": "Belt",
-  "Wallet": "Wallet",
-  "Accessories": "Belt", // fallback mapping
-  "Leather Jackets": "Bag", // fallback mapping
-};
-
-const mapCategoryName = (name: string) => CATEGORY_NAME_MAP[name] || name;
+const CATEGORY_PILLS = ["Bag", "Shoe", "Belt", "Wallet"] as const;
 
 const LeadDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -91,8 +77,11 @@ const LeadDetail = () => {
   // Items form state
   const [newBrandId, setNewBrandId] = useState("");
   const [newCategoryId, setNewCategoryId] = useState("");
+  const [selectedPill, setSelectedPill] = useState("");
   const [newServiceType, setNewServiceType] = useState("");
+  const [manualPrice, setManualPrice] = useState(0);
   const [itemDescription, setItemDescription] = useState("");
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
 
   // Add New Brand state
   const [isAddingBrand, setIsAddingBrand] = useState(false);
@@ -146,22 +135,61 @@ const LeadDetail = () => {
     },
   });
 
-  // Map DB categories to valid display names, deduplicate (first match per displayName wins)
-  const seen = new Set<string>();
-  const mappedCategories = (categoriesOptions || []).map((c) => ({
-    ...c,
-    displayName: mapCategoryName(c.name),
-  })).filter((c) => ["Bag", "Shoe", "Belt", "Wallet"].includes(c.displayName))
-    .filter((c) => { if (seen.has(c.displayName)) return false; seen.add(c.displayName); return true; });
+  // Dynamic service types from service_pricing_master
+  const dbCategory = selectedPill ? CATEGORY_DB_MAP[selectedPill] : "";
+  const { data: serviceTypes = [] } = useQuery({
+    queryKey: ["pricing-service-types", dbCategory],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("service_pricing_master")
+        .select("service_type")
+        .ilike("category", dbCategory);
+      return [...new Set((data || []).map((r: any) => r.service_type))];
+    },
+    enabled: !!dbCategory,
+  });
 
-  // Resolve selected category display name for filtering
-  const selectedCategoryDisplay = mappedCategories.find((c) => c.id === newCategoryId)?.displayName || "";
-  const showDescriptionField = selectedCategoryDisplay === "Belt" || selectedCategoryDisplay === "Wallet";
+  // Dynamic price lookup
+  useEffect(() => {
+    if (!dbCategory || !newServiceType) return;
+    (async () => {
+      const { data } = await supabase
+        .from("service_pricing_master")
+        .select("base_price")
+        .ilike("category", dbCategory)
+        .ilike("service_type", newServiceType)
+        .limit(1);
+      if (data && data.length > 0) {
+        setManualPrice(Number(data[0].base_price));
+      }
+    })();
+  }, [dbCategory, newServiceType]);
 
-  // Service type options filtered by selected category
-  const serviceTypeOptions = selectedCategoryDisplay
-    ? (CATEGORY_SERVICE_TYPES[selectedCategoryDisplay] || ALL_SERVICE_TYPES)
-    : ALL_SERVICE_TYPES;
+  // Map pill to category UUID
+  const getCategoryIdForPill = (pill: string) => {
+    const dbName = CATEGORY_DB_MAP[pill];
+    // Try exact match first, then case-insensitive
+    return categoriesOptions?.find(
+      (c) => c.name === dbName || c.name === pill || c.name.toLowerCase() === dbName?.toLowerCase()
+    )?.id || "";
+  };
+
+  const handlePillSelect = (pill: string) => {
+    const catId = getCategoryIdForPill(pill);
+    setSelectedPill(pill);
+    setNewCategoryId(catId);
+    setNewServiceType("");
+    setManualPrice(0);
+    setItemDescription("");
+    setNewBrandId("");
+    setIsAddingBrand(false);
+    setNewBrandName("");
+  };
+
+  const showDescriptionField = selectedPill === "Belt" || selectedPill === "Wallet";
+
+  // Orphaned photos
+  const { photos: orphanedPhotos } = useOrphanedPhotos(id!);
 
   const addItemMutation = useMutation({
     mutationFn: async () => {
@@ -170,6 +198,7 @@ const LeadDetail = () => {
         brand_id: newBrandId,
         category_id: newCategoryId,
         service_type: newServiceType,
+        manual_price: manualPrice,
         sort_order: leadItems?.length || 0,
       };
       if (showDescriptionField && itemDescription.trim()) {
@@ -179,17 +208,18 @@ const LeadDetail = () => {
       if (error) throw error;
     },
     onSuccess: () => {
-      console.log("Item added successfully, resetting form");
       queryClient.invalidateQueries({ queryKey: ["lead-items", id] });
       setNewBrandId("");
       setNewCategoryId("");
+      setSelectedPill("");
       setNewServiceType("");
+      setManualPrice(0);
       setItemDescription("");
       setIsAddingBrand(false);
       setNewBrandName("");
       toast.success("Item added");
     },
-    onError: (err: any) => { console.error("addItemMutation error:", err); toast.error(err.message || "Failed to add item"); },
+    onError: (err: any) => toast.error(err.message || "Failed to add item"),
   });
 
   const deleteItemMutation = useMutation({
@@ -199,6 +229,7 @@ const LeadDetail = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["lead-items", id] });
+      setConfirmingDeleteId(null);
       toast.success("Item removed");
     },
   });
@@ -221,9 +252,7 @@ const LeadDetail = () => {
       setBrandError("");
       toast.success(`Brand "${data.name}" created`);
     },
-    onError: () => {
-      setBrandError("Could not save brand. Try again.");
-    },
+    onError: () => setBrandError("Could not save brand. Try again."),
   });
 
   const { data: customerLegacy } = useQuery({
@@ -248,19 +277,32 @@ const LeadDetail = () => {
     );
   }
 
-  // 4-stage workflow
   const hasItems = leadItems && leadItems.length > 0;
   const pincodeValid = /^\d{6}$/.test(pincode);
   const canConvert = hasItems && pincodeValid;
   const isConverted = !!lead.convertedOrderId;
   const isQuoted = lead.status === "quoted";
-  const isDraft = lead.status === "New" && !hasItems;
-  const isReadyToQuote = lead.status === "New" && hasItems;
 
   const handleSendToPortal = () => {
     updateStatus.mutate("quoted", {
       onSuccess: () => toast.success("Lead sent to customer portal"),
     });
+  };
+
+  const handleRecallFromPortal = () => {
+    updateStatus.mutate("New", {
+      onSuccess: () => toast.success("Lead recalled from portal"),
+    });
+  };
+
+  const handleCopyPortalLink = async () => {
+    const url = `${window.location.origin}/portal/${lead.customerId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Portal link copied!");
+    } catch {
+      toast.info(url);
+    }
   };
 
   const handleAddNote = () => {
@@ -287,9 +329,7 @@ const LeadDetail = () => {
     if (!lead || !canConvert) return;
     setConverting(true);
     try {
-      const { data, error } = await supabase.rpc('convert_lead_to_order', {
-        p_lead_id: lead.id,
-      });
+      const { data, error } = await supabase.rpc('convert_lead_to_order', { p_lead_id: lead.id });
       if (error) throw error;
       toast.success("Order created!");
       navigate(`/orders/${data}`);
@@ -314,12 +354,7 @@ const LeadDetail = () => {
       const fullAddress = `${addressLine1.trim()}${addressLine2.trim() ? ', ' + addressLine2.trim() : ''}, ${city.trim()}, ${state.trim()} - ${pincode.trim()}`;
       const { error } = await supabase
         .from("customers")
-        .update({
-          address: fullAddress,
-          city: city.trim(),
-          state: state.trim(),
-          pincode: pincode.trim(),
-        })
+        .update({ address: fullAddress, city: city.trim(), state: state.trim(), pincode: pincode.trim() })
         .eq("id", lead.customerId);
       if (error) throw error;
       queryClient.invalidateQueries({ queryKey: ["lead", id] });
@@ -333,15 +368,13 @@ const LeadDetail = () => {
 
   const pincodeError = pincode.length > 0 && !/^\d{6}$/.test(pincode);
 
-  // Add item validation helper
   const handleAddItem = () => {
-    console.log("handleAddItem called", { newBrandId, newCategoryId, newServiceType });
     const missing: string[] = [];
     if (!newBrandId) missing.push("Brand");
     if (!newCategoryId) missing.push("Category");
     if (!newServiceType) missing.push("Service Type");
+    if (manualPrice < 0 || isNaN(manualPrice)) missing.push("Valid Price");
     if (missing.length > 0) {
-      console.log("handleAddItem: missing fields", missing);
       toast.error(`Please select: ${missing.join(", ")}`);
       return;
     }
@@ -482,47 +515,18 @@ const LeadDetail = () => {
 
           {leadItems && leadItems.length > 0 && (
             <div className="space-y-2">
-              {leadItems.map((item: any) => {
-                const tierBadge: Record<string, string> = {
-                  standard: "bg-muted text-muted-foreground",
-                  luxury: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
-                  ultra_luxury: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
-                };
-                const tierLabel: Record<string, string> = { standard: "Standard", luxury: "Luxury", ultra_luxury: "Ultra-Luxury" };
-                const displayCategory = mapCategoryName(item.service_categories?.name || "Item");
-                return (
-                  <div key={item.id} className="rounded-[var(--radius)] border border-border bg-card p-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-sm font-medium text-foreground">{displayCategory}</p>
-                        {item.brands?.name && (
-                          <>
-                            <span className="text-[10px] text-muted-foreground">·</span>
-                            <span className="text-xs font-medium text-foreground">{item.brands.name}</span>
-                            <Badge className={`text-[9px] ${tierBadge[item.brands?.tier] || ""}`}>{tierLabel[item.brands?.tier] || item.brands?.tier}</Badge>
-                          </>
-                        )}
-                        <Badge variant="outline" className="text-[9px]">{item.service_type || "restoration"}</Badge>
-                        {item.description && <span className="text-[10px] text-muted-foreground italic">— {item.description}</span>}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-foreground">₹{Number(item.manual_price || 0).toLocaleString()}</span>
-                        {!isConverted && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={() => deleteItemMutation.mutate(item.id)}
-                            disabled={deleteItemMutation.isPending}
-                          >
-                            <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+              {leadItems.map((item: any) => (
+                <ItemCard
+                  key={item.id}
+                  item={item}
+                  leadId={id!}
+                  isConverted={isConverted}
+                  confirmingDeleteId={confirmingDeleteId}
+                  onConfirmDelete={setConfirmingDeleteId}
+                  onDelete={(itemId) => deleteItemMutation.mutate(itemId)}
+                  deleteIsPending={deleteItemMutation.isPending}
+                />
+              ))}
             </div>
           )}
 
@@ -534,8 +538,27 @@ const LeadDetail = () => {
           {!isConverted && (
             <div className="rounded-[var(--radius)] border border-dashed border-border bg-muted/20 p-3 space-y-3">
               <p className="text-xs font-medium text-muted-foreground">Add Item</p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                {/* Brand dropdown with "+ Add New Brand" */}
+
+              {/* Category Pills */}
+              <div className="flex flex-wrap gap-1.5">
+                {CATEGORY_PILLS.map((pill) => (
+                  <button
+                    key={pill}
+                    onClick={() => handlePillSelect(pill)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-full text-xs font-medium transition-all border",
+                      selectedPill === pill
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-muted text-muted-foreground border-border hover:border-primary/40"
+                    )}
+                  >
+                    {pill}
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {/* Brand dropdown */}
                 {!isAddingBrand ? (
                   <Select value={newBrandId} onValueChange={(val) => {
                     if (val === "__add_new__") {
@@ -560,56 +583,44 @@ const LeadDetail = () => {
                     <Input
                       value={newBrandName}
                       onChange={(e) => { setNewBrandName(e.target.value); setBrandError(""); }}
-                      placeholder="Enter new brand name"
+                      placeholder="New brand name"
                       className="h-9 text-xs flex-1"
                     />
-                    <Button
-                      size="sm"
-                      className="h-9 text-xs px-2"
-                      disabled={!newBrandName.trim() || saveBrandMutation.isPending}
-                      onClick={() => saveBrandMutation.mutate()}
-                    >
+                    <Button size="sm" className="h-9 text-xs px-2" disabled={!newBrandName.trim() || saveBrandMutation.isPending} onClick={() => saveBrandMutation.mutate()}>
                       {saveBrandMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
                     </Button>
-                    <button
-                      className="text-xs text-muted-foreground hover:text-foreground px-1"
-                      onClick={() => { setIsAddingBrand(false); setNewBrandName(""); setBrandError(""); }}
-                    >
-                      Cancel
-                    </button>
+                    <button className="text-xs text-muted-foreground hover:text-foreground px-1" onClick={() => { setIsAddingBrand(false); setNewBrandName(""); setBrandError(""); }}>Cancel</button>
                   </div>
                 )}
                 {brandError && <p className="text-[11px] text-destructive col-span-full">{brandError}</p>}
 
-                {/* Category dropdown — maps DB names to Bag/Shoe/Belt/Wallet */}
-                <Select value={newCategoryId} onValueChange={(val) => {
-                  console.log("Category selected:", val, mappedCategories.find(c => c.id === val)?.displayName);
-                  setNewCategoryId(val);
-                  setNewServiceType("");
-                  setItemDescription("");
-                }}>
-                  <SelectTrigger className="h-9 text-xs">
-                    <SelectValue placeholder="Category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {mappedCategories.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>{c.displayName}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
-                {/* Service Type dropdown — filtered by category */}
-                <Select value={newServiceType} onValueChange={setNewServiceType}>
+                {/* Service Type dropdown — dynamic from DB */}
+                <Select value={newServiceType} onValueChange={setNewServiceType} disabled={!selectedPill}>
                   <SelectTrigger className="h-9 text-xs">
                     <SelectValue placeholder="Service Type" />
                   </SelectTrigger>
                   <SelectContent>
-                    {serviceTypeOptions.map((t) => (
+                    {serviceTypes.map((t: string) => (
                       <SelectItem key={t} value={t}>{t}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
+
+              {/* Price field — editable suggestion */}
+              {selectedPill && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Price (Rs.) — editable</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={manualPrice}
+                    onChange={(e) => setManualPrice(Number(e.target.value))}
+                    className="h-9 text-sm"
+                  />
+                </div>
+              )}
 
               {/* Belt/Wallet description field */}
               {showDescriptionField && (
@@ -618,18 +629,13 @@ const LeadDetail = () => {
                   <Input
                     value={itemDescription}
                     onChange={(e) => setItemDescription(e.target.value)}
-                    placeholder={selectedCategoryDisplay === "Belt" ? "e.g. Thin leather belt" : "e.g. Bifold wallet"}
+                    placeholder={selectedPill === "Belt" ? "e.g. Thin leather belt" : "e.g. Bifold wallet"}
                     className="h-9 text-sm"
                   />
                 </div>
               )}
 
-              <Button
-                size="sm"
-                className="gap-1.5"
-                onClick={handleAddItem}
-                disabled={addItemMutation.isPending}
-              >
+              <Button size="sm" className="gap-1.5" onClick={handleAddItem} disabled={addItemMutation.isPending}>
                 {addItemMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
                 Add
               </Button>
@@ -637,28 +643,40 @@ const LeadDetail = () => {
           )}
         </section>
 
-        {/* 4-Stage Workflow Actions */}
+        {/* 3-State Portal Workflow */}
         {!isConverted && (
           <section className="space-y-2">
-            {/* Stage 2: Ready to Quote → Send to Portal */}
-            {isReadyToQuote && (
-              <Button
-                onClick={handleSendToPortal}
-                disabled={updateStatus.isPending}
-                className="w-full gap-2"
-              >
+            {!isQuoted && !hasItems && (
+              <Button disabled className="w-full gap-2">
+                <Send className="h-4 w-4" /> Send to Portal
+              </Button>
+            )}
+            {!isQuoted && hasItems && (
+              <Button onClick={handleSendToPortal} disabled={updateStatus.isPending} className="w-full gap-2">
                 {updateStatus.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 Send to Portal
               </Button>
             )}
-
-            {/* Stage 3: Quoted → Convert to Order */}
             {isQuoted && (
               <div className="space-y-2">
-                <div className="rounded-[var(--radius)] border border-border bg-muted/30 p-3 flex items-center gap-2">
-                  <Info className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <p className="text-sm text-muted-foreground">Awaiting customer approval via portal</p>
+                {hasItems ? null : (
+                  <div className="rounded-[var(--radius)] border border-amber-300 bg-amber-50 dark:bg-amber-900/20 p-3">
+                    <p className="text-xs text-amber-700 dark:text-amber-300">⚠ Quote is live but has 0 items</p>
+                  </div>
+                )}
+                <div className="grid grid-cols-3 gap-2">
+                  <Button variant="outline" onClick={handleCopyPortalLink} className="gap-1.5 text-xs">
+                    <Copy className="h-3.5 w-3.5" /> Copy Link
+                  </Button>
+                  <Button variant="outline" onClick={() => window.open(`/portal/${lead.customerId}`, "_blank")} className="gap-1.5 text-xs">
+                    <Eye className="h-3.5 w-3.5" /> Preview
+                  </Button>
+                  <Button variant="outline" onClick={handleRecallFromPortal} disabled={updateStatus.isPending} className="gap-1.5 text-xs">
+                    {updateStatus.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                    Recall
+                  </Button>
                 </div>
+                {/* Convert to Order */}
                 <Button
                   onClick={handleConvertToOrder}
                   disabled={!canConvert || converting}
@@ -668,12 +686,8 @@ const LeadDetail = () => {
                   {converting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardList className="h-4 w-4" />}
                   Convert to Order
                 </Button>
-                {!hasItems && (
-                  <p className="text-center text-xs text-amber-600">⚠ Add at least 1 item to convert</p>
-                )}
-                {!pincodeValid && (
-                  <p className="text-center text-xs text-amber-600">⚠ A valid 6-digit Pincode is required to convert</p>
-                )}
+                {!hasItems && <p className="text-center text-xs text-amber-600">⚠ Add at least 1 item to convert</p>}
+                {!pincodeValid && <p className="text-center text-xs text-amber-600">⚠ A valid 6-digit Pincode is required to convert</p>}
               </div>
             )}
           </section>
@@ -688,21 +702,8 @@ const LeadDetail = () => {
               <span className="text-xs text-muted-foreground">({photos.length})</span>
             </div>
             <div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                className="hidden"
-                onChange={handleFileChange}
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 rounded-[var(--radius)]"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploadPhotos.isPending}
-              >
+              <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileChange} />
+              <Button variant="outline" size="sm" className="gap-1.5 rounded-[var(--radius)]" onClick={() => fileInputRef.current?.click()} disabled={uploadPhotos.isPending}>
                 {uploadPhotos.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
                 Upload
               </Button>
@@ -720,16 +721,11 @@ const LeadDetail = () => {
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
               {photos.map((p) => (
                 <div key={p.id} className="group relative aspect-square overflow-hidden rounded-[calc(var(--radius)/2)] border border-border bg-muted transition-shadow hover:shadow-md">
-                  <button
-                    onClick={() => setSelectedPhoto(p.url)}
-                    className="h-full w-full"
-                  >
+                  <button onClick={() => setSelectedPhoto(p.url)} className="h-full w-full">
                     <PhotoThumb url={p.url} fileName={p.fileName} />
                   </button>
                   <button
-                    onClick={() => deletePhoto.mutate({ id: p.id, storagePath: p.storagePath }, {
-                      onSuccess: () => toast.success("Photo deleted"),
-                    })}
+                    onClick={() => deletePhoto.mutate({ id: p.id, storagePath: p.storagePath }, { onSuccess: () => toast.success("Photo deleted") })}
                     className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-destructive text-destructive-foreground opacity-0 transition-opacity group-hover:opacity-100"
                   >
                     <X className="h-3 w-3" />
@@ -740,17 +736,24 @@ const LeadDetail = () => {
           )}
         </section>
 
+        {/* Orphaned Photos */}
+        {orphanedPhotos.length > 0 && (
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold text-foreground">Unassigned Photos</h2>
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+              {orphanedPhotos.map((p) => (
+                <div key={p.id} className="relative aspect-square overflow-hidden rounded-[calc(var(--radius)/2)] border border-dashed border-amber-300 bg-muted">
+                  <PhotoThumb url={p.url} fileName={p.fileName} />
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Photo Lightbox */}
         {selectedPhoto && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-            onClick={() => setSelectedPhoto(null)}
-          >
-            <img
-              src={selectedPhoto}
-              alt="Lead photo"
-              className="max-h-[85vh] max-w-full rounded-[var(--radius)] object-contain"
-            />
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setSelectedPhoto(null)}>
+            <img src={selectedPhoto} alt="Lead photo" className="max-h-[85vh] max-w-full rounded-[var(--radius)] object-contain" />
           </div>
         )}
 
@@ -758,18 +761,8 @@ const LeadDetail = () => {
         <section className="space-y-3">
           <h2 className="text-sm font-semibold text-foreground">Add a Note</h2>
           <div className="flex gap-2">
-            <Textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Type a note…"
-              className="min-h-[60px] rounded-[calc(var(--radius)/2)]"
-            />
-            <Button
-              onClick={handleAddNote}
-              disabled={!note.trim() || addNote.isPending}
-              size="icon"
-              className="shrink-0 self-end rounded-[var(--radius)]"
-            >
+            <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Type a note…" className="min-h-[60px] rounded-[calc(var(--radius)/2)]" />
+            <Button onClick={handleAddNote} disabled={!note.trim() || addNote.isPending} size="icon" className="shrink-0 self-end rounded-[var(--radius)]">
               {addNote.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}
             </Button>
           </div>
@@ -786,9 +779,7 @@ const LeadDetail = () => {
                 const Icon = actionIcons[item.action] || MessageSquare;
                 return (
                   <div key={item.id} className="relative flex gap-3 pb-4">
-                    {i < activity.length - 1 && (
-                      <div className="absolute left-[13px] top-7 h-full w-px bg-border" />
-                    )}
+                    {i < activity.length - 1 && <div className="absolute left-[13px] top-7 h-full w-px bg-border" />}
                     <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
                       <Icon className="h-3.5 w-3.5 text-muted-foreground" />
                     </div>
@@ -806,7 +797,6 @@ const LeadDetail = () => {
           )}
         </section>
 
-        {/* Created date */}
         <p className="text-center text-xs text-muted-foreground">
           Created {format(new Date(lead.createdAt), "MMM d, yyyy 'at' h:mm a")}
         </p>
@@ -814,6 +804,102 @@ const LeadDetail = () => {
     </div>
   );
 };
+
+/* ---- Item Card with inline delete + per-item photos ---- */
+function ItemCard({
+  item,
+  leadId,
+  isConverted,
+  confirmingDeleteId,
+  onConfirmDelete,
+  onDelete,
+  deleteIsPending,
+}: {
+  item: any;
+  leadId: string;
+  isConverted: boolean;
+  confirmingDeleteId: string | null;
+  onConfirmDelete: (id: string | null) => void;
+  onDelete: (id: string) => void;
+  deleteIsPending: boolean;
+}) {
+  const { photos: itemPhotos, upload, remove } = useLeadItemPhotos(leadId, item.id);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const tierBadge: Record<string, string> = {
+    standard: "bg-muted text-muted-foreground",
+    luxury: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
+    ultra_luxury: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
+  };
+  const tierLabel: Record<string, string> = { standard: "Standard", luxury: "Luxury", ultra_luxury: "Ultra-Luxury" };
+
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0) upload.mutate(files);
+    e.target.value = "";
+  };
+
+  return (
+    <div className="rounded-[var(--radius)] border border-border bg-card p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-sm font-medium text-foreground">{item.service_categories?.name || "Item"}</p>
+          {item.brands?.name && (
+            <>
+              <span className="text-[10px] text-muted-foreground">·</span>
+              <span className="text-xs font-medium text-foreground">{item.brands.name}</span>
+              <Badge className={`text-[9px] ${tierBadge[item.brands?.tier] || ""}`}>{tierLabel[item.brands?.tier] || item.brands?.tier}</Badge>
+            </>
+          )}
+          <Badge variant="outline" className="text-[9px]">{item.service_type || "restoration"}</Badge>
+          {item.description && <span className="text-[10px] text-muted-foreground italic">— {item.description}</span>}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-foreground">₹{Number(item.manual_price || 0).toLocaleString()}</span>
+          {!isConverted && (
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onConfirmDelete(item.id)}>
+              <Trash2 className="h-3.5 w-3.5 text-destructive" />
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Inline delete confirmation */}
+      {confirmingDeleteId === item.id && (
+        <div className="flex items-center gap-2 pt-1 border-t border-border">
+          <p className="text-xs text-muted-foreground flex-1">Remove this item?</p>
+          <Button size="sm" variant="destructive" className="h-7 text-xs px-2" onClick={() => onDelete(item.id)} disabled={deleteIsPending}>
+            {deleteIsPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Confirm"}
+          </Button>
+          <Button size="sm" variant="ghost" className="h-7 text-xs px-2" onClick={() => onConfirmDelete(null)}>Cancel</Button>
+        </div>
+      )}
+
+      {/* Per-item photos */}
+      {!isConverted && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {itemPhotos.map((p) => (
+            <div key={p.id} className="group relative h-12 w-12 rounded border border-border overflow-hidden">
+              <PhotoThumb url={p.url} fileName={p.fileName} />
+              <button
+                onClick={() => remove.mutate({ id: p.id, storagePath: p.storagePath })}
+                className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <X className="h-3 w-3 text-white" />
+              </button>
+            </div>
+          ))}
+          <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden" onChange={handlePhotoUpload} />
+          <button
+            onClick={() => fileRef.current?.click()}
+            className="h-12 w-12 rounded border border-dashed border-border flex items-center justify-center text-muted-foreground hover:border-primary/40 transition-colors"
+          >
+            {upload.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 const InfoCard = ({ label, value, icon }: { label: string; value: string; icon?: React.ReactNode }) => (
   <div className="rounded-[var(--radius)] border border-border bg-card p-3">

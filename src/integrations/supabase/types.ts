@@ -1391,6 +1391,30 @@ export type Database = {
         }
         Relationships: []
       }
+      service_pricing_master: {
+        Row: {
+          base_price: number
+          category: string
+          created_at: string
+          id: string
+          service_type: string
+        }
+        Insert: {
+          base_price?: number
+          category: string
+          created_at?: string
+          id?: string
+          service_type: string
+        }
+        Update: {
+          base_price?: number
+          category?: string
+          created_at?: string
+          id?: string
+          service_type?: string
+        }
+        Relationships: []
+      }
       service_recipes: {
         Row: {
           created_at: string
