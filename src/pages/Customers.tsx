@@ -12,10 +12,11 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Search, Plus, Pencil, Trash2, Loader2, Phone, Mail, User } from "lucide-react";
+import { Search, Plus, Pencil, Trash2, Loader2, Phone, Mail, User, CheckCircle2, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
+import { usePhoneLookup } from "@/hooks/usePhoneLookup";
 
 interface Customer {
   id: string;
@@ -33,6 +34,7 @@ const Customers = () => {
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: "", phone: "", email: "" });
+  const { result: phoneResult, lookup, reset: resetLookup } = usePhoneLookup();
 
   const { data: customers = [], isLoading } = useQuery({
     queryKey: ["customers-directory"],
@@ -43,7 +45,6 @@ const Customers = () => {
         .order("created_at", { ascending: false });
       if (error) throw error;
 
-      // Fetch lead counts
       const { data: leads } = await supabase
         .from("leads")
         .select("customer_id");
@@ -89,7 +90,12 @@ const Customers = () => {
       toast({ title: editCustomer ? "Customer updated" : "Customer added" });
       closeDialog();
     },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => {
+      const msg = e.message?.includes("customers_phone_unique")
+        ? "A customer with this phone number already exists."
+        : e.message;
+      toast({ title: "Error", description: msg, variant: "destructive" });
+    },
   });
 
   const deleteMutation = useMutation({
@@ -107,22 +113,48 @@ const Customers = () => {
   const openAdd = () => {
     setForm({ name: "", phone: "", email: "" });
     setEditCustomer(null);
+    resetLookup();
     setShowAdd(true);
   };
 
   const openEdit = (c: Customer) => {
     setForm({ name: c.name, phone: c.phone, email: c.email || "" });
     setEditCustomer(c);
+    resetLookup();
     setShowAdd(true);
   };
 
   const closeDialog = () => {
     setShowAdd(false);
     setEditCustomer(null);
+    resetLookup();
   };
+
+  const handlePhoneBlur = () => {
+    // Skip lookup when editing the same customer's own phone
+    if (editCustomer) return;
+    if (form.phone.trim()) {
+      lookup(form.phone, form.name);
+    }
+  };
+
+  const handleNameBlur = () => {
+    if (editCustomer) return;
+    const digits = form.phone.replace(/\D/g, "");
+    if (digits.length >= 10) {
+      lookup(form.phone, form.name);
+    }
+  };
+
+  const isConflict = !editCustomer && phoneResult.status === "conflict";
+  const isMatch = !editCustomer && phoneResult.status === "match";
 
   const handleSubmit = () => {
     if (!form.name.trim() || !form.phone.trim()) return;
+    if (isConflict) {
+      toast({ title: "Blocked", description: `This number belongs to "${phoneResult.dbName}". Verify the name or number.`, variant: "destructive" });
+      return;
+    }
     saveMutation.mutate({ id: editCustomer?.id, ...form });
   };
 
@@ -143,7 +175,6 @@ const Customers = () => {
         </Button>
       </div>
 
-      {/* Search */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
@@ -154,7 +185,6 @@ const Customers = () => {
         />
       </div>
 
-      {/* List */}
       <div className="space-y-2">
         {filtered.length === 0 && (
           <p className="py-10 text-center text-sm text-muted-foreground">
@@ -218,11 +248,49 @@ const Customers = () => {
           <div className="space-y-3 py-2">
             <div>
               <Label>Name *</Label>
-              <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="rounded-[14px]" />
+              <Input
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                onBlur={handleNameBlur}
+                className="rounded-[14px]"
+              />
             </div>
             <div>
               <Label>Phone *</Label>
-              <Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} className="rounded-[14px]" />
+              <Input
+                value={form.phone}
+                onChange={(e) => { setForm((f) => ({ ...f, phone: e.target.value })); resetLookup(); }}
+                onBlur={handlePhoneBlur}
+                className="rounded-[14px]"
+              />
+              {/* Phone lookup feedback */}
+              {!editCustomer && phoneResult.status === "checking" && (
+                <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground mt-1.5">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Checking…
+                </p>
+              )}
+              {isMatch && (
+                <div className="mt-1.5 rounded-lg border border-emerald-200 bg-emerald-50 p-2.5 dark:border-emerald-800 dark:bg-emerald-950/30">
+                  <p className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Returning Customer: {phoneResult.dbName} Found.
+                  </p>
+                  <p className="mt-0.5 text-[10px] text-emerald-600 dark:text-emerald-500">
+                    {phoneResult.leadCount} existing {phoneResult.leadCount === 1 ? "order" : "orders"}
+                  </p>
+                </div>
+              )}
+              {isConflict && (
+                <div className="mt-1.5 rounded-lg border border-red-200 bg-red-50 p-2.5 dark:border-red-800 dark:bg-red-950/30">
+                  <p className="flex items-center gap-1.5 text-[11px] font-medium text-red-700 dark:text-red-400">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    Conflict: This number belongs to "{phoneResult.dbName}".
+                  </p>
+                  <p className="mt-0.5 text-[10px] text-red-600 dark:text-red-500">
+                    Please check the name or verify the number. ({phoneResult.leadCount} existing {phoneResult.leadCount === 1 ? "order" : "orders"})
+                  </p>
+                </div>
+              )}
             </div>
             <div>
               <Label>Email</Label>
@@ -231,7 +299,7 @@ const Customers = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={closeDialog} className="rounded-[14px]">Cancel</Button>
-            <Button onClick={handleSubmit} disabled={saveMutation.isPending} className="rounded-[14px]">
+            <Button onClick={handleSubmit} disabled={saveMutation.isPending || isConflict} className="rounded-[14px]">
               {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : editCustomer ? "Update" : "Add"}
             </Button>
           </DialogFooter>
