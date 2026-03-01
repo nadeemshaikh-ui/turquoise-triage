@@ -2,9 +2,8 @@ import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLeads } from "@/hooks/useLeads";
 import GoldTierLeads from "@/components/dashboard/GoldTierLeads";
-import LeadsPipeline from "@/components/dashboard/LeadsPipeline";
+import TriageCommandCenter from "@/components/dashboard/TriageCommandCenter";
 import NewLeadDialog from "@/components/intake/NewLeadDialog";
-import RecentTriages from "@/components/intake/RecentTriages";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, Inbox, Clock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +24,7 @@ const Index = () => {
 
   const handleLeadCreated = () => {
     queryClient.invalidateQueries({ queryKey: ["leads"] });
+    queryClient.invalidateQueries({ queryKey: ["triage-leads"] });
   };
 
   if (isLoading) {
@@ -40,7 +40,7 @@ const Index = () => {
 
   return (
     <div className="space-y-6">
-      {/* Hero KPI cards — neumorphic */}
+      {/* Hero KPI cards */}
       <div className="grid grid-cols-2 gap-5">
         <div className="neu-raised flex items-center gap-4 p-5">
           <div className="neu-pressed flex h-12 w-12 shrink-0 items-center justify-center rounded-xl">
@@ -67,9 +67,10 @@ const Index = () => {
         </div>
       </div>
 
-      <RecentTriages />
+      {/* Triage Command Center */}
+      <TriageCommandCenter />
+
       <GoldTierLeads leads={goldTierLeads} onViewLead={(id) => navigate(`/leads/${id}`)} />
-      <LeadsPipeline leads={recentLeads} onViewLead={(id) => navigate(`/leads/${id}`)} />
       <NewLeadDialog open={showNewLead} onOpenChange={setShowNewLead} onCreated={handleLeadCreated} />
     </div>
   );
