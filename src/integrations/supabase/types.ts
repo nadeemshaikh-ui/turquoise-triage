@@ -2007,6 +2007,7 @@ export type Database = {
         }
         Returns: string
       }
+      reset_test_data: { Args: never; Returns: undefined }
       set_delivered_at: {
         Args: { p_delivered_at: string; p_order_id: string }
         Returns: undefined
