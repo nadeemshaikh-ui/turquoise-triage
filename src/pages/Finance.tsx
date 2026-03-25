@@ -588,7 +588,7 @@ const Finance = () => {
           date: cleanedHeaders.findIndex((h) => h.includes("ordercreationdate") || h === "date"),
           order_ref: cleanedHeaders.findIndex((h) => h === "order" || h.includes("orderref") || h.includes("orderid")),
           phone: cleanedHeaders.findIndex((h) => h.includes("mobile") || h.includes("phone")),
-          amount: cleanedHeaders.findIndex((h) => h === "amount" || h.includes("amount")),
+          amount: cleanedHeaders.findIndex((h) => h === "amount"),
           qty: cleanedHeaders.findIndex((h) => h === "qty" || h.includes("quantity")),
           customer_name: cleanedHeaders.findIndex((h) => h.includes("customername") || h === "name" || h.includes("customer")),
           service_details: cleanedHeaders.findIndex((h) => h.includes("orderdetails") || h.includes("pricelist") || h.includes("item")),
