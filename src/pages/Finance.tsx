@@ -521,7 +521,8 @@ const Finance = () => {
           if (dateParts.length === 3) {
             const monthKey = dateParts[1].slice(0, 3).toLowerCase();
             if (monthMap[monthKey]) {
-              formattedDate = `20${dateParts[2]}-${monthMap[monthKey]}-${dateParts[0].padStart(2, "0")}`;
+              const yr = dateParts[2].length === 4 ? dateParts[2] : `20${dateParts[2]}`;
+              formattedDate = `${yr}-${monthMap[monthKey]}-${dateParts[0].padStart(2, "0")}`;
             } else if (/^\d{4}$/.test(dateParts[0])) {
               formattedDate = rawDate;
             }
@@ -718,8 +719,13 @@ const Finance = () => {
 
         const totalAmount = upsertRows.reduce((s, r) => s + r.amount, 0);
         toast({ title: `✅ ${file.name}: ₹${totalAmount.toLocaleString("en-IN")} from ${upsertRows.length - databaseErrors.length} orders` });
-      }
-      await refreshFinanceDashboard();
+
+
+
+
+
+        await refreshFinanceDashboard();
+        }
     } catch (err: any) {
       toast({ title: "Upload Error", description: err.message, variant: "destructive" });
     } finally {
