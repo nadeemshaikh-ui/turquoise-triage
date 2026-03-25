@@ -41,8 +41,60 @@ const tooltipStyle = {
 };
 
 const monthMap: Record<string, string> = {
-  Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06",
-  Jul: "07", Aug: "08", Sep: "09", Oct: "10", Nov: "11", Dec: "12",
+  jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
+  jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12",
+};
+
+const cleanCsvHeader = (header: string) => header.replace(/[^a-z]/gi, "").toLowerCase();
+
+const parseDelimitedLine = (line: string): string[] => {
+  const delimiter = line.includes("\t") ? "\t" : ",";
+  const cells: string[] = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (!inQuotes && char === delimiter) {
+      cells.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  cells.push(current.trim());
+  return cells.map((cell) => cell.replace(/\r/g, "").trim());
+};
+
+const parseTurnsDate = (rawDate: string): string | null => {
+  const value = rawDate.trim();
+  if (!value) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+
+  const parts = value.split("-").map((part) => part.trim());
+  if (parts.length !== 3) return null;
+
+  const [dayPart, monthPart, yearPart] = parts;
+  const monthNum = monthMap[monthPart.slice(0, 3).toLowerCase()];
+  if (!monthNum || !/^\d{1,2}$/.test(dayPart)) return null;
+
+  const year = yearPart.length === 2 ? `20${yearPart}` : yearPart;
+  if (!/^\d{4}$/.test(year)) return null;
+
+  return `${year}-${monthNum}-${dayPart.padStart(2, "0")}`;
 };
 
 const CHUNK_SIZE = 50;
@@ -467,7 +519,7 @@ const Finance = () => {
           let formattedDate: string | null = null;
 
           if (dateParts.length === 3) {
-            const monthKey = dateParts[1].slice(0, 1).toUpperCase() + dateParts[1].slice(1).toLowerCase();
+            const monthKey = dateParts[1].slice(0, 3).toLowerCase();
             if (monthMap[monthKey]) {
               formattedDate = `20${dateParts[2]}-${monthMap[monthKey]}-${dateParts[0].padStart(2, "0")}`;
             } else if (/^\d{4}$/.test(dateParts[0])) {
@@ -528,47 +580,30 @@ const Finance = () => {
         const lines = text.split(/\r?\n/).filter((l) => l.trim());
         if (lines.length < 2) { toast({ title: `${file.name} is empty`, variant: "destructive" }); continue; }
 
-        // Detect headers
         const headerLine = lines[0];
-        const headers = headerLine.split(/[\t,]/).map((h) => h.replace(/"/g, "").trim().toLowerCase());
+        const headers = parseDelimitedLine(headerLine);
+        const cleanedHeaders = headers.map(cleanCsvHeader);
         const colIdx = {
-          date: headers.findIndex((h) => h.includes("order creation date") || h.includes("date")),
-          order_ref: headers.findIndex((h) => h === "order" || h.includes("order ref") || h.includes("order_ref")),
-          phone: headers.findIndex((h) => h.includes("mobile") || h.includes("phone")),
-          amount: headers.findIndex((h) => h === "amount" || h.includes("amount")),
-          qty: headers.findIndex((h) => h === "qty" || h.includes("quantity")),
-          customer_name: headers.findIndex((h) => h.includes("name") || h.includes("customer")),
-          service_details: headers.findIndex((h) => h.includes("order details") || h.includes("price list") || h.includes("item")),
-          status: headers.findIndex((h) => h.includes("order status") || h === "status"),
+          date: cleanedHeaders.findIndex((h) => h.includes("ordercreationdate") || h === "date"),
+          order_ref: cleanedHeaders.findIndex((h) => h === "order" || h.includes("orderref") || h.includes("orderid")),
+          phone: cleanedHeaders.findIndex((h) => h.includes("mobile") || h.includes("phone")),
+          amount: cleanedHeaders.findIndex((h) => h === "amount" || h.includes("amount")),
+          qty: cleanedHeaders.findIndex((h) => h === "qty" || h.includes("quantity")),
+          customer_name: cleanedHeaders.findIndex((h) => h.includes("customername") || h === "name" || h.includes("customer")),
+          service_details: cleanedHeaders.findIndex((h) => h.includes("orderdetails") || h.includes("pricelist") || h.includes("item")),
+          status: cleanedHeaders.findIndex((h) => h.includes("status")),
         };
 
-        // Fallback to positional if headers not found
-        const parseBruteforceCells = (line: string) => line.split('","').map((c) => c.replace(/"/g, "").trim());
-
-        const parsedRows: { date: string; amount: number; phone: string; sanitized_phone: string; customer_name: string; order_ref: string; qty: number; service_details: string }[] = [];
+        const parsedRows: { date: string; amount: number; phone: string; sanitized_phone: string; customer_name: string; order_ref: string | null; qty: number; service_details: string; status: string }[] = [];
         const skippedErrors: string[] = [];
+        const databaseErrors: string[] = [];
 
         for (let i = 1; i < lines.length; i++) {
           const line = lines[i].trim();
           if (!line) continue;
 
-          let cells: string[];
-          if (colIdx.date >= 0 && colIdx.amount >= 0) {
-            cells = line.split(/[\t,]/).map((c) => c.replace(/"/g, "").trim());
-          } else {
-            cells = parseBruteforceCells(line);
-          }
+          const cells = parseDelimitedLine(line);
 
-          // Status filter — only allow "delivered" and "new order"
-          if (colIdx.status >= 0) {
-            const rawStatus = (cells[colIdx.status] || "").trim().toLowerCase();
-            if (rawStatus !== "delivered" && rawStatus !== "new order") {
-              skippedErrors.push(`Row ${i}: Status "${rawStatus}" skipped`);
-              continue;
-            }
-          }
-
-          // Get raw values
           const rawDate = colIdx.date >= 0 ? (cells[colIdx.date] || "") : (cells[6] || "");
           const rawAmount = colIdx.amount >= 0 ? (cells[colIdx.amount] || "") : (cells[25] || "");
           const rawPhone = colIdx.phone >= 0 ? (cells[colIdx.phone] || "") : (cells[2] || "");
@@ -576,32 +611,32 @@ const Finance = () => {
           const rawOrder = colIdx.order_ref >= 0 ? (cells[colIdx.order_ref] || "") : (cells[0] || "");
           const rawQty = colIdx.qty >= 0 ? (cells[colIdx.qty] || "1") : "1";
           const rawServiceDetails = colIdx.service_details >= 0 ? (cells[colIdx.service_details] || "") : "";
+          const rawStatus = colIdx.status >= 0 ? (cells[colIdx.status] || "") : "";
 
-          // Strict date parsing
-          const parts = rawDate.split("-");
-          let date: string | null = null;
-          if (parts.length === 3) {
-            const mk = parts[1].slice(0, 1).toUpperCase() + parts[1].slice(1).toLowerCase();
-            const monthNum = monthMap[mk];
-            if (monthNum) {
-              const yearStr = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
-              if (/^\d{4}$/.test(yearStr)) {
-                date = `${yearStr}-${monthNum}-${parts[0].padStart(2, "0")}`;
-              }
-            } else if (/^\d{4}$/.test(parts[0])) {
-              date = rawDate;
-            }
-          }
+          if (!rawDate.trim() || !rawAmount.trim()) continue;
 
-          const amount = parseFloat(rawAmount.replace(/₹/g, "").replace(/,/g, "").replace(/[^0-9.]/g, "")) || 0;
+          const date = parseTurnsDate(rawDate);
+
+          const amount = parseFloat(rawAmount.replace(/[^0-9.]/g, "")) || 0;
           if (!date) { skippedErrors.push(`Row ${i}: Invalid date "${rawDate}"`); continue; }
           if (amount <= 0) { skippedErrors.push(`Row ${i}: Invalid amount "${rawAmount}"`); continue; }
 
-          const phone = rawPhone.replace(/"/g, "").trim();
+          const phone = rawPhone.trim();
           const sanitized_phone = sanitizePhone(phone);
           const qty = parseInt(rawQty.replace(/[^0-9]/g, "")) || 1;
+          const normalizedStatus = rawStatus.trim() ? rawStatus.trim().toLowerCase() : "delivered";
 
-          parsedRows.push({ date, amount, phone, sanitized_phone, customer_name: rawName, order_ref: rawOrder, qty, service_details: rawServiceDetails });
+          parsedRows.push({
+            date,
+            amount,
+            phone,
+            sanitized_phone,
+            customer_name: rawName,
+            order_ref: rawOrder.trim() || null,
+            qty,
+            service_details: rawServiceDetails,
+            status: normalizedStatus,
+          });
         }
 
         if (skippedErrors.length > 0) {
@@ -611,12 +646,13 @@ const Finance = () => {
 
         if (parsedRows.length === 0) { toast({ title: `No valid rows in ${file.name}`, variant: "destructive" }); continue; }
 
-        // Chunked deletion by order_ref
-        const orderRefs = parsedRows.map((r) => r.order_ref).filter(Boolean);
-        for (let i = 0; i < orderRefs.length; i += CHUNK_SIZE) {
-          const chunk = orderRefs.slice(i, i + CHUNK_SIZE);
-          await supabase.from("turns_sales").delete().in("order_ref", chunk);
-        }
+        const dedupedParsedRows = Array.from(
+          parsedRows.reduce((map, row, index) => {
+            const key = row.order_ref ? `order:${row.order_ref}` : `row:${index}`;
+            map.set(key, row);
+            return map;
+          }, new Map<string, (typeof parsedRows)[number]>()).values()
+        );
 
         // Chunked lead matching
         const { data: customers } = await supabase.from("customers").select("id, phone");
@@ -634,7 +670,7 @@ const Finance = () => {
           });
         }
 
-        const upsertRows = parsedRows.map((r) => {
+        const upsertRows = dedupedParsedRows.map((r) => {
           const normalizedPhone = r.sanitized_phone.length > 10 ? r.sanitized_phone.slice(-10) : r.sanitized_phone;
           const customerId = customerByPhone.get(normalizedPhone) || customerByPhone.get(r.sanitized_phone) || null;
           let matched_lead_id: string | null = null;
@@ -652,22 +688,36 @@ const Finance = () => {
             }
           }
           return {
-            date: r.date, order_ref: r.order_ref || "", customer_name: r.customer_name || null,
+            date: r.date, order_ref: r.order_ref, customer_name: r.customer_name || null,
             phone: r.phone || null, sanitized_phone: r.sanitized_phone || null, amount: r.amount,
             qty: r.qty, matched_lead_id, matched_at: matched_lead_id ? new Date().toISOString() : null,
             service_details: r.service_details || null,
           };
         });
 
-        // Chunked inserts
         for (let i = 0; i < upsertRows.length; i += CHUNK_SIZE) {
           const batch = upsertRows.slice(i, i + CHUNK_SIZE);
-          const { error } = await supabase.from("turns_sales").insert(batch);
-          if (error) throw error;
+          const { error } = await supabase.from("turns_sales").upsert(batch, { onConflict: "order_ref" });
+          if (!error) continue;
+
+          console.warn(`Turns CSV batch upsert fallback for ${file.name}:`, error.message);
+          for (const row of batch) {
+            const { error: rowError } = await supabase.from("turns_sales").upsert([row], { onConflict: "order_ref" });
+            if (rowError) {
+              const rowLabel = row.order_ref || `${row.date} / ₹${row.amount}`;
+              const message = `${rowLabel}: ${rowError.message}`;
+              databaseErrors.push(message);
+              console.warn(`Turns CSV row failed for ${file.name}:`, message);
+            }
+          }
         }
 
-        const totalAmount = parsedRows.reduce((s, r) => s + r.amount, 0);
-        toast({ title: `✅ ${file.name}: ₹${totalAmount.toLocaleString("en-IN")} from ${parsedRows.length} orders` });
+        if (databaseErrors.length > 0) {
+          toast({ title: `⚠️ ${databaseErrors.length} rows failed during import`, description: databaseErrors.slice(0, 3).join("; ") });
+        }
+
+        const totalAmount = upsertRows.reduce((s, r) => s + r.amount, 0);
+        toast({ title: `✅ ${file.name}: ₹${totalAmount.toLocaleString("en-IN")} from ${upsertRows.length - databaseErrors.length} orders` });
       }
       await refreshFinanceDashboard();
     } catch (err: any) {
