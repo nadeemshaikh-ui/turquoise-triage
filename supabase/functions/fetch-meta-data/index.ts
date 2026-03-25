@@ -125,15 +125,7 @@ serve(async (req) => {
         }
         const uniqueRows = Array.from(deduped.values());
 
-        // Delete existing records for this batch date range
-        await supabase
-          .from('meta_ad_spend')
-          .delete()
-          .gte('date', since)
-          .lte('date', until)
-          .not('ad_name', 'eq', 'Manual Meta CSV');
-
-        // Upsert in chunks of 50
+        // Upsert in chunks of 50 (unique constraint on date,ad_name handles conflicts)
         for (let i = 0; i < uniqueRows.length; i += 50) {
           const chunk = uniqueRows.slice(i, i + 50);
           const { error } = await supabase.from('meta_ad_spend').upsert(chunk, { onConflict: 'date,ad_name' });

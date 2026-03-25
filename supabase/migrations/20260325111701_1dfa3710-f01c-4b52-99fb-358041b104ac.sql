@@ -1,0 +1,1 @@
+ALTER TABLE public.meta_ad_spend ADD CONSTRAINT meta_ad_spend_date_ad_name_key UNIQUE (date, ad_name);
