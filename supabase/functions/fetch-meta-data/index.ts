@@ -105,6 +105,13 @@ serve(async (req) => {
       }
 
       if (batchRows.length > 0) {
+        // Deduplicate: keep last occurrence per (date, ad_name)
+        const deduped = new Map<string, any>();
+        for (const row of batchRows) {
+          deduped.set(`${row.date}||${row.ad_name}`, row);
+        }
+        const uniqueRows = Array.from(deduped.values());
+
         // Delete existing records for this batch date range
         await supabase
           .from('meta_ad_spend')
@@ -113,12 +120,12 @@ serve(async (req) => {
           .lte('date', until)
           .not('ad_name', 'eq', 'Manual Meta CSV');
 
-        // Insert in chunks of 50
-        for (let i = 0; i < batchRows.length; i += 50) {
-          const chunk = batchRows.slice(i, i + 50);
+        // Upsert in chunks of 50
+        for (let i = 0; i < uniqueRows.length; i += 50) {
+          const chunk = uniqueRows.slice(i, i + 50);
           const { error } = await supabase.from('meta_ad_spend').upsert(chunk, { onConflict: 'date,ad_name' });
           if (error) {
-            console.error('Insert error:', error);
+            console.error('Upsert error:', error);
             throw error;
           }
         }
