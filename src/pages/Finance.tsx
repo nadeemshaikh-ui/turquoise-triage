@@ -540,6 +540,7 @@ const Finance = () => {
           qty: headers.findIndex((h) => h === "qty" || h.includes("quantity")),
           customer_name: headers.findIndex((h) => h.includes("name") || h.includes("customer")),
           service_details: headers.findIndex((h) => h.includes("order details") || h.includes("price list") || h.includes("item")),
+          status: headers.findIndex((h) => h.includes("order status") || h === "status"),
         };
 
         // Fallback to positional if headers not found
