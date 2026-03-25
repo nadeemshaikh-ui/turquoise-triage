@@ -90,6 +90,7 @@ serve(async (req) => {
 
           batchRows.push({
             date: row.date_start,
+            ad_account_id: adAccountId,
             ad_id: row.ad_id || null,
             ad_name: row.ad_name || null,
             campaign_name: row.campaign_name || null,
