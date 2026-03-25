@@ -547,6 +547,7 @@ const Finance = () => {
         const parseBruteforceCells = (line: string) => line.split('","').map((c) => c.replace(/"/g, "").trim());
 
         const parsedRows: { date: string; amount: number; phone: string; sanitized_phone: string; customer_name: string; order_ref: string; qty: number; service_details: string }[] = [];
+        const skippedErrors: string[] = [];
 
         for (let i = 1; i < lines.length; i++) {
           const line = lines[i].trim();
@@ -557,6 +558,15 @@ const Finance = () => {
             cells = line.split(/[\t,]/).map((c) => c.replace(/"/g, "").trim());
           } else {
             cells = parseBruteforceCells(line);
+          }
+
+          // Status filter — only allow "delivered" and "new order"
+          if (colIdx.status >= 0) {
+            const rawStatus = (cells[colIdx.status] || "").trim().toLowerCase();
+            if (rawStatus !== "delivered" && rawStatus !== "new order") {
+              skippedErrors.push(`Row ${i}: Status "${rawStatus}" skipped`);
+              continue;
+            }
           }
 
           // Get raw values
@@ -584,14 +594,20 @@ const Finance = () => {
             }
           }
 
-          const amount = parseFloat(rawAmount.replace(/[^0-9.]/g, "")) || 0;
-          if (!date || amount <= 0) continue;
+          const amount = parseFloat(rawAmount.replace(/₹/g, "").replace(/,/g, "").replace(/[^0-9.]/g, "")) || 0;
+          if (!date) { skippedErrors.push(`Row ${i}: Invalid date "${rawDate}"`); continue; }
+          if (amount <= 0) { skippedErrors.push(`Row ${i}: Invalid amount "${rawAmount}"`); continue; }
 
           const phone = rawPhone.replace(/"/g, "").trim();
           const sanitized_phone = sanitizePhone(phone);
           const qty = parseInt(rawQty.replace(/[^0-9]/g, "")) || 1;
 
           parsedRows.push({ date, amount, phone, sanitized_phone, customer_name: rawName, order_ref: rawOrder, qty, service_details: rawServiceDetails });
+        }
+
+        if (skippedErrors.length > 0) {
+          console.warn(`Turns CSV skipped rows for ${file.name}:`, skippedErrors);
+          toast({ title: `⚠️ ${skippedErrors.length} rows skipped in ${file.name}`, description: skippedErrors.slice(0, 3).join("; ") });
         }
 
         if (parsedRows.length === 0) { toast({ title: `No valid rows in ${file.name}`, variant: "destructive" }); continue; }
