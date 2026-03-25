@@ -28,9 +28,8 @@ import {
 import { format as fnsFormat, endOfMonth, eachMonthOfInterval, subDays, subMonths, startOfMonth, differenceInDays, eachDayOfInterval } from "date-fns";
 
 const sanitizePhone = (raw: string): string => {
-  let p = raw.replace(/[\s\-().+]/g, "");
-  if (p.startsWith("91") && p.length > 10) p = p.slice(p.length - 10);
-  return p.slice(-10);
+  const digits = raw.replace(/\D/g, "");
+  return digits.length >= 10 ? digits.slice(-10) : digits;
 };
 
 const tooltipStyle = {
