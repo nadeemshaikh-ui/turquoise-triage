@@ -116,7 +116,7 @@ serve(async (req) => {
         // Insert in chunks of 50
         for (let i = 0; i < batchRows.length; i += 50) {
           const chunk = batchRows.slice(i, i + 50);
-          const { error } = await supabase.from('meta_ad_spend').insert(chunk);
+          const { error } = await supabase.from('meta_ad_spend').upsert(chunk, { onConflict: 'date,ad_name' });
           if (error) {
             console.error('Insert error:', error);
             throw error;
